@@ -194,3 +194,10 @@ export function isProductionOrderLineStatus(value: unknown): value is Production
 export function isTransferStatus(value: unknown): value is TransferStatus {
   return typeof value === 'string' && TRANSFER_STATUSES.includes(value as TransferStatus);
 }
+export function isProductCategory(value: unknown): value is ProductCategory {
+  return typeof value === 'string' && PRODUCT_CATEGORIES.includes(value as ProductCategory);
+}
+
+export function isFactCategory(value: unknown): value is FactCategory {
+  return typeof value === 'string' && FACT_CATEGORIES.includes(value as FactCategory);
+}

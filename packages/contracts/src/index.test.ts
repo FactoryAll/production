@@ -34,6 +34,8 @@ import {
   isTaskForOneCType,
   isTaskForOneCStatus,
   isAuditAction,
+  isProductCategory,
+  isFactCategory,
 } from './index';
 
 describe('contracts enums', () => {
@@ -166,5 +168,20 @@ describe('contracts enums', () => {
     expect(isEventCode(null)).toBe(false);
     expect(isRoleCode(123)).toBe(false);
     expect(isStockMovementType(undefined)).toBe(false);
+  });
+});
+
+describe('category type guards', () => {
+  it('isProductCategory accepts MASS and GP', () => {
+    expect(isProductCategory('MASS')).toBe(true);
+    expect(isProductCategory('GP')).toBe(true);
+    expect(isProductCategory('PF')).toBe(false);
+  });
+
+  it('isFactCategory accepts MASS, GP and PF', () => {
+    expect(isFactCategory('MASS')).toBe(true);
+    expect(isFactCategory('GP')).toBe(true);
+    expect(isFactCategory('PF')).toBe(true);
+    expect(isFactCategory('OTHER')).toBe(false);
   });
 });
