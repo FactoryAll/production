@@ -16,7 +16,8 @@
     "react-dom": "^18.3.1",
     "@prodtrack/contracts": "workspace:*",
     "@prodtrack/db": "workspace:*",
-    "@prodtrack/ui": "workspace:*"
+    "@prodtrack/ui": "workspace:*",
+    "cookie": "^0.6.0"
   },
   "devDependencies": {
     "@prodtrack/tsconfig": "workspace:*",
@@ -29,6 +30,7 @@
     "postcss": "^8.4.0",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.4.0",
-    "@playwright/test": "^1.45.0"
+    "@playwright/test": "^1.45.0",
+    "@prisma/client": "^5.15.0"
   }
 }
