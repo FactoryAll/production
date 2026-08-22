@@ -1,0 +1,105 @@
+import { WarehouseType } from '@prodtrack/contracts';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Warehouse } from '@prisma/client';
+
+vi.mock('next/cache', () => ({
+  revalidatePath: vi.fn(),
+}));
+
+vi.mock('@prodtrack/db', async () => {
+  const actual = await vi.importActual<typeof import('@prodtrack/db')>('@prodtrack/db');
+  return {
+    ...actual,
+    prisma: {
+      $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => {
+        const mockTx = {
+          warehouse: {
+            update: vi.fn(),
+            findUniqueOrThrow: vi.fn(),
+          },
+        };
+        return cb(mockTx);
+      }),
+      warehouse: {
+        findUniqueOrThrow: vi.fn(),
+      },
+    },
+    writeAudit: vi.fn(),
+  };
+});
+
+vi.mock('@/lib/auth/require-admin', () => ({
+  requireAdmin: vi.fn().mockResolvedValue({ userId: 'admin-user' }),
+}));
+
+const base: Warehouse = {
+  id: 'w-1',
+  name: 'Производственный склад',
+  description: 'Склад сырья и материалов',
+  type: 'PRODUCTION' as WarehouseType,
+  active: true,
+};
+
+describe('updateWarehouse', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('rejects empty name', async () => {
+    const { updateWarehouse } = await import('../actions');
+    await expect(updateWarehouse('w-1', { name: '   ', description: 'Desc' })).rejects.toThrow('Название обязательно');
+  });
+
+  it('updates warehouse and writes audit', async () => {
+    const { prisma, writeAudit } = await import('@prodtrack/db');
+    (prisma.warehouse.findUniqueOrThrow as ReturnType<typeof vi.fn>).mockResolvedValue(base);
+    (prisma as unknown as { $transaction: (cb: (tx: { warehouse: { update: () => Promise<unknown> } }) => Promise<unknown>) => Promise<unknown> }).$transaction = vi.fn(async (cb) => {
+      const mockTx = {
+        warehouse: {
+          update: vi.fn().mockResolvedValue({ ...base, name: 'Производственный', description: 'Обновлённое' }),
+        },
+      };
+      return cb(mockTx);
+    });
+    const { updateWarehouse } = await import('../actions');
+    const updated = await updateWarehouse('w-1', { name: 'Производственный', description: 'Обновлённое' });
+    expect(updated.name).toBe('Производственный');
+    expect(updated.description).toBe('Обновлённое');
+    expect(writeAudit).toHaveBeenCalled();
+    const auditCall = (writeAudit as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    expect(auditCall.role).toBe('ADM');
+    expect(auditCall.action).toBe('UPDATE');
+  });
+});
+
+describe('toggleWarehouseActive', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('toggles active flag and writes audit', async () => {
+    const { prisma, writeAudit } = await import('@prodtrack/db');
+    (prisma.warehouse.findUniqueOrThrow as ReturnType<typeof vi.fn>).mockResolvedValue(base);
+    (prisma as unknown as { $transaction: (cb: (tx: { warehouse: { update: () => Promise<unknown> } }) => Promise<unknown>) => Promise<unknown> }).$transaction = vi.fn(async (cb) => {
+      const mockTx = {
+        warehouse: {
+          update: vi.fn().mockResolvedValue({ ...base, active: false }),
+        },
+      };
+      return cb(mockTx);
+    });
+    const { toggleWarehouseActive } = await import('../actions');
+    const updated = await toggleWarehouseActive('w-1');
+    expect(updated.active).toBe(false);
+    expect(writeAudit).toHaveBeenCalled();
+    const auditCall = (writeAudit as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    expect(auditCall.field).toBe('active');
+  });
+});
+
+describe('no create action', () => {
+  it('actions module does not export createWarehouse', async () => {
+    const actions = await import('../actions') as Record<string, unknown>;
+    expect(actions.createWarehouse).toBeUndefined();
+  });
+});
