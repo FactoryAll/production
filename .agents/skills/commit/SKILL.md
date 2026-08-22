@@ -1,15 +1,90 @@
 ---
+name: commit
 rank: 200
 scope: project
+description: >
+  Create a Git commit from the current working tree.
+  Use when the user asks to commit, save changes, checkpoint, or record progress.
+  Stages all tracked and untracked files by default, writes a concise bullet-list
+  message, and never pushes or deploys.
 ---
 
-# Create Commit
+# Commit
 
-When asked to commit changes:
+## When to use this skill
 
-1. Run `git status` to quickly check the working tree.
-2. Run `git add .` to stage all changes in the working directory by default.
-3. Write a concise commit message as a bullet list describing what changed.
-4. Do not include an explicit author (`--author`) in the commit command.
-5. Do not mention AI, assistants, or tooling in the commit message.
-6. Do not push or deploy.
+Use when the user asks to:
+- Commit changes
+- Save progress / checkpoint
+- Record modifications in Git
+
+## Instructions
+
+1. **Inspect the working tree**
+   ```bash
+   git status --short
+   ```
+   - Note any untracked files or directories that should not be committed
+     (e.g. build artifacts, `.env`, secrets, temporary caches).
+   - If such files are present, create or update `.gitignore` before staging.
+
+2. **Stage all changes**
+   ```bash
+   git add .
+   ```
+   This stages every tracked and untracked file in the working directory.
+
+3. **Write the commit message**
+   - Use a **concise bullet list** describing what changed.
+   - Do **not** include an explicit author (`--author`).
+   - Do **not** mention AI, assistants, or tooling.
+   - Keep the first line under 72 characters.
+
+4. **Create the commit**
+   ```bash
+   git commit -m "- <change summary>"
+   ```
+   If additional lines are needed, pass them as extra `-m` arguments:
+   ```bash
+   git commit -m "- <first change>" -m "- <second change>"
+   ```
+
+5. **Do not push or deploy**
+   - Stop after the commit is created.
+   - Do not run `git push`, `git pull`, or any deploy commands.
+
+## Examples
+
+### Basic commit
+
+```bash
+git status --short
+git add .
+git commit -m "- add user authentication module" -m "- implement JWT token refresh"
+```
+
+### Commit with `.gitignore` cleanup
+
+```bash
+git status --short
+# Noticed: `node_modules/` and `.env` are untracked
+# Created .gitignore first, then:
+git add .
+git commit -m "- initial project setup with auth and db config"
+```
+
+## Error handling
+
+| Situation | Action |
+|---|---|
+| Working tree is clean | Inform the user: "Нет изменений для коммита." |
+| Uncommitted files that should be ignored | Update `.gitignore`, then stage and commit. |
+| Commit fails (e.g. merge conflicts) | Abort and report the error without retrying silently. |
+
+## Edge cases
+
+- **Large generated directories**: If `git status` shows directories like
+  `dist/`, `node_modules/`, or `.venv/`, add them to `.gitignore` before committing.
+- **Binary or lock files**: Commit them only if they are intentional deliverables.
+- **Empty commits**: Do not create empty commits (`git commit --allow-empty`) unless
+  explicitly requested.
