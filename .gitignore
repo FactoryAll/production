@@ -1,3 +1,41 @@
-!.env.example
+# Dependencies
+node_modules/
+.pnpm-store/
+.local/share/pnpm/
+
+# Build outputs
+.next/
+out/
+dist/
+build/
+
+# Environment
 .env
 .env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cache
+.cache/
+
+# Testing
+coverage/
+
+# Misc
+*.tsbuildinfo
+next-env.d.ts
+# Generated config/cache
+.turbo/
+.config/

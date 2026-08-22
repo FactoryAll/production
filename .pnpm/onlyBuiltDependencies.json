@@ -1,0 +1,9 @@
+{
+  "packages": [
+    "@prisma/client",
+    "@prisma/engines",
+    "prisma",
+    "esbuild",
+    "unrs-resolver"
+  ]
+}

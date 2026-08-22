@@ -1,0 +1,11 @@
+@layer base {
+  :root {
+    --color-graphite: #2c2c2c;
+    --color-deep-industry-blue: #004e89;
+    --color-signal-amber: #f2a900;
+    --color-graphite-surface: #f4f4f5;
+    --color-mist-metal: #d1d5db;
+    --radius-sm: 12px;
+    --radius-md: 16px;
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "prodtrack",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "db:generate": "turbo run db:generate",
+    "db:migrate": "turbo run db:migrate",
+    "db:seed": "turbo run db:seed"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.0",
+    "prettier": "^3.2.0"
+  },
+  "packageManager": "pnpm@11.8.0"
+}
