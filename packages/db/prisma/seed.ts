@@ -3,19 +3,23 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 const WORK_CENTERS = [
-  { code: '01', name: '01.Реактор', producesMass: true },
-  { code: '02', name: '02.Реактор', producesMass: true },
-  { code: '03', name: '03.Фасовка', producesMass: false },
-  { code: '04', name: '04.Фасовка', producesMass: false },
-  { code: '05', name: '05.Упаковка', producesMass: false },
-  { code: '06', name: '06.Упаковка', producesMass: false },
-  { code: '07', name: '07.Маркировка', producesMass: false },
-  { code: '08', name: '08.Маркировка', producesMass: false },
-  { code: '09', name: '09.Контроль', producesMass: false },
-  { code: '10', name: '10.Контроль', producesMass: false },
-  { code: '11', name: '11.Ручн налив №3', producesMass: false },
-  { code: '12', name: '12.Ручн налив №4', producesMass: false },
+  { code: '01', name: '01.Реактор' },
+  { code: '02', name: '02.Миксер' },
+  { code: '03', name: '03.Тубировка крем' },
+  { code: '04', name: '04.Тубировка паста' },
+  { code: '05', name: '05.Линия вязк.прод' },
+  { code: '06', name: '06.Линия жидк.прод' },
+  { code: '07', name: '07.П/авт вязк.прод' },
+  { code: '08', name: '08.П/авт жидк.прод' },
+  { code: '09', name: '09.Ручн налив №1' },
+  { code: '10', name: '10.Ручн налив №2' },
+  { code: '11', name: '11.Ручн налив №3' },
+  { code: '12', name: '12.Ручн налив №4' },
 ];
+
+function producesMassByCode(code: string): boolean {
+  return code === '01' || code === '02';
+}
 
 const WAREHOUSES = [
   { name: 'Производственный', type: 'PRODUCTION' as const, description: 'Склад сырья и материалов' },
@@ -45,11 +49,11 @@ const SHIFT_SEED_DATE = new Date('2000-01-01');
 
 async function seedWorkCenters() {
   await Promise.all(
-    WORK_CENTERS.map(({ code, name, producesMass }) =>
+    WORK_CENTERS.map(({ code, name }) =>
       prisma.workCenter.upsert({
         where: { code },
-        update: { name, producesMass, active: true },
-        create: { code, name, producesMass, active: true },
+        update: { name, producesMass: producesMassByCode(code), active: true },
+        create: { code, name, producesMass: producesMassByCode(code), active: true },
       }),
     ),
   );
