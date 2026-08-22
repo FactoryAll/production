@@ -20,13 +20,15 @@ Use when the user asks to:
 
 ## Instructions
 
-1. **Inspect the working tree**
+1. **Prepare the working tree**
+   Run the deterministic preparation script:
    ```bash
-   git status --short
+   python3 .agents/skills/commit/scripts/prepare.py
    ```
-   - Note any untracked files or directories that should not be committed
-     (e.g. build artifacts, `.env`, secrets, temporary caches).
-   - If such files are present, create or update `.gitignore` before staging.
+   - Prints `git status --short`.
+   - Automatically creates or appends to `.gitignore` when common artifacts
+     (e.g. `node_modules/`, `.env`, `dist/`, `.venv/`) are untracked.
+   - Re-prints the updated status so you can verify the tree is clean.
 
 2. **Stage all changes**
    ```bash
