@@ -1,4 +1,9 @@
-# Skill: Create Commit
+---
+rank: 200
+scope: project
+---
+
+# Create Commit
 
 When asked to commit changes:
 
