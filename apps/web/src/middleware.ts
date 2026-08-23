@@ -22,7 +22,10 @@ function getRequiredPermissions(pathname: string, method: string): PermissionCod
   if (pathname.startsWith('/users/')) return ['users:manage'];
   if (pathname.startsWith('/roles/')) return ['roles:manage'];
   if (pathname.startsWith('/production-orders/')) {
-    if (pathname.includes('/edit') || pathname.includes('/create') || pathname.includes('/new')) {
+    if (pathname.includes('/edit')) {
+      return ['production_order:update'];
+    }
+    if (pathname.includes('/create') || pathname.includes('/new')) {
       return ['production_order:create', 'production_order:update'];
     }
     if (pathname.includes('/confirm')) {

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Prisma, type WorkCenter, type Product, type Employee, type Shift } from '@prisma/client';
 const Decimal = Prisma.Decimal;
-import { createProductionOrder, createProductionOrderAction, confirmProductionOrder } from '../actions';
+import { createProductionOrder, createProductionOrderAction, confirmProductionOrder, updateProductionOrder } from '../actions';
 
 vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
@@ -146,11 +146,17 @@ function buildMockPrisma(overrides: {
         });
       });
       const createManySpy = vi.fn().mockResolvedValue(undefined);
+      const deleteManySpy = vi.fn().mockResolvedValue(undefined);
+      const createSpy = vi.fn().mockResolvedValue({ id: 'line-new' });
       const tx = {
         productionOrder: {
           create: vi.fn().mockResolvedValue(resolvedOrder),
           findUnique: vi.fn().mockResolvedValue(resolvedOrder),
           update: updateSpy,
+        },
+        productionOrderLine: {
+          deleteMany: deleteManySpy,
+          create: createSpy,
         },
         notification: {
           createMany: createManySpy,
@@ -879,5 +885,184 @@ describe('confirmProductionOrder', () => {
     });
     const deps = buildMockDeps({ order });
     await expect(confirmProductionOrder('po-1', deps)).rejects.toThrow('ПЗ содержит неполную строку');
+  });
+});
+
+describe('updateProductionOrder', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('updates DRAFT order lines and keeps status', async () => {
+    const order = buildConfirmableOrder();
+    const deps = buildMockDeps({ order });
+    await updateProductionOrder(
+      'po-1',
+      {
+        shiftId: 'shift-1',
+        lines: [
+          { workCenterId: 'wc-01', productId: 'mass-1', plannedQuantity: 15, operatorId: 'emp-1' },
+          { workCenterId: 'wc-03', productId: 'gp-1', plannedQuantity: 7, operatorId: 'emp-1' },
+        ],
+      },
+      deps,
+    );
+
+    expect(deps.prisma.$transaction).toHaveBeenCalled();
+    expect(deps.writeAudit).toHaveBeenCalled();
+    expect(deps.writeTiming).toHaveBeenCalled();
+    const timingCall = deps.writeTiming.mock.calls[0][1];
+    expect(timingCall.fromStatus).toBe('DRAFT');
+    expect(timingCall.toStatus).toBe('DRAFT');
+  });
+
+  it('updates CONFIRMED order quantity', async () => {
+    const order = buildConfirmableOrder({ status: 'CONFIRMED' });
+    const deps = buildMockDeps({ order });
+    await updateProductionOrder(
+      'po-1',
+      {
+        shiftId: 'shift-1',
+        lines: [{ workCenterId: 'wc-01', productId: 'mass-1', plannedQuantity: 20, operatorId: 'emp-1' }],
+      },
+      deps,
+    );
+    expect(deps.prisma.$transaction).toHaveBeenCalled();
+  });
+
+  it('updates IN_PROGRESS order operator', async () => {
+    const order = buildConfirmableOrder({ status: 'IN_PROGRESS' });
+    const deps = buildMockDeps({
+      order,
+      employees: [
+        {
+          id: 'emp-1',
+          tabNumber: '001',
+          fullName: 'Иванов И.И.',
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          id: 'emp-2',
+          tabNumber: '002',
+          fullName: 'Петров П.П.',
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ] as Employee[],
+    });
+    await updateProductionOrder(
+      'po-1',
+      {
+        shiftId: 'shift-1',
+        lines: [{ workCenterId: 'wc-01', productId: 'mass-1', plannedQuantity: 10, operatorId: 'emp-2' }],
+      },
+      deps,
+    );
+    expect(deps.prisma.$transaction).toHaveBeenCalled();
+  });
+
+  it('blocks update of COMPLETED order', async () => {
+    const order = buildConfirmableOrder({ status: 'COMPLETED' });
+    const deps = buildMockDeps({ order });
+    await expect(
+      updateProductionOrder(
+        'po-1',
+        { shiftId: 'shift-1', lines: [{ workCenterId: 'wc-01', productId: 'mass-1', plannedQuantity: 10, operatorId: 'emp-1' }] },
+        deps,
+      ),
+    ).rejects.toThrow('ПЗ нельзя корректировать в этом статусе');
+  });
+
+  it('blocks update of CANCELLED order', async () => {
+    const order = buildConfirmableOrder({ status: 'CANCELLED' });
+    const deps = buildMockDeps({ order });
+    await expect(
+      updateProductionOrder(
+        'po-1',
+        { shiftId: 'shift-1', lines: [{ workCenterId: 'wc-01', productId: 'mass-1', plannedQuantity: 10, operatorId: 'emp-1' }] },
+        deps,
+      ),
+    ).rejects.toThrow('ПЗ нельзя корректировать в этом статусе');
+  });
+
+  it('blocks update when any line is REPORTED (BR-2)', async () => {
+    const order = buildConfirmableOrder({
+      lines: [
+        {
+          id: 'line-1',
+          orderId: 'po-1',
+          workCenterId: 'wc-01',
+          productId: 'mass-1',
+          plannedQuantity: new Decimal(10),
+          operatorId: 'emp-1',
+          status: 'REPORTED',
+          comment: null,
+          substitutionReasonId: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          operator: {
+            id: 'emp-1',
+            tabNumber: '001',
+            fullName: 'Иванов И.И.',
+            active: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          } as Employee,
+        } as MockOrderLine,
+      ],
+    });
+    const deps = buildMockDeps({ order });
+    await expect(
+      updateProductionOrder(
+        'po-1',
+        { shiftId: 'shift-1', lines: [{ workCenterId: 'wc-01', productId: 'mass-1', plannedQuantity: 10, operatorId: 'emp-1' }] },
+        deps,
+      ),
+    ).rejects.toThrow('Корректировка невозможна после внесения итога');
+  });
+
+  it('blocks update violating BR-7', async () => {
+    const order = buildConfirmableOrder();
+    const deps = buildMockDeps({ order });
+    await expect(
+      updateProductionOrder(
+        'po-1',
+        { shiftId: 'shift-1', lines: [{ workCenterId: 'wc-03', productId: 'mass-1', plannedQuantity: 10, operatorId: 'emp-1' }] },
+        deps,
+      ),
+    ).rejects.toThrow('ГП можно планировать только на РЦ 03–12');
+  });
+
+  it('blocks update violating BR-3 duplicate work center', async () => {
+    const order = buildConfirmableOrder();
+    const deps = buildMockDeps({ order });
+    await expect(
+      updateProductionOrder(
+        'po-1',
+        {
+          shiftId: 'shift-1',
+          lines: [
+            { workCenterId: 'wc-01', productId: 'mass-1', plannedQuantity: 10, operatorId: 'emp-1' },
+            { workCenterId: 'wc-01', productId: 'mass-1', plannedQuantity: 5, operatorId: 'emp-1' },
+          ],
+        },
+        deps,
+      ),
+    ).rejects.toThrow('РЦ может встречаться в ПЗ только один раз');
+  });
+
+  it('blocks update with incomplete line', async () => {
+    const order = buildConfirmableOrder();
+    const deps = buildMockDeps({ order });
+    await expect(
+      updateProductionOrder(
+        'po-1',
+        { shiftId: 'shift-1', lines: [{ workCenterId: 'wc-01', productId: 'mass-1', plannedQuantity: 10, operatorId: '' }] },
+        deps,
+      ),
+    ).rejects.toThrow('Заполните РЦ, номенклатуру, количество и Оператора');
   });
 });
