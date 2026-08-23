@@ -1,7 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import { middleware } from './middleware';
 import { prisma } from '@prodtrack/db';
+import * as shiftWindow from './lib/auth/shift-window';
 
 vi.mock('@prodtrack/db', () => ({
   prisma: {
@@ -15,7 +16,8 @@ function buildRequest(pathname: string, cookie?: string) {
   return new NextRequest(`http://localhost${pathname}`, cookie ? { headers: { cookie } } : undefined);
 }
 
-function mockSession(roleCode: string, expired = false, mustChangePassword = false) {
+function mockSession(roleCode: string | string[], expired = false, mustChangePassword = false) {
+  const roles = Array.isArray(roleCode) ? roleCode : [roleCode];
   (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
     id: 's1',
     token: 'tok',
@@ -26,12 +28,17 @@ function mockSession(roleCode: string, expired = false, mustChangePassword = fal
       active: true,
       mustChangePassword,
       passwordHash: 'hashed',
-      roles: [{ role: { code: roleCode } }],
+      roles: roles.map((code) => ({ role: { code } })),
     },
   });
 }
 
 describe('middleware', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(shiftWindow, 'isWithinShiftWindow').mockReturnValue(true);
+  });
+
   it('allows public paths without a session', async () => {
     (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
     const response = await middleware(buildRequest('/login'));
@@ -58,8 +65,31 @@ describe('middleware', () => {
     expect(response.status).toBe(200);
   });
 
-  it('allows /dashboard for OPR with dashboard:read_own', async () => {
+  it('allows /dashboard for OPR with single role inside shift window', async () => {
     mockSession('OPR');
+    const response = await middleware(buildRequest('/dashboard', 'session=valid-token'));
+    expect(response.status).toBe(200);
+  });
+
+  it('redirects single-role OPR to /login outside shift window', async () => {
+    vi.spyOn(shiftWindow, 'isWithinShiftWindow').mockReturnValue(false);
+    mockSession('OPR');
+    const response = await middleware(buildRequest('/dashboard', 'session=valid-token'));
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toContain('/login');
+    expect(response.headers.get('location')).toContain('error=outside_shift_window');
+  });
+
+  it('allows OPR with additional roles outside shift window (Р-23)', async () => {
+    vi.spyOn(shiftWindow, 'isWithinShiftWindow').mockReturnValue(false);
+    mockSession(['OPR', 'NP']);
+    const response = await middleware(buildRequest('/dashboard', 'session=valid-token'));
+    expect(response.status).toBe(200);
+  });
+
+  it('allows non-OPR role outside shift window', async () => {
+    vi.spyOn(shiftWindow, 'isWithinShiftWindow').mockReturnValue(false);
+    mockSession('NP');
     const response = await middleware(buildRequest('/dashboard', 'session=valid-token'));
     expect(response.status).toBe(200);
   });

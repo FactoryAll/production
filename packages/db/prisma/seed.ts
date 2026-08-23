@@ -64,6 +64,9 @@ export const TEST_MULTI_ROLE_ROLES: RoleCode[] = ['NP', 'OPR'];
 const TEST_FIRST_LOGIN_LOGIN = 'test_first_login';
 const TEST_FIRST_LOGIN_PASSWORD = 'temp1234';
 
+export const TEST_OPR_SHIFT_LOGIN = 'test_opr_shift';
+export const TEST_OPR_SHIFT_PASSWORD = 'opr12345';
+
 export const PERMISSIONS = [
   { code: 'production_order:create', action: 'Создание производственного задания' },
   { code: 'production_order:update', action: 'Изменение производственного задания' },
@@ -291,6 +294,28 @@ async function seedFirstLoginUser() {
   });
 }
 
+async function seedOprShiftUser() {
+  const role = await prisma.role.findUnique({ where: { code: 'OPR' } });
+  if (!role) return;
+
+  const passwordHash = await bcrypt.hash(TEST_OPR_SHIFT_PASSWORD, 10);
+  await prisma.user.upsert({
+    where: { login: TEST_OPR_SHIFT_LOGIN },
+    update: {
+      passwordHash,
+      active: true,
+      mustChangePassword: false,
+    },
+    create: {
+      login: TEST_OPR_SHIFT_LOGIN,
+      passwordHash,
+      active: true,
+      mustChangePassword: false,
+      roles: { create: [{ roleId: role.id }] },
+    },
+  });
+}
+
 async function seedAdmin() {
   const adminRole = await prisma.role.findUnique({ where: { code: 'ADM' } });
   if (!adminRole) return;
@@ -323,6 +348,7 @@ async function main() {
   await seedAdmin();
   await seedMultiRoleUser();
   await seedFirstLoginUser();
+  await seedOprShiftUser();
   console.log('Reference data seeded successfully.');
 }
 

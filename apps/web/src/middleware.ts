@@ -3,9 +3,10 @@ import type { NextRequest } from 'next/server';
 import { hasPermission } from '@prodtrack/contracts';
 import { SESSION_COOKIE_NAME } from './lib/auth/constants';
 import { getSessionFromToken } from './lib/auth/session-token';
+import { isWithinShiftWindow } from './lib/auth/shift-window';
 import type { PermissionCode } from './lib/auth/access';
 
-const PUBLIC_PATHS = ['/login', '/api/auth', '/_next', '/favicon.ico', '/public', '/health'];
+const PUBLIC_PATHS = ['/login', '/change-password', '/api/auth', '/_next', '/favicon.ico', '/public', '/health'];
 const PUBLIC_EXTENSIONS = ['.ico', '.png', '.jpg', '.jpeg', '.svg', '.css', '.js', '.woff2', '.map'];
 
 function isPublicPath(pathname: string): boolean {
@@ -71,15 +72,24 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  // Force password change before accessing any other protected route.
+  const userRoles = session.user.roles.map((ur) => ur.role.code);
+
+  // BR-7: OPR shift window restriction applies only when OPR is the sole role.
+  if (userRoles.includes('OPR') && userRoles.length === 1) {
+    const now = new Date();
+    if (!isWithinShiftWindow(now)) {
+      const loginUrl = new URL('/login', request.url);
+      loginUrl.searchParams.set('error', 'outside_shift_window');
+      return NextResponse.redirect(loginUrl);
+    }
+  }
+
   if (session.user.mustChangePassword) {
     if (pathname !== '/change-password') {
       return NextResponse.redirect(new URL('/change-password', request.url));
     }
     return NextResponse.next();
   }
-
-  const userRoles = session.user.roles.map((ur) => ur.role.code);
 
   const requiredPermissions = getRequiredPermissions(pathname);
   if (requiredPermissions) {

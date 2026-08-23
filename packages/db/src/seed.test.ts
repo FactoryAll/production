@@ -6,6 +6,8 @@ import {
   TEST_MULTI_ROLE_LOGIN,
   TEST_MULTI_ROLE_PASSWORD,
   TEST_MULTI_ROLE_ROLES,
+  TEST_OPR_SHIFT_LOGIN,
+  TEST_OPR_SHIFT_PASSWORD,
 } from '../prisma/seed';
 
 const TEST_FIRST_LOGIN_LOGIN = 'test_first_login';
@@ -54,5 +56,12 @@ describe('first-login test user', () => {
   it('seed constants for test_first_login are present', () => {
     expect(TEST_FIRST_LOGIN_LOGIN).toBe('test_first_login');
     expect(TEST_FIRST_LOGIN_PASSWORD).toBe('temp1234');
+  });
+});
+
+describe('opr-shift test user', () => {
+  it('seed constants for test_opr_shift are present', () => {
+    expect(TEST_OPR_SHIFT_LOGIN).toBe('test_opr_shift');
+    expect(TEST_OPR_SHIFT_PASSWORD).toBe('opr12345');
   });
 });
