@@ -21,7 +21,8 @@ export type PermissionCode =
   | 'onec:process'
   | 'nsi:manage'
   | 'users:manage'
-  | 'roles:manage';
+  | 'roles:manage'
+  | 'nsi:read';
 
 export const ALL_PERMISSIONS: PermissionCode[] = [
   'production_order:create',
@@ -45,6 +46,7 @@ export const ALL_PERMISSIONS: PermissionCode[] = [
   'nsi:manage',
   'users:manage',
   'roles:manage',
+  'nsi:read',
 ];
 
 export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
@@ -59,6 +61,7 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     'shift_report:read',
     'dashboard:read',
     'audit:read',
+    'nsi:read',
   ],
   OPR: [
     'production_order:read_own',
@@ -66,23 +69,27 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     'production_order:report',
     'stock:read',
     'dashboard:read_own',
+    'nsi:read',
   ],
   KSGP: [
     'transfer:receive',
     'transfer:reconcile',
     'stock:read',
     'dashboard:read',
+    'nsi:read',
   ],
   USGP: [
     'transfer:reconcile',
     'stock:read',
     'dashboard:read',
+    'nsi:read',
   ],
   S1C: [
     'onec:read',
     'onec:process',
     'stock:read',
     'dashboard:read',
+    'nsi:read',
   ],
   ADM: [...ALL_PERMISSIONS],
 };

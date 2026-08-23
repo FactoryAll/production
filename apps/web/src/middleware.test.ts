@@ -12,8 +12,8 @@ vi.mock('@prodtrack/db', () => ({
   },
 }));
 
-function buildRequest(pathname: string, cookie?: string) {
-  return new NextRequest(`http://localhost${pathname}`, cookie ? { headers: { cookie } } : undefined);
+function buildRequest(pathname: string, cookie?: string, method = 'GET') {
+  return new NextRequest(`http://localhost${pathname}`, { method, headers: cookie ? { cookie } : undefined });
 }
 
 function mockSession(roleCode: string | string[], expired = false, mustChangePassword = false) {
@@ -107,9 +107,21 @@ describe('middleware', () => {
     expect(response.status).toBe(200);
   });
 
-  it('blocks /nsi/* for OPR (403 redirect)', async () => {
+  it('allows /nsi index read for OPR with nsi:read', async () => {
+    mockSession('OPR');
+    const response = await middleware(buildRequest('/nsi', 'session=valid-token'));
+    expect(response.status).toBe(200);
+  });
+
+  it('allows /nsi/* read for OPR with nsi:read', async () => {
     mockSession('OPR');
     const response = await middleware(buildRequest('/nsi/work-centers', 'session=valid-token'));
+    expect(response.status).toBe(200);
+  });
+
+  it('blocks /nsi/* mutation for OPR without nsi:manage', async () => {
+    mockSession('OPR');
+    const response = await middleware(buildRequest('/nsi/work-centers', 'session=valid-token', 'POST'));
     expect(response.status).toBe(307);
     expect(response.headers.get('location')).toBe('http://localhost/forbidden');
   });

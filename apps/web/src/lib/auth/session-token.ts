@@ -23,7 +23,6 @@ export async function getSessionFromToken(token: string | undefined): Promise<Se
     },
   });
 
-  // TODO T-020: дополнительно проверить окно доступа ОПР (BR-7)
   if (!session || session.expiresAt < new Date()) {
     return null;
   }

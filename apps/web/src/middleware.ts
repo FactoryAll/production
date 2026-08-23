@@ -15,8 +15,10 @@ function isPublicPath(pathname: string): boolean {
   return false;
 }
 
-function getRequiredPermissions(pathname: string): PermissionCode[] | null {
-  if (pathname.startsWith('/nsi/')) return ['nsi:manage'];
+function getRequiredPermissions(pathname: string, method: string): PermissionCode[] | null {
+  if (pathname === '/nsi' || pathname.startsWith('/nsi/')) {
+    return method === 'GET' ? ['nsi:read', 'nsi:manage'] : ['nsi:manage'];
+  }
   if (pathname.startsWith('/users/')) return ['users:manage'];
   if (pathname.startsWith('/roles/')) return ['roles:manage'];
   if (pathname.startsWith('/production-orders/')) {
@@ -91,11 +93,13 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     return NextResponse.next();
   }
 
-  const requiredPermissions = getRequiredPermissions(pathname);
+  const requiredPermissions = getRequiredPermissions(pathname, request.method);
   if (requiredPermissions) {
     const allowed = requiredPermissions.some((permission) => hasPermission(userRoles, permission));
     if (!allowed) {
-      // TODO T-018: support fine-grained ownership checks for *_own permissions
+      // NOTE: Middleware only checks route access. Fine-grained ownership filtering
+      // for *_own permissions (e.g. production_order:read_own) MUST be implemented
+      // in the server action / Prisma query itself via where: { workCenterId: user.workCenterId }.
       return NextResponse.redirect(new URL('/forbidden', request.url), { status: 307 });
     }
   }
