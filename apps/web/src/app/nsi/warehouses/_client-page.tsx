@@ -9,9 +9,9 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table';
+import { WarehouseType } from '@prodtrack/contracts';
 import { Button, Card, Input } from '@prodtrack/ui';
 import { WarehouseDialog } from './_components/warehouse-dialog';
-import { ToggleWarehouseButton } from './_components/toggle-warehouse-button';
 import type { Warehouse } from '@prisma/client';
 
 interface WarehousesPageProps {
@@ -40,7 +40,15 @@ export default function WarehousesPage({ warehouses }: WarehousesPageProps) {
     });
   }, [warehouses, search, activeFilter]);
 
-  const columns = useMemo<ColumnDef<Warehouse, unknown>[]>(
+  function getWarehouseTypeLabel(type: WarehouseType): string {
+  const labels: Record<WarehouseType, string> = {
+    [WarehouseType.PRODUCTION]: 'Производственный',
+    [WarehouseType.FINISHED_GOODS]: 'Склад ГП',
+  };
+  return labels[type] ?? type;
+}
+
+const columns = useMemo<ColumnDef<Warehouse, unknown>[]>(
     () => [
       {
         accessorKey: 'name',
@@ -58,6 +66,23 @@ export default function WarehousesPage({ warehouses }: WarehousesPageProps) {
         accessorKey: 'description',
         header: 'Описание',
         cell: ({ getValue }) => (getValue() as string | null) ?? '—',
+      },
+      {
+        id: 'type',
+        header: 'Тип',
+        cell: ({ row }) => {
+          const w = row.original;
+          const isProduction = w.type === WarehouseType.PRODUCTION;
+          return (
+            <span
+              className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${
+                isProduction ? 'bg-deep-industry-blue text-white' : 'bg-signal-amber text-graphite'
+              }`}
+            >
+              {getWarehouseTypeLabel(w.type as WarehouseType)}
+            </span>
+          );
+        },
       },
       {
         accessorKey: 'active',
@@ -81,7 +106,6 @@ export default function WarehousesPage({ warehouses }: WarehousesPageProps) {
               >
                 Редактировать
               </Button>
-              <ToggleWarehouseButton id={w.id} active={w.active} />
             </div>
           );
         },

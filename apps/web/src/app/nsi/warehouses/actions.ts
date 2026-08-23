@@ -1,5 +1,6 @@
 'use server';
 
+// TODO T-017: заменить requireAdmin на центральную матрицу доступа (T-017)
 import { revalidatePath } from 'next/cache';
 import { prisma, writeAudit } from '@prodtrack/db';
 import { requireAdmin } from '@/lib/auth/require-admin';
@@ -69,7 +70,7 @@ export async function toggleWarehouseActive(id: string): Promise<Warehouse> {
       data: { active: newActive },
     });
 
-    // TODO T-021: роль определяется по типу действия (Р-23), сейчас захардкожено ADM
+    // TODO T-021: полноценная атрибуция роли в аудите (Р-23), сейчас захардкожено ADM
     await writeAudit(tx, {
       action: 'UPDATE',
       objectType: 'Warehouse',

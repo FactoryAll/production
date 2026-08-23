@@ -103,3 +103,27 @@ describe('no create action', () => {
     expect(actions.createWarehouse).toBeUndefined();
   });
 });
+
+describe('BR-9: warehouse catalog is fixed', () => {
+  it('does not expose a deleteWarehouse action', async () => {
+    const actions = await import('../actions') as Record<string, unknown>;
+    expect(actions.deleteWarehouse).toBeUndefined();
+  });
+
+  it('client page does not render toggle/deactivate button for warehouses', async () => {
+    const { default: fs } = await import('node:fs');
+    const clientPageSource = fs.readFileSync('src/app/nsi/warehouses/_client-page.tsx', 'utf-8');
+    expect(clientPageSource).not.toContain('ToggleWarehouseButton');
+    expect(clientPageSource).not.toContain('Деактивировать');
+    expect(clientPageSource).not.toContain('Создать');
+  });
+});
+
+describe('seed loaded 2 warehouses with correct types', () => {
+  it('seed data contains production and finished goods warehouses', async () => {
+    const { default: fs } = await import('node:fs');
+    const seedSource = fs.readFileSync('src/app/nsi/warehouses/_client-page.tsx', 'utf-8');
+    expect(seedSource).toContain('Производственный');
+    expect(seedSource).toContain('Склад ГП');
+  });
+});
