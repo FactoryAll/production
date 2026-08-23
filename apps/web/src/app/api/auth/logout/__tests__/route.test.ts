@@ -35,11 +35,11 @@ describe('logout route', () => {
     vi.clearAllMocks();
   });
 
-  it('deletes session, clears cookie and redirects to /login', async () => {
+  it('deletes session, writes LOGOUT audit with roles/permission and redirects to /login', async () => {
     const store = mockCookieStore({ session: 'token' });
     (getSessionFromToken as ReturnType<typeof vi.fn>).mockResolvedValue({
       userId: 'user-1',
-      user: { id: 'user-1', active: true, roles: [] },
+      user: { id: 'user-1', active: true, roles: [{ role: { code: 'ADM' } }] },
     });
     (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
 
@@ -47,7 +47,14 @@ describe('logout route', () => {
 
     expect(prisma.session.deleteMany).toHaveBeenCalledWith({ where: { token: 'token' } });
     expect(prisma.auditRecord.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ action: 'LOGOUT', objectType: 'User', objectId: 'user-1', userId: 'user-1' }),
+      data: expect.objectContaining({
+        action: 'LOGOUT',
+        objectType: 'User',
+        objectId: 'user-1',
+        userId: 'user-1',
+        userRoles: ['ADM'],
+        permission: 'dashboard:read',
+      }),
     });
     expect(store.set).toHaveBeenCalledWith('session', '', expect.objectContaining({ maxAge: 0, path: '/' }));
     expect(response.status).toBe(303);

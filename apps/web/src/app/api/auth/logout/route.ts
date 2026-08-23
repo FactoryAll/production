@@ -11,11 +11,14 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (token) {
     const session = await getSessionFromToken(token);
     if (session) {
+      const userRoles = session.user.roles.map((ur) => ur.role.code);
       await writeAudit(prisma, {
         action: AuditAction.LOGOUT,
         objectType: 'User',
         objectId: session.userId,
         userId: session.userId,
+        userRoles,
+        permission: 'dashboard:read',
       });
     }
     await prisma.session.deleteMany({ where: { token } });

@@ -1,6 +1,7 @@
 'use server';
 
 import { AuditAction, prisma, writeAudit } from '@prodtrack/db';
+import type { RoleCode } from '@prisma/client';
 import { verifyPassword } from './password';
 
 export interface LoginSuccess {
@@ -19,6 +20,10 @@ export type LoginResult = LoginSuccess | LoginFailure;
 export interface LoginMeta {
   ip?: string;
   userAgent?: string;
+}
+
+function getUserRoleCodes(user: { roles: { role: { code: string } }[] }): RoleCode[] {
+  return user.roles.map((ur) => ur.role.code as RoleCode);
 }
 
 export async function authenticate(
@@ -43,12 +48,16 @@ export async function authenticate(
     return { success: false, error: 'Неверный логин или пароль' };
   }
 
+  const userRoles = getUserRoleCodes(user);
+
   if (!user.active) {
     await writeAudit(prisma, {
       action: AuditAction.LOGIN_FAILED,
       objectType: 'User',
       objectId: user.id,
       userId: user.id,
+      userRoles,
+      permission: 'dashboard:read',
       newValue: auditPayload,
     });
     return { success: false, error: 'Пользователь заблокирован, обратитесь к администратору' };
@@ -61,6 +70,8 @@ export async function authenticate(
       objectType: 'User',
       objectId: user.id,
       userId: user.id,
+      userRoles,
+      permission: 'dashboard:read',
       newValue: auditPayload,
     });
     return { success: false, error: 'Неверный логин или пароль' };
@@ -71,6 +82,8 @@ export async function authenticate(
     objectType: 'User',
     objectId: user.id,
     userId: user.id,
+    userRoles,
+    permission: 'dashboard:read',
     newValue: auditPayload,
   });
 

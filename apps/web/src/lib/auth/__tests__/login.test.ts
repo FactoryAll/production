@@ -34,7 +34,7 @@ describe('authenticate', () => {
     vi.clearAllMocks();
   });
 
-  it('succeeds with valid credentials and writes LOGIN audit', async () => {
+  it('succeeds with valid credentials and writes LOGIN audit with roles and permission', async () => {
     const user = await makeUser();
     (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(user);
 
@@ -45,11 +45,18 @@ describe('authenticate', () => {
     expect(result.userId).toBe('user-1');
     expect(result.mustChangePassword).toBe(false);
     expect(prisma.auditRecord.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ action: 'LOGIN', objectType: 'User', objectId: 'user-1', userId: 'user-1' }),
+      data: expect.objectContaining({
+        action: 'LOGIN',
+        objectType: 'User',
+        objectId: 'user-1',
+        userId: 'user-1',
+        userRoles: ['ADM'],
+        permission: 'dashboard:read',
+      }),
     });
   });
 
-  it('fails with wrong password and writes LOGIN_FAILED audit', async () => {
+  it('fails with wrong password and writes LOGIN_FAILED audit with roles and permission', async () => {
     const user = await makeUser();
     (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(user);
 
@@ -57,11 +64,17 @@ describe('authenticate', () => {
 
     expect(result).toEqual({ success: false, error: 'Неверный логин или пароль' });
     expect(prisma.auditRecord.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ action: 'LOGIN_FAILED', objectId: 'user-1', userId: 'user-1' }),
+      data: expect.objectContaining({
+        action: 'LOGIN_FAILED',
+        objectId: 'user-1',
+        userId: 'user-1',
+        userRoles: ['ADM'],
+        permission: 'dashboard:read',
+      }),
     });
   });
 
-  it('fails for inactive user with blocked message', async () => {
+  it('fails for inactive user with blocked message and audit with roles', async () => {
     const user = await makeUser({ active: false });
     (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(user);
 
@@ -69,7 +82,13 @@ describe('authenticate', () => {
 
     expect(result).toEqual({ success: false, error: 'Пользователь заблокирован, обратитесь к администратору' });
     expect(prisma.auditRecord.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ action: 'LOGIN_FAILED', objectId: 'user-1', userId: 'user-1' }),
+      data: expect.objectContaining({
+        action: 'LOGIN_FAILED',
+        objectId: 'user-1',
+        userId: 'user-1',
+        userRoles: ['ADM'],
+        permission: 'dashboard:read',
+      }),
     });
   });
 

@@ -62,6 +62,22 @@ describe('kernel', () => {
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ role: 'NP' }) }));
   });
 
+  it('writeAudit auto-attributes ADM when ADM is present regardless of action', async () => {
+    const create = vi.fn(async (args: { data: { role: string } }) => args.data);
+    const tx = { auditRecord: { create } } as unknown as typeof fakeTx;
+
+    await writeAudit(tx, {
+      action: 'UPDATE',
+      objectType: 'User',
+      objectId: 'user-1',
+      userId: 'user-1',
+      userRoles: [RoleCode.ADM, RoleCode.NP],
+      permission: 'users:manage',
+    });
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ role: 'ADM' }) }));
+  });
+
   it('writeAudit throws when no role has the permission', async () => {
     await expect(writeAudit(fakeTx, {
       action: 'CREATE',
