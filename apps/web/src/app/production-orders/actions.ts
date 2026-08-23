@@ -30,8 +30,8 @@ export interface CreateProductionOrderDeps {
   requirePermission: typeof requirePermission;
 }
 
-// TODO T-027: реализовать закрытие ПЗ (Р-04)
 // TODO T-028: реализовать ввод за Оператора (Р-11)
+// TODO T-030: реализовать корректировку факта после закрытия (Р-18)
 export async function createProductionOrder(
   input: { shiftId: string; lines: ProductionOrderLineInput[] },
   deps: CreateProductionOrderDeps = { prisma, writeAudit, writeTiming, requirePermission },
