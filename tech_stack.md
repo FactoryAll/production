@@ -144,4 +144,5 @@ Recharts: план/факт по РЦ; структура выпуска Мас�
 
 1. **Хранение сессий** — cookie + строка `Session` в БД (деталь реализации, закрывает [ДОПУЩЕНИЕ] из `_tech_decisions.md`).
 2. **Статусные коды** — строковые enum в БД + серверная state machine (не триггеры).
-3. **Деплой-таргет** — self-hosted (VPS/контейнер); CI-артефакт — Docker-образ (остаётся открытым до выбора конкретного хоста).
+3. **Деплой-таргет** — VPS (self-hosted, контейнер). Вопрос закрыт: артефакты релиза — `docker-compose.yml` (web + postgres + nginx), `.env.example`, `scripts/deploy.sh`, `docs/deploy_vps.md`; процедура описана в `process.md` (ПРОЦ-03).
+4. **Версионирование** — SemVer `X.Y.Z`, git-теги `vX.Y.Z`, `CHANGELOG.md` в формате Keep a Changelog, версия в UI-футере из env `VERSION`; подробности — `process.md` (ПРОЦ-02).
