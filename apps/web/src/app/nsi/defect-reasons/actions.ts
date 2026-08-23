@@ -1,7 +1,8 @@
 'use server';
 
+// TODO T-017: заменить requireAdmin на центральную матрицу доступа (T-017)
 import { revalidatePath } from 'next/cache';
-import { prisma, writeAudit } from '@prodtrack/db';
+import { prisma, writeAudit, type DeactivationWarning, getDeactivationWarnings as getDeactivationWarningsFromDb } from '@prodtrack/db';
 import { requireAdmin } from '@/lib/auth/require-admin';
 import type { DefectReason } from '@prisma/client';
 
@@ -104,6 +105,12 @@ export async function updateDefectReason(id: string, input: DefectReasonInput): 
   return result;
 }
 
+// TODO Фаза 2/3: заменить заглушку на реальный запрос незавершённых документов (UC-M01-2, Р-22)
+export async function getDeactivationWarnings(id: string): Promise<DeactivationWarning[]> {
+  await requireAdmin();
+  return getDeactivationWarningsFromDb('DefectReason', id);
+}
+
 export async function toggleDefectReasonActive(id: string): Promise<DefectReason> {
   const { userId } = await requireAdmin();
 
@@ -116,7 +123,7 @@ export async function toggleDefectReasonActive(id: string): Promise<DefectReason
       data: { active: newActive },
     });
 
-    // TODO T-021: роль определяется по типу действия (Р-23), сейчас захардкожено ADM
+    // TODO T-021: полноценная атрибуция роли в аудите (Р-23), сейчас захардкожено ADM
     await writeAudit(tx, {
       action: 'UPDATE',
       objectType: 'DefectReason',

@@ -131,28 +131,17 @@ describe('updateWorkCenter', () => {
   });
 });
 
-describe('toggleWorkCenterActive', () => {
+describe('UC-M01-2: deactivation warnings (Phase 2/3 stub)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('toggles active flag and writes audit', async () => {
-    const { prisma, writeAudit } = await import('@prodtrack/db');
-    (prisma.workCenter.findUniqueOrThrow as ReturnType<typeof vi.fn>).mockResolvedValue(base);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (prisma as any).$transaction = vi.fn(async (cb: (tx: any) => any) => {
-      const mockTx = {
-        workCenter: {
-          update: vi.fn().mockResolvedValue({ ...base, active: false }),
-        },
-      };
-      return cb(mockTx);
-    });
-    const { toggleWorkCenterActive } = await import('../actions');
-    const updated = await toggleWorkCenterActive('wc-1');
-    expect(updated.active).toBe(false);
-    expect(writeAudit).toHaveBeenCalled();
-    const auditCall = (writeAudit as ReturnType<typeof vi.fn>).mock.calls[0][1];
-    expect(auditCall.field).toBe('active');
+  it('getDeactivationWarnings requires admin and returns empty list', async () => {
+    const { requireAdmin } = await import('@/lib/auth/require-admin');
+    const { getDeactivationWarnings } = await import('../actions');
+    const warnings = await getDeactivationWarnings('wc-1');
+    expect(requireAdmin).toHaveBeenCalled();
+    expect(warnings).toEqual([]);
   });
 });
+

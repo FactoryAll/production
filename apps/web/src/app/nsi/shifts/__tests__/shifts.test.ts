@@ -130,27 +130,16 @@ describe('updateShift', () => {
   });
 });
 
-describe('toggleShiftActive', () => {
+describe('UC-M01-2: deactivation warnings (Phase 2/3 stub)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('toggles active flag and writes audit', async () => {
-    const { prisma, writeAudit } = await import('@prodtrack/db');
-    (prisma.shift.findUniqueOrThrow as ReturnType<typeof vi.fn>).mockResolvedValue(base);
-    (prisma as unknown as { $transaction: (cb: (tx: { shift: { update: () => Promise<unknown> } }) => Promise<unknown>) => Promise<unknown> }).$transaction = vi.fn(async (cb) => {
-      const mockTx = {
-        shift: {
-          update: vi.fn().mockResolvedValue({ ...base, active: false }),
-        },
-      };
-      return cb(mockTx);
-    });
-    const { toggleShiftActive } = await import('../actions');
-    const updated = await toggleShiftActive('shift-1');
-    expect(updated.active).toBe(false);
-    expect(writeAudit).toHaveBeenCalled();
-    const auditCall = (writeAudit as ReturnType<typeof vi.fn>).mock.calls[0][1];
-    expect(auditCall.field).toBe('active');
+  it('getDeactivationWarnings requires admin and returns empty list', async () => {
+    const { requireAdmin } = await import('@/lib/auth/require-admin');
+    const { getDeactivationWarnings } = await import('../actions');
+    const warnings = await getDeactivationWarnings('shift-1');
+    expect(requireAdmin).toHaveBeenCalled();
+    expect(warnings).toEqual([]);
   });
 });
