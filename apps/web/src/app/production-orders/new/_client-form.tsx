@@ -3,7 +3,8 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Select, Input, Label, CheckboxList, Card } from '@prodtrack/ui';
-import { createProductionOrderAction, type ProductionOrderLineInput } from '../actions';
+import { createProductionOrderAction } from '../actions';
+import type { ProductionOrderLineInput } from '@/lib/validation/production-order';
 import type { Shift, WorkCenter, Product, Employee } from '@prisma/client';
 
 interface ProductionOrderFormProps {
@@ -112,17 +113,17 @@ export default function ProductionOrderForm({
 
   const shiftOptions = shifts.map((shift) => ({
     value: shift.id,
-    label: formatShift(shift),
+    label: formatShift(shift) + (shift.active ? '' : ' (деактивирована)'),
   }));
 
   const workCenterOptions = workCenters.map((wc) => ({
     value: wc.id,
-    label: wc.code + ' – ' + wc.name + (wc.producesMass ? ' (Масса)' : ' (ГП)'),
+    label: wc.code + ' – ' + wc.name + (wc.producesMass ? ' (Масса)' : ' (ГП)') + (wc.active ? '' : ' (деактивирован)'),
   }));
 
   const employeeOptions = employees.map((emp) => ({
     value: emp.id,
-    label: emp.fullName,
+    label: emp.fullName + (emp.active ? '' : ' (деактивирован)'),
   }));
 
   const canSubmit =
@@ -154,6 +155,9 @@ export default function ProductionOrderForm({
               placeholder="Выберите смену"
               required
             />
+            {shiftId && !shifts.find((s) => s.id === shiftId)?.active && (
+              <p className="text-sm text-signal-amber">Эта смена деактивирована. Выберите другую.</p>
+            )}
           </div>
         </Card>
 
@@ -167,101 +171,110 @@ export default function ProductionOrderForm({
 
             return (
               <Card key={line.id} className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-graphite">РЦ-строка {index + 1}</span>
-                  {lines.length > 1 && (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => removeLine(line.id)}
-                    >
-                      Удалить
-                    </Button>
-                  )}
-                </div>
+            <div className="flex items-center justify-between">
+              <span className="font-medium text-graphite">РЦ-строка {index + 1}</span>
+              {lines.length > 1 && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => removeLine(line.id)}
+                >
+                  Удалить
+                </Button>
+              )}
+            </div>
 
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor={line.id + '_wc'}>Рабочий центр</Label>
-                    <Select
-                      id={line.id + '_wc'}
-                      value={line.workCenterId}
-                      onChange={(e) =>
-                        updateLine(line.id, { workCenterId: e.target.value })
-                      }
-                      options={workCenterOptions}
-                      placeholder="Выберите РЦ"
-                      required
-                    />
-                  </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor={line.id + '_wc'}>Рабочий центр</Label>
+                <Select
+                  id={line.id + '_wc'}
+                  value={line.workCenterId}
+                  onChange={(e) =>
+                    updateLine(line.id, { workCenterId: e.target.value })
+                  }
+                  options={workCenterOptions}
+                  placeholder="Выберите РЦ"
+                  required
+                />
+                {line.workCenterId && !workCenters.find((wc) => wc.id === line.workCenterId)?.active && (
+                  <p className="text-sm text-signal-amber">Этот РЦ деактивирован. Выберите другой.</p>
+                )}
+              </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor={line.id + '_product'}>Номенклатура</Label>
-                    <Select
-                      id={line.id + '_product'}
-                      value={line.productId}
-                      onChange={(e) =>
-                        updateLine(line.id, { productId: e.target.value })
-                      }
-                      options={productOptions}
-                      placeholder={
-                        line.workCenterId
-                          ? 'Выберите номенклатуру'
-                          : 'Сначала выберите РЦ'
-                      }
-                      disabled={!line.workCenterId}
-                      required
-                    />
-                    <p className="text-sm text-neutral-500">
-                      {line.workCenterId &&
-                        (workCenters.find((wc) => wc.id === line.workCenterId)?.producesMass
-                          ? 'Для РЦ 01/02 доступна только номенклатура «Масса»'
-                          : 'Для РЦ 03–12 доступна только номенклатура «ГП»')}
-                    </p>
-                  </div>
+              <div className="space-y-2">
+                <Label htmlFor={line.id + '_product'}>Номенклатура</Label>
+                <Select
+                  id={line.id + '_product'}
+                  value={line.productId}
+                  onChange={(e) =>
+                    updateLine(line.id, { productId: e.target.value })
+                  }
+                  options={productOptions}
+                  placeholder={
+                    line.workCenterId
+                      ? 'Выберите номенклатуру'
+                      : 'Сначала выберите РЦ'
+                  }
+                  disabled={!line.workCenterId}
+                  required
+                />
+                <p className="text-sm text-neutral-500">
+                  {line.workCenterId &&
+                    (workCenters.find((wc) => wc.id === line.workCenterId)?.producesMass
+                      ? 'Для РЦ 01/02 доступна только номенклатура «Масса»'
+                      : 'Для РЦ 03–12 доступна только номенклатура «ГП»')}
+                </p>
+                {line.productId && !products.find((p) => p.id === line.productId)?.active && (
+                  <p className="text-sm text-signal-amber">Эта номенклатура деактивирована. Выберите другую.</p>
+                )}
+              </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor={line.id + '_qty'}>Плановое количество</Label>
-                    <Input
-                      id={line.id + '_qty'}
-                      type="number"
-                      min="0.0001"
-                      step="0.0001"
-                      value={line.plannedQuantity}
-                      onChange={(e) =>
-                        updateLine(line.id, { plannedQuantity: e.target.value })
-                      }
-                      placeholder="0.0000"
-                      required
-                    />
-                  </div>
+              <div className="space-y-2">
+                <Label htmlFor={line.id + '_qty'}>Плановое количество</Label>
+                <Input
+                  id={line.id + '_qty'}
+                  type="number"
+                  min="0.0001"
+                  step="0.0001"
+                  value={line.plannedQuantity}
+                  onChange={(e) =>
+                    updateLine(line.id, { plannedQuantity: e.target.value })
+                  }
+                  placeholder="0.0000"
+                  required
+                />
+              </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor={line.id + '_operator'}>Оператор</Label>
-                    <Select
-                      id={line.id + '_operator'}
-                      value={line.operatorId}
-                      onChange={(e) =>
-                        updateLine(line.id, { operatorId: e.target.value })
-                      }
-                      options={employeeOptions}
-                      placeholder="Выберите Оператора"
-                      required
-                    />
-                  </div>
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor={line.id + '_operator'}>Оператор</Label>
+                <Select
+                  id={line.id + '_operator'}
+                  value={line.operatorId}
+                  onChange={(e) =>
+                    updateLine(line.id, { operatorId: e.target.value })
+                  }
+                  options={employeeOptions}
+                  placeholder="Выберите Оператора"
+                  required
+                />
+                {line.operatorId && !employees.find((emp) => emp.id === line.operatorId)?.active && (
+                  <p className="text-sm text-signal-amber">Этот сотрудник деактивирован. Выберите другого.</p>
+                )}
+              </div>
+            </div>
 
-                <div className="space-y-2">
-                  <Label>Работники (необязательно)</Label>
-                  <CheckboxList
-                    name={line.id + '_workers'}
-                    options={employeeOptions}
-                    selected={line.workerIds}
-                    onChange={(selected) => updateLine(line.id, { workerIds: selected })}
-                  />
-                </div>
-              </Card>
+            <div className="space-y-2">
+              <Label>Работники (необязательно)</Label>
+              <CheckboxList
+                name={line.id + '_workers'}
+                options={employeeOptions}
+                selected={line.workerIds}
+                onChange={(selected) => updateLine(line.id, { workerIds: selected })}
+              />
+            </div>
+          </Card>
             );
           })}
 

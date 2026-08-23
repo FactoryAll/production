@@ -1,19 +1,14 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { Prisma } from '@prisma/client';
 import type { ProductionOrder, ProductionOrderLine } from '@prisma/client';
 import { prisma, writeAudit, writeTiming } from '@prodtrack/db';
 import { requirePermission } from '@/lib/auth/access';
-const Decimal = Prisma.Decimal;
-
-export interface ProductionOrderLineInput {
-  workCenterId: string;
-  productId: string;
-  plannedQuantity: number | string | Prisma.Decimal;
-  operatorId: string;
-  workerIds?: string[];
-}
+import {
+  validateProductionOrder,
+  parsePositiveDecimal,
+  type ProductionOrderLineInput,
+} from '@/lib/validation/production-order';
 
 export type CreateProductionOrderResult =
   | { success: true; id: string }
@@ -23,41 +18,6 @@ export type ConfirmProductionOrderResult =
   | { success: true }
   | { success: false; error: string };
 
-const ERRORS = {
-  NO_SHIFT: 'Смена не найдена',
-  INACTIVE_SHIFT: 'Выбранная смена неактивна',
-  NO_LINES: 'Добавьте хотя бы одну строку ПЗ',
-  LINE_INCOMPLETE: 'Заполните РЦ, номенклатуру, количество и Оператора',
-  INVALID_QUANTITY: 'Плановое количество должно быть больше 0',
-  WORK_CENTER_DUPLICATE: 'РЦ может встречаться в ПЗ только один раз',
-  BR7_MASS_ON_GP: 'Массу можно планировать только на РЦ 01/02',
-  BR7_GP_ON_MASS: 'ГП можно планировать только на РЦ 03–12',
-  OPERATOR_REQUIRED: 'Оператор обязателен для каждой строки',
-} as const;
-
-function parsePositiveDecimal(raw: unknown): Prisma.Decimal {
-  const value = raw as Prisma.Decimal.Value;
-  if (value instanceof Decimal) {
-    if (value.lessThanOrEqualTo(0)) {
-      throw new Error(ERRORS.INVALID_QUANTITY);
-    }
-    return value;
-  }
-
-  const str = typeof value === 'string' ? value.trim() : String(value);
-  if (!str) {
-    throw new Error(ERRORS.INVALID_QUANTITY);
-  }
-
-  const normalized = str.replace(',', '.');
-  const num = Number(normalized);
-  if (!Number.isFinite(num) || num <= 0) {
-    throw new Error(ERRORS.INVALID_QUANTITY);
-  }
-
-  return new Decimal(num);
-}
-
 export interface CreateProductionOrderDeps {
   prisma: typeof prisma;
   writeAudit: typeof writeAudit;
@@ -65,6 +25,7 @@ export interface CreateProductionOrderDeps {
   requirePermission: typeof requirePermission;
 }
 
+// TODO T-026: использовать validateProductionOrder при корректировке ПЗ
 export async function createProductionOrder(
   input: { shiftId: string; lines: ProductionOrderLineInput[] },
   deps: CreateProductionOrderDeps = { prisma, writeAudit, writeTiming, requirePermission },
@@ -73,18 +34,9 @@ export async function createProductionOrder(
   const userId = session.userId;
   const roles = session.user.roles.map((ur) => ur.role.code);
 
-  const shift = await deps.prisma.shift.findUnique({
-    where: { id: input.shiftId },
-  });
-  if (!shift) {
-    throw new Error(ERRORS.NO_SHIFT);
-  }
-  if (!shift.active) {
-    throw new Error(ERRORS.INACTIVE_SHIFT);
-  }
-
-  if (!input.lines.length) {
-    throw new Error(ERRORS.NO_LINES);
+  const validation = await validateProductionOrder(input, deps.prisma);
+  if (!validation.valid) {
+    throw new Error(validation.errors.join('; '));
   }
 
   const workCenterIds = [...new Set(input.lines.map((line) => line.workCenterId))];
@@ -101,36 +53,18 @@ export async function createProductionOrder(
   const productById = new Map(products.map((p) => [p.id, p]));
   const employeeById = new Map(employees.map((e) => [e.id, e]));
 
-  const seenWorkCenters = new Set<string>();
-
-  const parsedLines = input.lines.map((line, index) => {
-    const row = index + 1;
+  const parsedLines = input.lines.map((line) => {
     const workCenter = workCenterById.get(line.workCenterId);
     const product = productById.get(line.productId);
-    const operator = line.operatorId ? employeeById.get(line.operatorId) : undefined;
-
-    if (!workCenter || !product || !line.operatorId || !operator) {
-      throw new Error(ERRORS.LINE_INCOMPLETE + ' (строка ' + row + ')');
+    const operator = employeeById.get(line.operatorId);
+    // Валидация выше гарантирует существование и активность.
+    if (!workCenter || !product || !operator) {
+      throw new Error('Непредвиденная ошибка валидации');
     }
-
-    const quantity = parsePositiveDecimal(line.plannedQuantity);
-
-    if (workCenter.producesMass && product.category !== 'MASS') {
-      throw new Error(ERRORS.BR7_MASS_ON_GP + ' (строка ' + row + ')');
-    }
-    if (!workCenter.producesMass && product.category !== 'GP') {
-      throw new Error(ERRORS.BR7_GP_ON_MASS + ' (строка ' + row + ')');
-    }
-
-    if (seenWorkCenters.has(workCenter.id)) {
-      throw new Error(ERRORS.WORK_CENTER_DUPLICATE + ': ' + workCenter.name);
-    }
-    seenWorkCenters.add(workCenter.id);
-
     return {
       workCenterId: workCenter.id,
       productId: product.id,
-      plannedQuantity: quantity,
+      plannedQuantity: parsePositiveDecimal(line.plannedQuantity),
       operatorId: operator.id,
       workerIds: line.workerIds?.filter((id) => Boolean(id)) ?? [],
     };
