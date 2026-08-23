@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Prisma, type WorkCenter, type Product, type Employee, type Shift } from '@prisma/client';
 const Decimal = Prisma.Decimal;
-import { createProductionOrder, createProductionOrderAction } from '../actions';
+import { createProductionOrder, createProductionOrderAction, confirmProductionOrder } from '../actions';
 
 vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
@@ -14,7 +14,9 @@ const mockOrder = {
   createdById: 'user-1',
   createdAt: new Date(),
   updatedAt: new Date(),
-  completedAt: null,
+  completedAt: null as Date | null,
+  confirmedAt: null as Date | null,
+  confirmedByUserId: null as string | null,
   lines: [
     {
       id: 'line-1',
@@ -32,12 +34,18 @@ const mockOrder = {
   ],
 };
 
+function buildMockOrder(overrides: Partial<typeof mockOrder> = {}) {
+  return { ...mockOrder, ...overrides };
+}
+
+type MockOrderLine = (typeof mockOrder)['lines'][number] & { operator?: Employee | null };
+
 function buildMockPrisma(overrides: {
   shift?: Shift | null;
   workCenters?: WorkCenter[];
   products?: Product[];
   employees?: Employee[];
-  order?: typeof mockOrder;
+  order?: ReturnType<typeof buildMockOrder>;
 } = {}) {
   const workCenters = overrides.workCenters ?? [
     {
@@ -105,6 +113,8 @@ function buildMockPrisma(overrides: {
     updatedAt: new Date(),
   } as Shift;
 
+  const resolvedOrder = overrides.order ?? mockOrder;
+
   return {
     shift: {
       findUnique: vi.fn().mockResolvedValue(shift),
@@ -119,15 +129,35 @@ function buildMockPrisma(overrides: {
       findMany: vi.fn().mockResolvedValue(employees),
     },
     productionOrder: {
-      create: vi.fn().mockResolvedValue(overrides.order ?? mockOrder),
+      create: vi.fn().mockResolvedValue(resolvedOrder),
+      findUnique: vi.fn().mockResolvedValue(resolvedOrder),
+      update: vi.fn().mockResolvedValue(resolvedOrder),
+    },
+    notification: {
+      createMany: vi.fn().mockResolvedValue(undefined),
     },
     $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => {
+      const updateSpy = vi.fn().mockImplementation((args: { data: { status?: string } }) => {
+        return Promise.resolve({
+          ...resolvedOrder,
+          status: args.data.status ?? resolvedOrder.status,
+          confirmedAt: args.data.status === 'CONFIRMED' ? new Date() : resolvedOrder.confirmedAt,
+          confirmedByUserId: args.data.status === 'CONFIRMED' ? 'user-1' : resolvedOrder.confirmedByUserId,
+        });
+      });
+      const createManySpy = vi.fn().mockResolvedValue(undefined);
       const tx = {
         productionOrder: {
-          create: vi.fn().mockResolvedValue(overrides.order ?? mockOrder),
+          create: vi.fn().mockResolvedValue(resolvedOrder),
+          findUnique: vi.fn().mockResolvedValue(resolvedOrder),
+          update: updateSpy,
+        },
+        notification: {
+          createMany: createManySpy,
         },
       };
-      return cb(tx);
+      const result = await cb(tx);
+      return result;
     }),
   } as unknown as typeof import('@prodtrack/db').prisma;
 }
@@ -499,5 +529,259 @@ describe('createProductionOrderAction', () => {
     if (result.success) {
       expect(result.id).toBe('po-1');
     }
+  });
+});
+
+type ConfirmableOrder = ReturnType<typeof buildMockOrder> & { shift: Shift; lines: MockOrderLine[] };
+type ConfirmableOrderOverrides = Partial<Omit<ConfirmableOrder, 'shift' | 'lines'>> & { shift?: Shift; lines?: MockOrderLine[] };
+
+function buildConfirmableOrder(overrides: ConfirmableOrderOverrides = {}): ConfirmableOrder {
+  const defaultShift = {
+    id: 'shift-1',
+    number: 1,
+    date: new Date(),
+    start: '08:00',
+    end: '20:00',
+    active: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  } as Shift;
+
+  const { shift: shiftOverride, lines, ...restOverrides } = overrides;
+  const shift = shiftOverride ?? defaultShift;
+  return {
+    ...buildMockOrder(restOverrides),
+    shift,
+    lines: lines ?? [
+      {
+        id: 'line-1',
+        orderId: 'po-1',
+        workCenterId: 'wc-01',
+        productId: 'mass-1',
+        plannedQuantity: new Decimal(10),
+        operatorId: 'emp-1',
+        status: 'ASSIGNED',
+        comment: null,
+        substitutionReasonId: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        operator: {
+          id: 'emp-1',
+          tabNumber: '001',
+          fullName: 'Иванов И.И.',
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as Employee,
+      },
+    ],
+  } as ConfirmableOrder;
+}
+
+describe('confirmProductionOrder', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('confirms DRAFT order and updates status to CONFIRMED', async () => {
+    const order = buildConfirmableOrder();
+    const deps = buildMockDeps({ order });
+    const result = await confirmProductionOrder('po-1', deps);
+
+    expect(result.status).toBe('CONFIRMED');
+    expect(deps.prisma.$transaction).toHaveBeenCalled();
+    const txUpdate = (deps.prisma.$transaction as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const txMock = {
+      productionOrder: {
+        create: vi.fn().mockResolvedValue(order),
+        findUnique: vi.fn().mockResolvedValue(order),
+        update: vi.fn().mockResolvedValue({ ...order, status: 'CONFIRMED' }),
+      },
+      notification: {
+        createMany: vi.fn().mockResolvedValue(undefined),
+      },
+    };
+    await txUpdate(txMock);
+    expect(txMock.productionOrder.update).toHaveBeenCalled();
+    const updateData = txMock.productionOrder.update.mock.calls[0][0].data;
+    expect(updateData.status).toBe('CONFIRMED');
+    expect(updateData.confirmedByUserId).toBe('user-1');
+    expect(updateData.confirmedAt).toBeInstanceOf(Date);
+  });
+
+  it('writes audit and timing records on confirm', async () => {
+    const order = buildConfirmableOrder();
+    const deps = buildMockDeps({ order });
+    await confirmProductionOrder('po-1', deps);
+
+    const result = await confirmProductionOrder('po-1', deps);
+    expect(result.status).toBe('CONFIRMED');
+
+    expect(deps.writeAudit).toHaveBeenCalled();
+    const auditCall = deps.writeAudit.mock.calls[0][1];
+    expect(auditCall.action).toBe('UPDATE');
+    expect(auditCall.objectType).toBe('ProductionOrder');
+    expect(auditCall.oldValue).toBe('DRAFT');
+    expect(auditCall.newValue).toBe('CONFIRMED');
+
+    expect(deps.writeTiming).toHaveBeenCalled();
+    const timingCall = deps.writeTiming.mock.calls[0][1];
+    expect(timingCall.documentType).toBe('PRODUCTION_ORDER');
+    expect(timingCall.fromStatus).toBe('DRAFT');
+    expect(timingCall.toStatus).toBe('CONFIRMED');
+  });
+
+  it('creates EV-01 notification for each unique operator', async () => {
+    const order = buildConfirmableOrder({
+      lines: [
+        {
+          id: 'line-1',
+          orderId: 'po-1',
+          workCenterId: 'wc-01',
+          productId: 'mass-1',
+          plannedQuantity: new Decimal(10),
+          operatorId: 'emp-1',
+          status: 'ASSIGNED',
+          comment: null,
+          substitutionReasonId: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          operator: {
+            id: 'emp-1',
+            tabNumber: '001',
+            fullName: 'Иванов И.И.',
+            active: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          } as Employee,
+        } as MockOrderLine,
+        {
+          id: 'line-2',
+          orderId: 'po-1',
+          workCenterId: 'wc-03',
+          productId: 'gp-1',
+          plannedQuantity: new Decimal(5),
+          operatorId: 'emp-1',
+          status: 'ASSIGNED',
+          comment: null,
+          substitutionReasonId: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          operator: {
+            id: 'emp-1',
+            tabNumber: '001',
+            fullName: 'Иванов И.И.',
+            active: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          } as Employee,
+        },
+      ],
+    });
+    const deps = buildMockDeps({ order });
+    await confirmProductionOrder('po-1', deps);
+
+    expect(deps.prisma.$transaction).toHaveBeenCalled();
+    const txUpdate = (deps.prisma.$transaction as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const txMock = {
+      productionOrder: {
+        create: vi.fn().mockResolvedValue(order),
+        findUnique: vi.fn().mockResolvedValue(order),
+        update: vi.fn().mockResolvedValue({ ...order, status: 'CONFIRMED' }),
+      },
+      notification: {
+        createMany: vi.fn().mockResolvedValue(undefined),
+      },
+    };
+    await txUpdate(txMock);
+
+    expect(txMock.notification.createMany).toHaveBeenCalled();
+    const createData = txMock.notification.createMany.mock.calls[0][0].data;
+    expect(createData).toHaveLength(1);
+    expect(createData[0].eventCode).toBe('EV_01');
+    expect(createData[0].recipientId).toBe('emp-1');
+    expect(createData[0].deepLink).toBe('/production-orders/po-1');
+    expect(JSON.parse(createData[0].body)).toMatchObject({
+      orderId: 'po-1',
+      shiftId: 'shift-1',
+      linesCount: 2,
+    });
+  });
+
+  it('blocks confirm of CONFIRMED order', async () => {
+    const order = buildConfirmableOrder({ status: 'CONFIRMED' });
+    const deps = buildMockDeps({ order });
+    await expect(confirmProductionOrder('po-1', deps)).rejects.toThrow('ПЗ нельзя подтвердить в этом статусе');
+  });
+
+  it('blocks confirm of IN_PROGRESS order', async () => {
+    const order = buildConfirmableOrder({ status: 'IN_PROGRESS' });
+    const deps = buildMockDeps({ order });
+    await expect(confirmProductionOrder('po-1', deps)).rejects.toThrow('ПЗ нельзя подтвердить в этом статусе');
+  });
+
+  it('blocks confirm of CANCELLED order', async () => {
+    const order = buildConfirmableOrder({ status: 'CANCELLED' });
+    const deps = buildMockDeps({ order });
+    await expect(confirmProductionOrder('po-1', deps)).rejects.toThrow('ПЗ нельзя подтвердить в этом статусе');
+  });
+
+  it('blocks confirm of order without lines (BR-1)', async () => {
+    const order = buildConfirmableOrder({ lines: [] });
+    const deps = buildMockDeps({ order });
+    await expect(confirmProductionOrder('po-1', deps)).rejects.toThrow('ПЗ не содержит строк');
+  });
+
+  it('blocks confirm of order with incomplete line missing work center (BR-1)', async () => {
+    const order = buildConfirmableOrder({
+      lines: [
+        {
+          id: 'line-1',
+          orderId: 'po-1',
+          workCenterId: '',
+          productId: 'mass-1',
+          plannedQuantity: new Decimal(10),
+          operatorId: 'emp-1',
+          status: 'ASSIGNED',
+          comment: null,
+          substitutionReasonId: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          operator: {
+            id: 'emp-1',
+            tabNumber: '001',
+            fullName: 'Иванов И.И.',
+            active: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          } as Employee,
+        } as MockOrderLine,
+      ],
+    });
+    const deps = buildMockDeps({ order });
+    await expect(confirmProductionOrder('po-1', deps)).rejects.toThrow('ПЗ содержит неполную строку');
+  });
+
+  it('blocks confirm of order with line missing operator (BR-3 / BR-1)', async () => {
+    const order = buildConfirmableOrder({
+      lines: [
+        {
+          id: 'line-1',
+          orderId: 'po-1',
+          workCenterId: 'wc-01',
+          productId: 'mass-1',
+          plannedQuantity: new Decimal(10),
+          operatorId: null,
+          status: 'ASSIGNED',
+          comment: null,
+          substitutionReasonId: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          operator: null,
+        } as unknown as MockOrderLine,
+      ],
+    });
+    const deps = buildMockDeps({ order });
+    await expect(confirmProductionOrder('po-1', deps)).rejects.toThrow('ПЗ содержит неполную строку');
   });
 });

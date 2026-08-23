@@ -1,17 +1,19 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   useReactTable,
   getCoreRowModel,
   getSortedRowModel,
   flexRender,
   type ColumnDef,
-  type SortingState,
 } from '@tanstack/react-table';
-import { Button, Card } from '@prodtrack/ui';
+import { Button, Card, Dialog } from '@prodtrack/ui';
+import { hasPermission } from '@prodtrack/contracts';
 import type { ProductionOrder, ProductionOrderLine, Shift, WorkCenter } from '@prisma/client';
+import { confirmProductionOrderAction } from './actions';
 
 interface ProductionOrdersPageProps {
   orders: Array<
@@ -20,6 +22,7 @@ interface ProductionOrdersPageProps {
       lines: Array<ProductionOrderLine & { workCenter: WorkCenter }>;
     }
   >;
+  userRoles: string[];
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -35,7 +38,21 @@ function formatShift(shift: Shift): string {
   return 'Смена ' + shift.number + ' (' + date + ', ' + shift.start + '–' + shift.end + ')';
 }
 
-export default function ProductionOrdersPage({ orders }: ProductionOrdersPageProps) {
+export default function ProductionOrdersPage({ orders, userRoles }: ProductionOrdersPageProps) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [confirmOrderId, setConfirmOrderId] = useState<string | null>(null);
+  const canConfirm = hasPermission(userRoles, 'production_order:confirm');
+
+  function handleConfirm(orderId: string) {
+    startTransition(async () => {
+      const result = await confirmProductionOrderAction(orderId);
+      setConfirmOrderId(null);
+      if (result.success) {
+        router.refresh();
+      }
+    });
+  }
   const columns = useMemo<
     ColumnDef<
       ProductionOrder & {
@@ -45,37 +62,55 @@ export default function ProductionOrdersPage({ orders }: ProductionOrdersPagePro
       unknown
     >[]
   >(
-    () => [
-      {
-        accessorKey: 'id',
-        header: '№ ПЗ',
-        cell: ({ getValue }) => (getValue() as string).slice(0, 8),
+    () => {
+      const canConfirmDraft = canConfirm;
+      return [
+        {
+          accessorKey: 'id',
+          header: '№ ПЗ',
+          cell: ({ getValue }) => (getValue() as string).slice(0, 8),
+        },
+        {
+          id: 'shift',
+          header: 'Смена',
+          cell: ({ row }) => formatShift(row.original.shift),
+        },
+        {
+          accessorKey: 'status',
+          header: 'Статус',
+          cell: ({ getValue }) => STATUS_LABELS[getValue() as string] ?? getValue(),
+        },
+        {
+          accessorKey: 'createdAt',
+          header: 'Дата создания',
+          cell: ({ getValue }) => new Date(getValue() as string).toLocaleString('ru-RU'),
+        },
+        {
+          id: 'actions',
+          header: 'Действия',
+        cell: ({ row }) => {
+          const isDraft = row.original.status === 'DRAFT';
+          return (
+            <div className="flex items-center gap-2">
+              {isDraft && canConfirmDraft && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setConfirmOrderId(row.original.id)}
+                  disabled={isPending}
+                >
+                  Подтвердить
+                </Button>
+              )}
+              {!isDraft && <span className="text-neutral-500">—</span>}
+            </div>
+          );
+        },
       },
-      {
-        id: 'shift',
-        header: 'Смена',
-        cell: ({ row }) => formatShift(row.original.shift),
-      },
-      {
-        accessorKey: 'status',
-        header: 'Статус',
-        cell: ({ getValue }) => STATUS_LABELS[getValue() as string] ?? getValue(),
-      },
-      {
-        accessorKey: 'createdAt',
-        header: 'Дата создания',
-        cell: ({ getValue }) => new Date(getValue() as string).toLocaleString('ru-RU'),
-      },
-      {
-        id: 'actions',
-        header: 'Действия',
-        cell: () => (
-          <span className="text-neutral-500">Просмотр (T-025)</span>
-        ),
-      },
-    ],
-    [],
-  );
+    ];
+  },
+  [canConfirm, isPending],
+);
 
   const table = useReactTable({
     data: orders,
@@ -142,6 +177,28 @@ export default function ProductionOrdersPage({ orders }: ProductionOrdersPagePro
           )}
         </div>
       </Card>
+
+      <Dialog
+        open={confirmOrderId !== null}
+        onClose={() => setConfirmOrderId(null)}
+        title="Подтвердить ПЗ?"
+      >
+        <p className="text-graphite">
+          Операторы получат уведомления. После подтверждения корректировка будет возможна только до первого отчёта Оператора.
+        </p>
+        <div className="mt-6 flex justify-end gap-3">
+          <Button variant="secondary" onClick={() => setConfirmOrderId(null)} disabled={isPending}>
+            Отмена
+          </Button>
+          <Button
+            variant="cta"
+            onClick={() => confirmOrderId && handleConfirm(confirmOrderId)}
+            disabled={isPending || !confirmOrderId}
+          >
+            {isPending ? 'Подтверждение...' : 'Подтвердить'}
+          </Button>
+        </div>
+      </Dialog>
     </div>
   );
 }

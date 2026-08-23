@@ -179,10 +179,11 @@ model User {
 
   roles         UserRole[]
   sessions      Session[]
-  createdOrders ProductionOrder[]
+  createdOrders   ProductionOrder[] @relation("CreatedOrders")
+  confirmedOrders ProductionOrder[] @relation("ConfirmedOrders")
   createdTransfers GoodsTransfer[]
-  auditRecords  AuditRecord[]
-  notifications Notification[]
+  auditRecords    AuditRecord[]
+  notifications   Notification[]
 
   @@map("users")
 }
@@ -217,15 +218,18 @@ enum ProductionOrderLineStatus {
 }
 
 model ProductionOrder {
-  id          String                @id @default(uuid())
-  shiftId     String
-  shift       Shift                 @relation(fields: [shiftId], references: [id])
-  status      ProductionOrderStatus @default(DRAFT)
-  createdById String
-  createdBy   User                  @relation(fields: [createdById], references: [id])
-  createdAt   DateTime              @default(now())
-  updatedAt   DateTime              @updatedAt
-  completedAt DateTime?
+  id                String                @id @default(uuid())
+  shiftId           String
+  shift             Shift                 @relation(fields: [shiftId], references: [id])
+  status            ProductionOrderStatus @default(DRAFT)
+  createdById       String
+  createdBy         User                  @relation(fields: [createdById], references: [id], name: "CreatedOrders")
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  completedAt       DateTime?
+  confirmedAt       DateTime?
+  confirmedByUserId String?
+  confirmedBy       User?                 @relation(fields: [confirmedByUserId], references: [id], name: "ConfirmedOrders")
 
   lines ProductionOrderLine[]
 
