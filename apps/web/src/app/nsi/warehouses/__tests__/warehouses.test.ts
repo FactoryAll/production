@@ -28,8 +28,8 @@ vi.mock('@prodtrack/db', async () => {
   };
 });
 
-vi.mock('@/lib/auth/require-admin', () => ({
-  requireAdmin: vi.fn().mockResolvedValue({ userId: 'admin-user' }),
+vi.mock('@/lib/auth/access', () => ({
+  requirePermission: vi.fn().mockResolvedValue({ userId: 'admin-user' } as any),
 }));
 
 const base: Warehouse = {

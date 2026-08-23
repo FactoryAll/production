@@ -1,9 +1,8 @@
 'use server';
 
-// TODO T-017: заменить requireAdmin на центральную матрицу доступа (T-017)
 import { revalidatePath } from 'next/cache';
 import { prisma, writeAudit, type DeactivationWarning, getDeactivationWarnings as getDeactivationWarningsFromDb } from '@prodtrack/db';
-import { requireAdmin } from '@/lib/auth/require-admin';
+import { requirePermission } from '@/lib/auth/access';
 import type { Shift } from '@prisma/client';
 
 export interface ShiftInput {
@@ -46,7 +45,7 @@ function getShiftTimes(number: 1 | 2): { start: string; end: string } {
 }
 
 export async function createShift(input: ShiftInput): Promise<Shift> {
-  const { userId } = await requireAdmin();
+  const { userId } = await requirePermission('nsi:manage');
   assertNumber(input.number);
   const date = parseDate(input.date);
   await assertUniquePair(input.number, date);
@@ -87,7 +86,7 @@ export async function createShift(input: ShiftInput): Promise<Shift> {
 }
 
 export async function updateShift(id: string, input: ShiftInput): Promise<Shift> {
-  const { userId } = await requireAdmin();
+  const { userId } = await requirePermission('nsi:manage');
   assertNumber(input.number);
   const date = parseDate(input.date);
   await assertUniquePair(input.number, date, id);
@@ -139,12 +138,12 @@ export async function updateShift(id: string, input: ShiftInput): Promise<Shift>
 
 // TODO Фаза 2/3: заменить заглушку на реальный запрос незавершённых документов (UC-M01-2, Р-22)
 export async function getDeactivationWarnings(id: string): Promise<DeactivationWarning[]> {
-  await requireAdmin();
+  await requirePermission('nsi:manage');
   return getDeactivationWarningsFromDb('Shift', id);
 }
 
 export async function toggleShiftActive(id: string): Promise<Shift> {
-  const { userId } = await requireAdmin();
+  const { userId } = await requirePermission('nsi:manage');
 
   const existing = await prisma.shift.findUniqueOrThrow({ where: { id } });
   const newActive = !existing.active;

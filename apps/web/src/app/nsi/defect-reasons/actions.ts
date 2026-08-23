@@ -1,9 +1,8 @@
 'use server';
 
-// TODO T-017: заменить requireAdmin на центральную матрицу доступа (T-017)
 import { revalidatePath } from 'next/cache';
 import { prisma, writeAudit, type DeactivationWarning, getDeactivationWarnings as getDeactivationWarningsFromDb } from '@prodtrack/db';
-import { requireAdmin } from '@/lib/auth/require-admin';
+import { requirePermission } from '@/lib/auth/access';
 import type { DefectReason } from '@prisma/client';
 
 export interface DefectReasonInput {
@@ -37,7 +36,7 @@ function assertInput(input: DefectReasonInput): void {
 }
 
 export async function createDefectReason(input: DefectReasonInput): Promise<DefectReason> {
-  const { userId } = await requireAdmin();
+  const { userId } = await requirePermission('nsi:manage');
   const normalizedCode = normalizeCode(input.code);
   await assertCodeUnique(normalizedCode);
   assertInput(input);
@@ -69,7 +68,7 @@ export async function createDefectReason(input: DefectReasonInput): Promise<Defe
 }
 
 export async function updateDefectReason(id: string, input: DefectReasonInput): Promise<DefectReason> {
-  const { userId } = await requireAdmin();
+  const { userId } = await requirePermission('nsi:manage');
   const normalizedCode = normalizeCode(input.code);
   await assertCodeUnique(normalizedCode, id);
   assertInput(input);
@@ -107,12 +106,12 @@ export async function updateDefectReason(id: string, input: DefectReasonInput): 
 
 // TODO Фаза 2/3: заменить заглушку на реальный запрос незавершённых документов (UC-M01-2, Р-22)
 export async function getDeactivationWarnings(id: string): Promise<DeactivationWarning[]> {
-  await requireAdmin();
+  await requirePermission('nsi:manage');
   return getDeactivationWarningsFromDb('DefectReason', id);
 }
 
 export async function toggleDefectReasonActive(id: string): Promise<DefectReason> {
-  const { userId } = await requireAdmin();
+  const { userId } = await requirePermission('nsi:manage');
 
   const existing = await prisma.defectReason.findUniqueOrThrow({ where: { id } });
   const newActive = !existing.active;

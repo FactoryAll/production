@@ -1,0 +1,33 @@
+import { describe, it, expect } from 'vitest';
+import { PERMISSIONS, ROLES, ROLE_PERMISSION_MAP } from '../prisma/seed';
+
+describe('seed configuration', () => {
+  it('creates 6 roles', () => {
+    expect(ROLES.length).toBe(6);
+    const codes = ROLES.map((r) => r.code).sort();
+    expect(codes).toEqual(['ADM', 'KSGP', 'NP', 'OPR', 'S1C', 'USGP']);
+  });
+
+  it('creates ~20-30 permissions', () => {
+    expect(PERMISSIONS.length).toBeGreaterThanOrEqual(20);
+    expect(PERMISSIONS.length).toBeLessThanOrEqual(30);
+  });
+
+  it('maps permissions to roles according to matrix', () => {
+    expect(ROLE_PERMISSION_MAP.NP).toContain('production_order:create');
+    expect(ROLE_PERMISSION_MAP.OPR).toContain('production_order:accept');
+    expect(ROLE_PERMISSION_MAP.KSGP).toContain('transfer:receive');
+    expect(ROLE_PERMISSION_MAP.USGP).toContain('transfer:reconcile');
+    expect(ROLE_PERMISSION_MAP.S1C).toContain('onec:process');
+    expect(ROLE_PERMISSION_MAP.ADM).toContain('nsi:manage');
+    expect(ROLE_PERMISSION_MAP.ADM).toContain('users:manage');
+    expect(ROLE_PERMISSION_MAP.ADM).toContain('roles:manage');
+  });
+
+  it('ADM role has every permission', () => {
+    const adminPermissions = new Set(ROLE_PERMISSION_MAP.ADM);
+    for (const { code } of PERMISSIONS) {
+      expect(adminPermissions.has(code)).toBe(true);
+    }
+  });
+});

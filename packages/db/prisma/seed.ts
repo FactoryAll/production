@@ -45,7 +45,7 @@ const SHIFTS = [
   { number: 2, start: '20:00', end: '08:00' },
 ];
 
-const ROLES = [
+export const ROLES = [
   { code: 'NP', name: 'Начальник производства' },
   { code: 'OPR', name: 'Оператор' },
   { code: 'KSGP', name: 'Кладовщик склада ГП' },
@@ -56,6 +56,71 @@ const ROLES = [
 
 const ADMIN_LOGIN = 'admin';
 const ADMIN_PASSWORD = 'admin123';
+
+export const PERMISSIONS = [
+  { code: 'production_order:create', action: 'Создание производственного задания' },
+  { code: 'production_order:update', action: 'Изменение производственного задания' },
+  { code: 'production_order:confirm', action: 'Подтверждение производственного задания' },
+  { code: 'production_order:read', action: 'Чтение производственных заданий' },
+  { code: 'production_order:read_own', action: 'Чтение своего РЦ в ПЗ' },
+  { code: 'production_order:accept', action: 'Подтверждение получения ПЗ' },
+  { code: 'production_order:report', action: 'Внесение итога смены' },
+  { code: 'transfer:create', action: 'Создание перемещения' },
+  { code: 'transfer:update', action: 'Изменение перемещения' },
+  { code: 'transfer:receive', action: 'Приёмка перемещения' },
+  { code: 'transfer:reconcile', action: 'Согласование расхождений' },
+  { code: 'stock:read', action: 'Просмотр остатков' },
+  { code: 'shift_report:read', action: 'Просмотр отчётов смены' },
+  { code: 'dashboard:read', action: 'Просмотр дашборда' },
+  { code: 'dashboard:read_own', action: 'Просмотр своего дашборда' },
+  { code: 'audit:read', action: 'Просмотр аудита' },
+  { code: 'onec:read', action: 'Просмотр данных для 1С' },
+  { code: 'onec:process', action: 'Отметка обработано в 1С' },
+  { code: 'nsi:manage', action: 'Управление НСИ' },
+  { code: 'users:manage', action: 'Управление пользователями' },
+  { code: 'roles:manage', action: 'Управление ролями' },
+];
+
+export const ROLE_PERMISSION_MAP: Record<RoleCode, string[]> = {
+  NP: [
+    'production_order:create',
+    'production_order:update',
+    'production_order:confirm',
+    'production_order:read',
+    'transfer:create',
+    'transfer:update',
+    'stock:read',
+    'shift_report:read',
+    'dashboard:read',
+    'audit:read',
+  ],
+  OPR: [
+    'production_order:read_own',
+    'production_order:accept',
+    'production_order:report',
+    'stock:read',
+    'dashboard:read_own',
+  ],
+  KSGP: [
+    'transfer:receive',
+    'transfer:reconcile',
+    'stock:read',
+    'dashboard:read',
+  ],
+  USGP: [
+    'transfer:reconcile',
+    'stock:read',
+    'dashboard:read',
+  ],
+  S1C: [
+    'onec:read',
+    'onec:process',
+    'stock:read',
+    'dashboard:read',
+  ],
+  ADM: PERMISSIONS.map(({ code }) => code),
+};
+
 
 // Reference/template shift date used only for seed idempotency.
 const SHIFT_SEED_DATE = new Date('2000-01-01');
@@ -131,7 +196,24 @@ async function seedShifts() {
 
 
 
+async function seedPermissions() {
+  await Promise.all(
+    PERMISSIONS.map(({ code, action }) =>
+      prisma.permission.upsert({
+        where: { code },
+        update: { action },
+        create: { code, action },
+      }),
+    ),
+  );
+
+  return prisma.permission.findMany();
+}
+
 async function seedRoles() {
+  const permissions = await seedPermissions();
+  const permissionByCode = Object.fromEntries(permissions.map((p) => [p.code, p.id]));
+
   await Promise.all(
     ROLES.map(({ code, name }) =>
       prisma.role.upsert({
@@ -141,6 +223,18 @@ async function seedRoles() {
       }),
     ),
   );
+
+  for (const { code } of ROLES) {
+    const permissionIds = ROLE_PERMISSION_MAP[code as RoleCode]
+      .map((permissionCode) => permissionByCode[permissionCode])
+      .filter(Boolean);
+    await prisma.role.update({
+      where: { code: code as RoleCode },
+      data: {
+        permissions: { set: permissionIds.map((id) => ({ id })) },
+      },
+    });
+  }
 }
 
 async function seedAdmin() {

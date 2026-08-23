@@ -1,9 +1,8 @@
 'use server';
 
-// TODO T-017: заменить requireAdmin на центральную матрицу доступа (T-017)
 import { revalidatePath } from 'next/cache';
 import { prisma, writeAudit, type DeactivationWarning, getDeactivationWarnings as getDeactivationWarningsFromDb } from '@prodtrack/db';
-import { requireAdmin } from '@/lib/auth/require-admin';
+import { requirePermission } from '@/lib/auth/access';
 import { SubstitutionReason } from '@prodtrack/contracts';
 import type { SubstitutionReason as PrismaSubstitutionReason } from '@prisma/client';
 
@@ -38,7 +37,7 @@ function assertInput(input: SubstitutionReasonInput): void {
 }
 
 export async function createSubstitutionReason(input: SubstitutionReasonInput): Promise<PrismaSubstitutionReason> {
-  const { userId } = await requireAdmin();
+  const { userId } = await requirePermission('nsi:manage');
   assertInput(input);
   await assertCodeUnique(input.code);
 
@@ -72,7 +71,7 @@ export async function updateSubstitutionReason(
   id: string,
   input: SubstitutionReasonInput,
 ): Promise<PrismaSubstitutionReason> {
-  const { userId } = await requireAdmin();
+  const { userId } = await requirePermission('nsi:manage');
   assertInput(input);
   await assertCodeUnique(input.code, id);
 
@@ -109,12 +108,12 @@ export async function updateSubstitutionReason(
 
 // TODO Фаза 2/3: заменить заглушку на реальный запрос незавершённых документов (UC-M01-2, Р-22)
 export async function getDeactivationWarnings(id: string): Promise<DeactivationWarning[]> {
-  await requireAdmin();
+  await requirePermission('nsi:manage');
   return getDeactivationWarningsFromDb('SubstitutionReason', id);
 }
 
 export async function toggleSubstitutionReasonActive(id: string): Promise<PrismaSubstitutionReason> {
-  const { userId } = await requireAdmin();
+  const { userId } = await requirePermission('nsi:manage');
 
   const existing = await prisma.substitutionReason.findUniqueOrThrow({ where: { id } });
   const newActive = !existing.active;

@@ -1,9 +1,8 @@
 'use server';
 
-// TODO T-017: заменить requireAdmin на центральную матрицу доступа (T-017)
 import { revalidatePath } from 'next/cache';
 import { prisma, writeAudit } from '@prodtrack/db';
-import { requireAdmin } from '@/lib/auth/require-admin';
+import { requirePermission } from '@/lib/auth/access';
 import type { Warehouse } from '@prisma/client';
 
 export interface WarehouseInput {
@@ -18,7 +17,7 @@ function assertInput(input: WarehouseInput): void {
 }
 
 export async function updateWarehouse(id: string, input: WarehouseInput): Promise<Warehouse> {
-  const { userId } = await requireAdmin();
+  const { userId } = await requirePermission('nsi:manage');
   assertInput(input);
 
   const existing = await prisma.warehouse.findUniqueOrThrow({ where: { id } });
@@ -59,7 +58,7 @@ export async function updateWarehouse(id: string, input: WarehouseInput): Promis
 }
 
 export async function toggleWarehouseActive(id: string): Promise<Warehouse> {
-  const { userId } = await requireAdmin();
+  const { userId } = await requirePermission('nsi:manage');
 
   const existing = await prisma.warehouse.findUniqueOrThrow({ where: { id } });
   const newActive = !existing.active;

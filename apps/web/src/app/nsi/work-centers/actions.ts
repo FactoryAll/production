@@ -1,9 +1,8 @@
 'use server';
 
-// TODO T-017: заменить requireAdmin на центральную матрицу доступа (T-017)
 import { revalidatePath } from 'next/cache';
 import { prisma, writeAudit, type DeactivationWarning, getDeactivationWarnings as getDeactivationWarningsFromDb } from '@prodtrack/db';
-import { requireAdmin } from '@/lib/auth/require-admin';
+import { requirePermission } from '@/lib/auth/access';
 import type { WorkCenter } from '@prisma/client';
 
 function producesMassByCode(code: string): boolean {
@@ -35,7 +34,7 @@ async function assertCodeUnique(code: string, excludeId?: string): Promise<void>
 }
 
 export async function createWorkCenter(input: WorkCenterInput): Promise<WorkCenter> {
-  const { userId } = await requireAdmin();
+  const { userId } = await requirePermission('nsi:manage');
   const normalizedCode = normalizeCode(input.code);
   await assertCodeUnique(normalizedCode);
 
@@ -71,7 +70,7 @@ export async function createWorkCenter(input: WorkCenterInput): Promise<WorkCent
 }
 
 export async function updateWorkCenter(id: string, input: WorkCenterInput): Promise<WorkCenter> {
-  const { userId } = await requireAdmin();
+  const { userId } = await requirePermission('nsi:manage');
   const normalizedCode = normalizeCode(input.code);
   await assertCodeUnique(normalizedCode, id);
 
@@ -113,12 +112,12 @@ export async function updateWorkCenter(id: string, input: WorkCenterInput): Prom
 
 // TODO Фаза 2/3: заменить заглушку на реальный запрос незавершённых документов (UC-M01-2, Р-22)
 export async function getDeactivationWarnings(id: string): Promise<DeactivationWarning[]> {
-  await requireAdmin();
+  await requirePermission('nsi:manage');
   return getDeactivationWarningsFromDb('WorkCenter', id);
 }
 
 export async function toggleWorkCenterActive(id: string): Promise<WorkCenter> {
-  const { userId } = await requireAdmin();
+  const { userId } = await requirePermission('nsi:manage');
 
   const existing = await prisma.workCenter.findUniqueOrThrow({ where: { id } });
   const newActive = !existing.active;

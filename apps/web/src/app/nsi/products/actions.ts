@@ -1,9 +1,8 @@
 'use server';
 
-// TODO T-017: заменить requireAdmin на центральную матрицу доступа (T-017)
 import { revalidatePath } from 'next/cache';
 import { prisma, writeAudit, type DeactivationWarning, getDeactivationWarnings as getDeactivationWarningsFromDb } from '@prodtrack/db';
-import { requireAdmin } from '@/lib/auth/require-admin';
+import { requirePermission } from '@/lib/auth/access';
 import { ProductCategory } from '@prodtrack/contracts';
 import type { Product } from '@prisma/client';
 
@@ -54,7 +53,7 @@ function assertInput(input: ProductInput): void {
 }
 
 export async function createProduct(input: ProductInput): Promise<Product> {
-  const { userId } = await requireAdmin();
+  const { userId } = await requirePermission('nsi:manage');
   const normalizedCode = normalizeCode(input.code);
   await assertCodeUnique(normalizedCode);
   assertCategory(input.category);
@@ -94,7 +93,7 @@ export async function createProduct(input: ProductInput): Promise<Product> {
 }
 
 export async function updateProduct(id: string, input: ProductInput): Promise<Product> {
-  const { userId } = await requireAdmin();
+  const { userId } = await requirePermission('nsi:manage');
   const normalizedCode = normalizeCode(input.code);
   await assertCodeUnique(normalizedCode, id);
   assertCategory(input.category);
@@ -145,12 +144,12 @@ export async function updateProduct(id: string, input: ProductInput): Promise<Pr
 
 // TODO Фаза 2/3: заменить заглушку на реальный запрос незавершённых документов (UC-M01-2, Р-22)
 export async function getDeactivationWarnings(id: string): Promise<DeactivationWarning[]> {
-  await requireAdmin();
+  await requirePermission('nsi:manage');
   return getDeactivationWarningsFromDb('Product', id);
 }
 
 export async function toggleProductActive(id: string): Promise<Product> {
-  const { userId } = await requireAdmin();
+  const { userId } = await requirePermission('nsi:manage');
 
   const existing = await prisma.product.findUniqueOrThrow({ where: { id } });
   const newActive = !existing.active;

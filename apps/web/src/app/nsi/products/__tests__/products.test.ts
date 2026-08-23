@@ -31,8 +31,8 @@ vi.mock('@prodtrack/db', async () => {
   };
 });
 
-vi.mock('@/lib/auth/require-admin', () => ({
-  requireAdmin: vi.fn().mockResolvedValue({ userId: 'admin-user' }),
+vi.mock('@/lib/auth/access', () => ({
+  requirePermission: vi.fn().mockResolvedValue({ userId: 'admin-user' } as any),
 }));
 
 const base: Product = {
@@ -149,10 +149,10 @@ describe('UC-M01-2: deactivation warnings (Phase 2/3 stub)', () => {
   });
 
   it('getDeactivationWarnings requires admin and returns empty list', async () => {
-    const { requireAdmin } = await import('@/lib/auth/require-admin');
+    const { requirePermission } = await import('@/lib/auth/access');
     const { getDeactivationWarnings } = await import('../actions');
     const warnings = await getDeactivationWarnings('p-1');
-    expect(requireAdmin).toHaveBeenCalled();
+    expect(requirePermission).toHaveBeenCalled();
     expect(warnings).toEqual([]);
   });
 });

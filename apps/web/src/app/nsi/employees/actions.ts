@@ -1,9 +1,8 @@
 'use server';
 
-// TODO T-017: заменить requireAdmin на центральную матрицу доступа (T-017)
 import { revalidatePath } from 'next/cache';
 import { prisma, writeAudit, type DeactivationWarning, getDeactivationWarnings as getDeactivationWarningsFromDb } from '@prodtrack/db';
-import { requireAdmin } from '@/lib/auth/require-admin';
+import { requirePermission } from '@/lib/auth/access';
 import type { Employee } from '@prisma/client';
 
 export interface EmployeeInput {
@@ -37,7 +36,7 @@ function assertInput(input: EmployeeInput): void {
 }
 
 export async function createEmployee(input: EmployeeInput): Promise<Employee> {
-  const { userId } = await requireAdmin();
+  const { userId } = await requirePermission('nsi:manage');
   const normalizedTabNumber = normalizeTabNumber(input.tabNumber);
   await assertTabNumberUnique(normalizedTabNumber);
   assertInput(input);
@@ -72,7 +71,7 @@ export async function createEmployee(input: EmployeeInput): Promise<Employee> {
 }
 
 export async function updateEmployee(id: string, input: EmployeeInput): Promise<Employee> {
-  const { userId } = await requireAdmin();
+  const { userId } = await requirePermission('nsi:manage');
   const normalizedTabNumber = normalizeTabNumber(input.tabNumber);
   await assertTabNumberUnique(normalizedTabNumber, id);
   assertInput(input);
@@ -116,12 +115,12 @@ export async function updateEmployee(id: string, input: EmployeeInput): Promise<
 
 // TODO Фаза 2/3: заменить заглушку на реальный запрос незавершённых документов (UC-M01-2, Р-22)
 export async function getDeactivationWarnings(id: string): Promise<DeactivationWarning[]> {
-  await requireAdmin();
+  await requirePermission('nsi:manage');
   return getDeactivationWarningsFromDb('Employee', id);
 }
 
 export async function toggleEmployeeActive(id: string): Promise<Employee> {
-  const { userId } = await requireAdmin();
+  const { userId } = await requirePermission('nsi:manage');
 
   const existing = await prisma.employee.findUniqueOrThrow({ where: { id } });
   const newActive = !existing.active;

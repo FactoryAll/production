@@ -201,3 +201,4 @@ export function isProductCategory(value: unknown): value is ProductCategory {
 export function isFactCategory(value: unknown): value is FactCategory {
   return typeof value === 'string' && FACT_CATEGORIES.includes(value as FactCategory);
 }
+export * from './access';
