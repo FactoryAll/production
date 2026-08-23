@@ -276,6 +276,102 @@ describe('createProductionOrder', () => {
     ).rejects.toThrow('Заполните РЦ, номенклатуру, количество и Оператора');
   });
 
+  it('rejects inactive work center', async () => {
+    const deps = buildMockDeps({
+      workCenters: [
+        {
+          id: 'wc-01',
+          code: '01',
+          name: '01.Реактор',
+          producesMass: true,
+          active: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ] as WorkCenter[],
+    });
+    await expect(
+      createProductionOrder(
+        {
+          shiftId: 'shift-1',
+          lines: [
+            {
+              workCenterId: 'wc-01',
+              productId: 'mass-1',
+              plannedQuantity: 5,
+              operatorId: 'emp-1',
+            },
+          ],
+        },
+        deps,
+      ),
+    ).rejects.toThrow('РЦ деактивирован');
+  });
+
+  it('rejects inactive product', async () => {
+    const deps = buildMockDeps({
+      products: [
+        {
+          id: 'mass-1',
+          code: 'M-001',
+          name: 'Масса',
+          category: 'MASS',
+          unit: 'кг',
+          active: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ] as Product[],
+    });
+    await expect(
+      createProductionOrder(
+        {
+          shiftId: 'shift-1',
+          lines: [
+            {
+              workCenterId: 'wc-01',
+              productId: 'mass-1',
+              plannedQuantity: 5,
+              operatorId: 'emp-1',
+            },
+          ],
+        },
+        deps,
+      ),
+    ).rejects.toThrow('Номенклатура деактивирована');
+  });
+
+  it('rejects inactive operator', async () => {
+    const deps = buildMockDeps({
+      employees: [
+        {
+          id: 'emp-1',
+          tabNumber: '001',
+          fullName: 'Иванов И.И.',
+          active: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ] as Employee[],
+    });
+    await expect(
+      createProductionOrder(
+        {
+          shiftId: 'shift-1',
+          lines: [
+            {
+              workCenterId: 'wc-01',
+              productId: 'mass-1',
+              plannedQuantity: 5,
+              operatorId: 'emp-1',
+            },
+          ],
+        },
+        deps,
+      ),
+    ).rejects.toThrow('Сотрудник деактивирован');
+  });
+
   it('rejects duplicate work center in one order', async () => {
     const deps = buildMockDeps();
     await expect(
@@ -383,7 +479,7 @@ describe('createProductionOrder', () => {
         },
         deps,
       ),
-    ).rejects.toThrow('Выбранная смена неактивна');
+    ).rejects.toThrow('Смена деактивирована');
   });
 
   it('rejects duplicate work center with different operators (BR-3)', async () => {
