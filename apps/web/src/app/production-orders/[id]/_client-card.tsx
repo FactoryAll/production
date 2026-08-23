@@ -8,6 +8,7 @@ import { hasPermission } from '@prodtrack/contracts';
 import type {
   ProductionOrder,
   ProductionOrderLine,
+  ProductionOrderStatus,
   Shift,
   WorkCenter,
   Product,
@@ -58,6 +59,10 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
   const [showDialog, setShowDialog] = useState(false);
   const isDraft = order.status === 'DRAFT';
   const canConfirm = isDraft && hasPermission(userRoles, 'production_order:confirm');
+  const editableStatuses: ProductionOrderStatus[] = ['DRAFT', 'CONFIRMED', 'IN_PROGRESS'];
+  const hasReportedLine = order.lines.some((line) => line.status === 'REPORTED');
+  const canEdit =
+    editableStatuses.includes(order.status) && !hasReportedLine && hasPermission(userRoles, 'production_order:update');
 
   function handleConfirm() {
     startTransition(async () => {
@@ -80,11 +85,20 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
             ПЗ {order.id.slice(0, 8)} — {STATUS_LABELS[order.status] ?? order.status}
           </h1>
         </div>
-        {canConfirm && (
-          <Button variant="cta" onClick={() => setShowDialog(true)} disabled={isPending}>
-            Подтвердить ПЗ
-          </Button>
-        )}
+        <div className="flex items-center gap-3">
+          {canEdit && (
+            <Link href={'/production-orders/' + order.id + '/edit'}>
+              <Button variant="cta" disabled={isPending}>
+                Редактировать ПЗ
+              </Button>
+            </Link>
+          )}
+          {canConfirm && (
+            <Button variant="cta" onClick={() => setShowDialog(true)} disabled={isPending}>
+              Подтвердить ПЗ
+            </Button>
+          )}
+        </div>
       </div>
 
       <Card className="grid gap-4 sm:grid-cols-2">

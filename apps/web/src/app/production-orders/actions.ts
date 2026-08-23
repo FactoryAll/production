@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import type { ProductionOrder, ProductionOrderLine } from '@prisma/client';
+import type { ProductionOrder, ProductionOrderLine, ProductionOrderStatus } from '@prisma/client';
 import { prisma, writeAudit, writeTiming } from '@prodtrack/db';
 import { requirePermission } from '@/lib/auth/access';
 import {
@@ -18,6 +18,11 @@ export type ConfirmProductionOrderResult =
   | { success: true }
   | { success: false; error: string };
 
+export type UpdateProductionOrderResult =
+  | { success: true }
+  | { success: false; error: string };
+
+
 export interface CreateProductionOrderDeps {
   prisma: typeof prisma;
   writeAudit: typeof writeAudit;
@@ -25,7 +30,8 @@ export interface CreateProductionOrderDeps {
   requirePermission: typeof requirePermission;
 }
 
-// TODO T-026: использовать validateProductionOrder при корректировке ПЗ
+// TODO T-027: реализовать закрытие ПЗ (Р-04)
+// TODO T-028: реализовать ввод за Оператора (Р-11)
 export async function createProductionOrder(
   input: { shiftId: string; lines: ProductionOrderLineInput[] },
   deps: CreateProductionOrderDeps = { prisma, writeAudit, writeTiming, requirePermission },
@@ -271,6 +277,159 @@ export async function confirmProductionOrderAction(orderId: string): Promise<Con
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Не удалось подтвердить ПЗ';
+    return { success: false, error: message };
+  }
+}
+
+const EDITABLE_STATUSES: ProductionOrderStatus[] = ['DRAFT', 'CONFIRMED', 'IN_PROGRESS'];
+
+export async function updateProductionOrder(
+  orderId: string,
+  input: { shiftId: string; lines: ProductionOrderLineInput[] },
+  deps: CreateProductionOrderDeps = { prisma, writeAudit, writeTiming, requirePermission },
+): Promise<ProductionOrder & { lines: ProductionOrderLine[] }> {
+  const session = await deps.requirePermission('production_order:update');
+  const userId = session.userId;
+  const roles = session.user.roles.map((ur) => ur.role.code);
+
+  const order = await deps.prisma.productionOrder.findUnique({
+    where: { id: orderId },
+    include: { lines: true },
+  });
+  if (!order) {
+    throw new Error('ПЗ не найдено');
+  }
+
+  if (!EDITABLE_STATUSES.includes(order.status)) {
+    throw new Error('ПЗ нельзя корректировать в этом статусе');
+  }
+
+  const reported = order.lines.some((line) => line.status === 'REPORTED');
+  if (reported) {
+    throw new Error('Корректировка невозможна после внесения итога (строка в статусе REPORTED)');
+  }
+
+  const validation = await validateProductionOrder(input, deps.prisma);
+  if (!validation.valid) {
+    throw new Error(validation.errors.join('; '));
+  }
+
+  const workCenterIds = [...new Set(input.lines.map((line) => line.workCenterId))];
+  const productIds = [...new Set(input.lines.map((line) => line.productId))];
+  const operatorIds = [...new Set(input.lines.map((line) => line.operatorId).filter(Boolean))];
+
+  const [workCenters, products, employees] = await Promise.all([
+    deps.prisma.workCenter.findMany({ where: { id: { in: workCenterIds } } }),
+    deps.prisma.product.findMany({ where: { id: { in: productIds } } }),
+    deps.prisma.employee.findMany({ where: { id: { in: operatorIds } } }),
+  ]);
+
+  const workCenterById = new Map(workCenters.map((wc) => [wc.id, wc]));
+  const productById = new Map(products.map((p) => [p.id, p]));
+  const employeeById = new Map(employees.map((e) => [e.id, e]));
+
+  const oldLines = order.lines.map((line) => ({
+    workCenterId: line.workCenterId,
+    productId: line.productId,
+    plannedQuantity: line.plannedQuantity.toString(),
+    operatorId: line.operatorId,
+    status: line.status,
+  }));
+
+  const newLines = input.lines.map((line) => {
+    const workCenter = workCenterById.get(line.workCenterId);
+    const product = productById.get(line.productId);
+    const operator = employeeById.get(line.operatorId);
+    if (!workCenter || !product || !operator) {
+      throw new Error('Непредвиденная ошибка валидации');
+    }
+    return {
+      workCenterId: workCenter.id,
+      productId: product.id,
+      plannedQuantity: parsePositiveDecimal(line.plannedQuantity),
+      operatorId: operator.id,
+      workerIds: line.workerIds?.filter((id) => Boolean(id)) ?? [],
+    };
+  });
+
+  const result = await deps.prisma.$transaction(async (tx) => {
+    await tx.productionOrder.update({
+      where: { id: orderId },
+      data: { shiftId: input.shiftId, updatedAt: new Date() },
+    });
+
+    await tx.productionOrderLine.deleteMany({ where: { orderId } });
+
+    await Promise.all(
+      newLines.map((line) =>
+        tx.productionOrderLine.create({
+          data: {
+            orderId,
+            workCenterId: line.workCenterId,
+            productId: line.productId,
+            plannedQuantity: line.plannedQuantity,
+            operatorId: line.operatorId,
+            status: 'ASSIGNED',
+            workerAssignments: {
+              create: line.workerIds.map((employeeId) => ({ employeeId })),
+            },
+          },
+        }),
+      ),
+    );
+
+    const updated = await tx.productionOrder.findUnique({
+      where: { id: orderId },
+      include: { lines: true },
+    });
+    if (!updated) {
+      throw new Error('ПЗ не найдено после корректировки');
+    }
+
+    await deps.writeAudit(tx, {
+      action: 'UPDATE',
+      objectType: 'ProductionOrder',
+      objectId: order.id,
+      field: 'lines',
+      oldValue: JSON.stringify(oldLines),
+      newValue: JSON.stringify(newLines),
+      userId,
+      userRoles: roles,
+      permission: 'production_order:update',
+    });
+
+    await deps.writeTiming(tx, {
+      documentType: 'PRODUCTION_ORDER',
+      documentId: order.id,
+      entityType: 'DOCUMENT',
+      entityId: order.id,
+      fromStatus: order.status,
+      toStatus: order.status,
+      initiatorRole: 'NP',
+      initiatorId: userId,
+    });
+
+    return updated;
+  });
+
+  revalidatePath('/production-orders');
+  revalidatePath('/production-orders/' + orderId);
+  return result;
+}
+
+export async function updateProductionOrderAction(
+  orderId: string,
+  formData: FormData,
+): Promise<UpdateProductionOrderResult> {
+  try {
+    const shiftId = formData.get('shiftId') as string;
+    const linesRaw = formData.get('lines') as string;
+    const lines: ProductionOrderLineInput[] = linesRaw ? JSON.parse(linesRaw) : [];
+
+    await updateProductionOrder(orderId, { shiftId, lines });
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Не удалось изменить ПЗ';
     return { success: false, error: message };
   }
 }
