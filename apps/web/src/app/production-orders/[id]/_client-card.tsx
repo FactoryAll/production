@@ -43,6 +43,14 @@ const STATUS_LABELS: Record<string, string> = {
   CANCELLED: 'Отменено',
 };
 
+const STATUS_BADGE_CLASS: Record<string, string> = {
+  DRAFT: 'bg-neutral-200 text-graphite',
+  CONFIRMED: 'bg-deep-industry-blue text-white',
+  IN_PROGRESS: 'bg-blue-100 text-graphite',
+  COMPLETED: 'bg-green-100 text-graphite',
+  CANCELLED: 'bg-signal-amber text-graphite',
+};
+
 function formatShift(shift: Shift): string {
   const date = new Date(shift.date).toLocaleDateString('ru-RU');
   return 'Смена ' + shift.number + ' (' + date + ', ' + shift.start + '–' + shift.end + ')';
@@ -63,6 +71,10 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
   const hasReportedLine = order.lines.some((line) => line.status === 'REPORTED');
   const canEdit =
     editableStatuses.includes(order.status) && !hasReportedLine && hasPermission(userRoles, 'production_order:update');
+  const isCompleted = order.status === 'COMPLETED';
+  const isInProgress = order.status === 'IN_PROGRESS';
+  const reportedCount = order.lines.filter((line) => line.status === 'REPORTED').length;
+  const totalCount = order.lines.length;
 
   function handleConfirm() {
     startTransition(async () => {
@@ -101,6 +113,17 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
         </div>
       </div>
 
+      <div className="flex items-center gap-2">
+        <span className={"rounded px-3 py-1 text-sm font-medium " + (STATUS_BADGE_CLASS[order.status] ?? 'bg-neutral-100 text-graphite')}>
+          {STATUS_LABELS[order.status] ?? order.status}
+        </span>
+        {isInProgress && (
+          <span className="text-sm text-neutral-500">
+            {reportedCount} из {totalCount} РЦ завершили
+          </span>
+        )}
+      </div>
+
       <Card className="grid gap-4 sm:grid-cols-2">
         <div>
           <span className="text-sm text-neutral-500">Смена</span>
@@ -121,6 +144,12 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
             {order.confirmedAt && ' (' + formatDate(order.confirmedAt) + ')'}
           </p>
         </div>
+        {isCompleted && (
+          <div>
+            <span className="text-sm text-neutral-500">Завершено</span>
+            <p className="text-graphite">{formatDate(order.completedAt)}</p>
+          </div>
+        )}
       </Card>
 
       <Card className="space-y-4">
