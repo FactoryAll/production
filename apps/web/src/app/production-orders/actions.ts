@@ -20,7 +20,8 @@ export type CreateProductionOrderResult =
   | { success: false; error: string };
 
 const ERRORS = {
-  NO_SHIFT: 'Не выбрана смена',
+  NO_SHIFT: 'Смена не найдена',
+  INACTIVE_SHIFT: 'Выбранная смена неактивна',
   NO_LINES: 'Добавьте хотя бы одну строку ПЗ',
   LINE_INCOMPLETE: 'Заполните РЦ, номенклатуру, количество и Оператора',
   INVALID_QUANTITY: 'Плановое количество должно быть больше 0',
@@ -73,6 +74,9 @@ export async function createProductionOrder(
   });
   if (!shift) {
     throw new Error(ERRORS.NO_SHIFT);
+  }
+  if (!shift.active) {
+    throw new Error(ERRORS.INACTIVE_SHIFT);
   }
 
   if (!input.lines.length) {

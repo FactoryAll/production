@@ -94,7 +94,7 @@ function buildMockPrisma(overrides: {
     },
   ] as Employee[];
 
-  const shift = overrides.shift ?? {
+  const shift = overrides.shift !== undefined ? overrides.shift : {
     id: 'shift-1',
     number: 1,
     date: new Date(),
@@ -173,6 +173,7 @@ describe('createProductionOrder', () => {
 
     expect(result.status).toBe('DRAFT');
     expect(result.lines.length).toBe(1);
+    expect(result.lines[0].status).toBe('ASSIGNED');
     expect(deps.writeAudit).toHaveBeenCalled();
     expect(deps.writeTiming).toHaveBeenCalled();
 
@@ -302,6 +303,162 @@ describe('createProductionOrder', () => {
         deps,
       ),
     ).rejects.toThrow('Добавьте хотя бы одну строку ПЗ');
+  });
+
+  it('rejects missing shift (BR-4)', async () => {
+    const deps = buildMockDeps({ shift: null });
+    await expect(
+      createProductionOrder(
+        {
+          shiftId: 'missing-shift',
+          lines: [
+            {
+              workCenterId: 'wc-01',
+              productId: 'mass-1',
+              plannedQuantity: 5,
+              operatorId: 'emp-1',
+            },
+          ],
+        },
+        deps,
+      ),
+    ).rejects.toThrow('Смена не найдена');
+  });
+
+  it('rejects inactive shift (BR-4)', async () => {
+    const deps = buildMockDeps({
+      shift: {
+        id: 'shift-1',
+        number: 1,
+        date: new Date(),
+        start: '08:00',
+        end: '20:00',
+        active: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as Shift,
+    });
+    await expect(
+      createProductionOrder(
+        {
+          shiftId: 'shift-1',
+          lines: [
+            {
+              workCenterId: 'wc-01',
+              productId: 'mass-1',
+              plannedQuantity: 5,
+              operatorId: 'emp-1',
+            },
+          ],
+        },
+        deps,
+      ),
+    ).rejects.toThrow('Выбранная смена неактивна');
+  });
+
+  it('rejects duplicate work center with different operators (BR-3)', async () => {
+    const deps = buildMockDeps({
+      employees: [
+        {
+          id: 'emp-1',
+          tabNumber: '001',
+          fullName: 'Иванов И.И.',
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          id: 'emp-2',
+          tabNumber: '002',
+          fullName: 'Петров П.П.',
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ] as Employee[],
+    });
+    await expect(
+      createProductionOrder(
+        {
+          shiftId: 'shift-1',
+          lines: [
+            {
+              workCenterId: 'wc-01',
+              productId: 'mass-1',
+              plannedQuantity: 5,
+              operatorId: 'emp-1',
+            },
+            {
+              workCenterId: 'wc-01',
+              productId: 'mass-1',
+              plannedQuantity: 3,
+              operatorId: 'emp-2',
+            },
+          ],
+        },
+        deps,
+      ),
+    ).rejects.toThrow('РЦ может встречаться в ПЗ только один раз');
+  });
+
+  it('rejects line without work center (completeness)', async () => {
+    const deps = buildMockDeps();
+    await expect(
+      createProductionOrder(
+        {
+          shiftId: 'shift-1',
+          lines: [
+            {
+              workCenterId: '',
+              productId: 'mass-1',
+              plannedQuantity: 5,
+              operatorId: 'emp-1',
+            },
+          ],
+        },
+        deps,
+      ),
+    ).rejects.toThrow('Заполните РЦ, номенклатуру, количество и Оператора');
+  });
+
+  it('rejects line without product (completeness)', async () => {
+    const deps = buildMockDeps();
+    await expect(
+      createProductionOrder(
+        {
+          shiftId: 'shift-1',
+          lines: [
+            {
+              workCenterId: 'wc-01',
+              productId: '',
+              plannedQuantity: 5,
+              operatorId: 'emp-1',
+            },
+          ],
+        },
+        deps,
+      ),
+    ).rejects.toThrow('Заполните РЦ, номенклатуру, количество и Оператора');
+  });
+
+  it('rejects line without planned quantity (completeness)', async () => {
+    const deps = buildMockDeps();
+    await expect(
+      createProductionOrder(
+        {
+          shiftId: 'shift-1',
+          lines: [
+            {
+              workCenterId: 'wc-01',
+              productId: 'mass-1',
+              plannedQuantity: undefined as unknown as number,
+              operatorId: 'emp-1',
+            },
+          ],
+        },
+        deps,
+      ),
+    ).rejects.toThrow('Плановое количество должно быть больше 0');
   });
 });
 
