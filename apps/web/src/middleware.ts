@@ -25,6 +25,9 @@ function getRequiredPermissions(pathname: string, method: string): PermissionCod
     if (pathname.includes('/edit') || pathname.includes('/create') || pathname.includes('/new')) {
       return ['production_order:create', 'production_order:update'];
     }
+    if (pathname.includes('/confirm')) {
+      return ['production_order:confirm'];
+    }
     return ['production_order:read', 'production_order:read_own'];
   }
   if (pathname.startsWith('/shift-execution/')) {

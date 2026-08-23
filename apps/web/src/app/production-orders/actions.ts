@@ -19,6 +19,10 @@ export type CreateProductionOrderResult =
   | { success: true; id: string }
   | { success: false; error: string };
 
+export type ConfirmProductionOrderResult =
+  | { success: true }
+  | { success: false; error: string };
+
 const ERRORS = {
   NO_SHIFT: 'Смена не найдена',
   INACTIVE_SHIFT: 'Выбранная смена неактивна',
@@ -225,6 +229,143 @@ export async function getProductionOrderCreateData() {
   return { shifts, workCenters, products, employees };
 }
 
+export async function confirmProductionOrder(
+  orderId: string,
+  deps: CreateProductionOrderDeps = { prisma, writeAudit, writeTiming, requirePermission },
+): Promise<ProductionOrder & { lines: ProductionOrderLine[] }> {
+  const session = await deps.requirePermission('production_order:confirm');
+  const userId = session.userId;
+  const roles = session.user.roles.map((ur) => ur.role.code);
+
+  const order = await deps.prisma.productionOrder.findUnique({
+    where: { id: orderId },
+    include: {
+      shift: true,
+      lines: {
+        include: {
+          operator: true,
+        },
+      },
+    },
+  });
+
+  if (!order) {
+    throw new Error('ПЗ не найдено');
+  }
+
+  if (order.status !== 'DRAFT') {
+    throw new Error('ПЗ нельзя подтвердить в этом статусе');
+  }
+
+  if (order.lines.length === 0) {
+    throw new Error('ПЗ не содержит строк');
+  }
+
+  for (const line of order.lines) {
+    if (!line.workCenterId || !line.productId || line.plannedQuantity.lessThanOrEqualTo(0) || !line.operatorId) {
+      throw new Error('ПЗ содержит неполную строку (строка ' + line.id.slice(0, 8) + ')');
+    }
+  }
+
+  const confirmedAt = new Date();
+  const uniqueOperatorIds = [...new Set(order.lines.map((line) => line.operatorId).filter((id): id is string => Boolean(id)))];
+
+  const result = await deps.prisma.$transaction(async (tx) => {
+    const updated = await tx.productionOrder.update({
+      where: { id: orderId },
+      data: {
+        status: 'CONFIRMED',
+        confirmedAt,
+        confirmedByUserId: userId,
+      },
+      include: { lines: true },
+    });
+
+    await deps.writeAudit(tx, {
+      action: 'UPDATE',
+      objectType: 'ProductionOrder',
+      objectId: order.id,
+      field: 'status',
+      oldValue: 'DRAFT',
+      newValue: 'CONFIRMED',
+      userId,
+      userRoles: roles,
+      permission: 'production_order:confirm',
+    });
+
+    await deps.writeTiming(tx, {
+      documentType: 'PRODUCTION_ORDER',
+      documentId: order.id,
+      entityType: 'DOCUMENT',
+      entityId: order.id,
+      fromStatus: 'DRAFT',
+      toStatus: 'CONFIRMED',
+      initiatorRole: 'NP',
+      initiatorId: userId,
+    });
+
+    if (uniqueOperatorIds.length > 0) {
+      const shiftName = 'Смена ' + order.shift.number;
+      await tx.notification.createMany({
+        data: uniqueOperatorIds.map((recipientId) => ({
+          eventCode: 'EV_01',
+          recipientId,
+          title: 'Подтверждено производственное задание',
+          body: JSON.stringify({
+            orderId: order.id,
+            shiftId: order.shift.id,
+            shiftName,
+            linesCount: order.lines.length,
+            confirmedAt,
+          }),
+          deepLink: '/production-orders/' + order.id,
+        })),
+      });
+    }
+
+    return updated;
+  });
+
+  revalidatePath('/production-orders');
+  revalidatePath('/production-orders/' + orderId);
+  return result;
+}
+
+export async function confirmProductionOrderAction(orderId: string): Promise<ConfirmProductionOrderResult> {
+  try {
+    await confirmProductionOrder(orderId);
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Не удалось подтвердить ПЗ';
+    return { success: false, error: message };
+  }
+}
+
+export async function getProductionOrderById(id: string) {
+  await requirePermission('production_order:read');
+
+  return prisma.productionOrder.findUnique({
+    where: { id },
+    include: {
+      shift: true,
+      createdBy: { select: { id: true, login: true } },
+      confirmedBy: { select: { id: true, login: true } },
+      lines: {
+        include: {
+          workCenter: true,
+          product: true,
+          operator: true,
+          workerAssignments: {
+            include: {
+              employee: true,
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
 export async function getProductionOrders() {
   await requirePermission('production_order:read');
 
@@ -240,3 +381,4 @@ export async function getProductionOrders() {
     },
   });
 }
+
