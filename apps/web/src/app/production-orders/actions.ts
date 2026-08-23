@@ -1,7 +1,13 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import type { ProductionOrder, ProductionOrderLine, ProductionOrderStatus } from '@prisma/client';
+import type {
+  ProductionOrder,
+  ProductionOrderLine,
+  ProductionOrderLineStatus,
+  ProductionOrderStatus,
+  EventCode,
+} from '@prisma/client';
 import { prisma, writeAudit, writeTiming } from '@prodtrack/db';
 import { requirePermission } from '@/lib/auth/access';
 import {
@@ -9,6 +15,10 @@ import {
   parsePositiveDecimal,
   type ProductionOrderLineInput,
 } from '@/lib/validation/production-order';
+import {
+  checkAndCloseProductionOrder,
+  transitionToInProgress,
+} from '@/lib/production-order-closing';
 
 export type CreateProductionOrderResult =
   | { success: true; id: string }
@@ -22,6 +32,10 @@ export type UpdateProductionOrderResult =
   | { success: true }
   | { success: false; error: string };
 
+export type SubstituteOperatorResult =
+  | { success: true }
+  | { success: false; error: string };
+
 
 export interface CreateProductionOrderDeps {
   prisma: typeof prisma;
@@ -30,7 +44,8 @@ export interface CreateProductionOrderDeps {
   requirePermission: typeof requirePermission;
 }
 
-// TODO T-028: реализовать ввод за Оператора (Р-11)
+export type PrismaLike = CreateProductionOrderDeps['prisma'];
+
 // TODO T-030: реализовать корректировку факта после закрытия (Р-18)
 export async function createProductionOrder(
   input: { shiftId: string; lines: ProductionOrderLineInput[] },
@@ -457,6 +472,166 @@ export async function getProductionOrderById(id: string) {
       },
     },
   });
+}
+
+const SUBSTITUTION_REASON_CODES = ['ILLNESS', 'NO_SHOW', 'LEFT_SHIFT', 'OTHER'] as const;
+type SubstitutionReasonCode = (typeof SUBSTITUTION_REASON_CODES)[number];
+
+function isSubstitutionReasonCode(value: unknown): value is SubstitutionReasonCode {
+  return typeof value === 'string' && SUBSTITUTION_REASON_CODES.includes(value as SubstitutionReasonCode);
+}
+
+async function findS1CUserIds(client: { user: { findMany: typeof prisma.user.findMany } }): Promise<string[]> {
+  const users = await client.user.findMany({
+    where: { roles: { some: { role: { code: 'S1C' } } } },
+    select: { id: true },
+  });
+  return users.map((u: { id: string }) => u.id);
+}
+
+export async function substituteOperator(
+  lineId: string,
+  input: { reasonCode: string; comment: string },
+  deps: CreateProductionOrderDeps = { prisma, writeAudit, writeTiming, requirePermission },
+): Promise<void> {
+  const session = await deps.requirePermission('production_order:confirm');
+  const userId = session.userId;
+  const roles = session.user.roles.map((ur) => ur.role.code);
+
+  const line = await deps.prisma.productionOrderLine.findUnique({
+    where: { id: lineId },
+    include: { order: true, operator: true },
+  });
+  if (!line) {
+    throw new Error('Строка ПЗ не найдена');
+  }
+
+  const editableLineStatuses: ProductionOrderLineStatus[] = ['ASSIGNED', 'ACCEPTED'];
+  if (!editableLineStatuses.includes(line.status)) {
+    throw new Error('Строка уже в REPORTED');
+  }
+
+  if (!isSubstitutionReasonCode(input.reasonCode)) {
+    throw new Error('Недопустимый код причины ввода за Оператора');
+  }
+  const reasonCode = input.reasonCode;
+
+  const comment = input.comment.trim();
+  if (comment.length === 0) {
+    throw new Error('Комментарий обязателен');
+  }
+
+  const operatorId = line.operatorId;
+  const orderId = line.orderId;
+  const oldStatus = line.status;
+
+  const attributedRole = (() => {
+    const match = roles.find((role) => role === 'NP' || role === 'ADM');
+    return match ?? undefined;
+  })();
+
+  await deps.prisma.$transaction(async (tx) => {
+    await tx.productionOrderLine.update({
+      where: { id: lineId },
+      data: { status: 'REPORTED' },
+    });
+
+    await deps.writeAudit(tx, {
+      action: 'UPDATE',
+      objectType: 'ProductionOrderLine',
+      objectId: lineId,
+      field: 'status',
+      oldValue: oldStatus,
+      newValue: 'REPORTED',
+      userId,
+      userRoles: roles,
+      permission: 'production_order:confirm',
+    });
+
+    await deps.writeAudit(tx, {
+      action: 'UPDATE',
+      objectType: 'ProductionOrderLine',
+      objectId: lineId,
+      field: 'substitution',
+      oldValue: undefined,
+      newValue: JSON.stringify({ reasonCode, comment }),
+      userId,
+      userRoles: roles,
+      permission: 'production_order:confirm',
+    });
+
+    await deps.writeTiming(tx, {
+      documentType: 'PRODUCTION_ORDER',
+      documentId: lineId,
+      entityType: 'LINE',
+      entityId: lineId,
+      fromStatus: oldStatus,
+      toStatus: 'REPORTED',
+      initiatorRole: attributedRole,
+      initiatorId: userId,
+    });
+
+    await transitionToInProgress(orderId, tx as unknown as PrismaLike, session);
+    await checkAndCloseProductionOrder(orderId, tx as unknown as PrismaLike, session);
+
+    const recipientIds = new Set<string>();
+    if (operatorId) {
+      recipientIds.add(operatorId);
+    }
+    const s1cUserIds = await findS1CUserIds(tx as unknown as PrismaLike);
+    for (const id of s1cUserIds) {
+      recipientIds.add(id);
+    }
+
+    const uniqueRecipientIds = [...recipientIds];
+    if (uniqueRecipientIds.length > 0) {
+      await tx.notification.createMany({
+        data: uniqueRecipientIds.map((recipientId) => ({
+          eventCode: 'EV_08' as EventCode,
+          recipientId,
+          title: 'Смена закрыта за Оператора',
+          body: JSON.stringify({
+            orderId,
+            lineId,
+            operatorId,
+            reasonCode,
+            comment,
+          }),
+          deepLink: '/production-orders/' + orderId,
+        })),
+      });
+    }
+
+    if (s1cUserIds.length > 0) {
+      await tx.notification.createMany({
+        data: s1cUserIds.map((recipientId) => ({
+          eventCode: 'EV_03' as EventCode,
+          recipientId,
+          title: 'Итог смены внесён',
+          body: JSON.stringify({ orderId, lineId }),
+          deepLink: '/production-orders/' + orderId,
+        })),
+      });
+    }
+  });
+
+  revalidatePath('/production-orders');
+  revalidatePath('/production-orders/' + orderId);
+}
+
+export async function substituteOperatorAction(
+  lineId: string,
+  formData: FormData,
+): Promise<SubstituteOperatorResult> {
+  try {
+    const reasonCode = formData.get('reasonCode') as string;
+    const comment = formData.get('comment') as string;
+    await substituteOperator(lineId, { reasonCode, comment });
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Не удалось внести итог за Оператора';
+    return { success: false, error: message };
+  }
 }
 
 export async function getProductionOrders() {

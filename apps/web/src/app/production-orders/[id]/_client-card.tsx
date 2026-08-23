@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Button, Card, Dialog } from '@prodtrack/ui';
+import { Button, Card, Dialog, Select, Label } from '@prodtrack/ui';
 import { hasPermission } from '@prodtrack/contracts';
 import type {
   ProductionOrder,
@@ -16,7 +16,7 @@ import type {
   User,
   ProductionOrderLineWorkers,
 } from '@prisma/client';
-import { confirmProductionOrderAction } from '../actions';
+import { confirmProductionOrderAction, substituteOperatorAction } from '../actions';
 
 interface ProductionOrderCardProps {
   order: ProductionOrder & {
@@ -61,27 +61,76 @@ function formatDate(value: Date | null): string {
   return new Date(value).toLocaleString('ru-RU');
 }
 
+const SUBSTITUTION_REASON_OPTIONS = [
+  { value: 'ILLNESS', label: 'Болезнь' },
+  { value: 'NO_SHOW', label: 'Неявка' },
+  { value: 'LEFT_SHIFT', label: 'Ушёл во время смены' },
+  { value: 'OTHER', label: 'Прочее' },
+];
+
 export default function ProductionOrderCard({ order, userRoles }: ProductionOrderCardProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [showDialog, setShowDialog] = useState(false);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [showSubstituteDialog, setShowSubstituteDialog] = useState(false);
+  const [substituteLineId, setSubstituteLineId] = useState<string | null>(null);
+  const [substituteReason, setSubstituteReason] = useState('');
+  const [substituteComment, setSubstituteComment] = useState('');
+  const [substituteError, setSubstituteError] = useState<string | null>(null);
   const isDraft = order.status === 'DRAFT';
   const canConfirm = isDraft && hasPermission(userRoles, 'production_order:confirm');
   const editableStatuses: ProductionOrderStatus[] = ['DRAFT', 'CONFIRMED', 'IN_PROGRESS'];
   const hasReportedLine = order.lines.some((line) => line.status === 'REPORTED');
-  const canEdit =
-    editableStatuses.includes(order.status) && !hasReportedLine && hasPermission(userRoles, 'production_order:update');
   const isCompleted = order.status === 'COMPLETED';
   const isInProgress = order.status === 'IN_PROGRESS';
+  const canEdit =
+    editableStatuses.includes(order.status) && !hasReportedLine && hasPermission(userRoles, 'production_order:update');
+  const canSubstitute = hasPermission(userRoles, 'production_order:confirm') && !isDraft && !isCompleted;
   const reportedCount = order.lines.filter((line) => line.status === 'REPORTED').length;
   const totalCount = order.lines.length;
 
   function handleConfirm() {
     startTransition(async () => {
       const result = await confirmProductionOrderAction(order.id);
-      setShowDialog(false);
+      setShowConfirmDialog(false);
       if (result.success) {
         router.refresh();
+      }
+    });
+  }
+
+  function openSubstituteDialog(lineId: string) {
+    setSubstituteLineId(lineId);
+    setSubstituteReason('');
+    setSubstituteComment('');
+    setSubstituteError(null);
+    setShowSubstituteDialog(true);
+  }
+
+  function handleSubstituteSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSubstituteError(null);
+    if (!substituteLineId) return;
+    if (!substituteReason) {
+      setSubstituteError('Выберите причину');
+      return;
+    }
+    if (!substituteComment.trim()) {
+      setSubstituteError('Комментарий обязателен');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set('reasonCode', substituteReason);
+    formData.set('comment', substituteComment.trim());
+
+    startTransition(async () => {
+      const result = await substituteOperatorAction(substituteLineId, formData);
+      if (result.success) {
+        setShowSubstituteDialog(false);
+        router.refresh();
+      } else {
+        setSubstituteError(result.error ?? 'Не удалось внести итог за Оператора');
       }
     });
   }
@@ -106,7 +155,7 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
             </Link>
           )}
           {canConfirm && (
-            <Button variant="cta" onClick={() => setShowDialog(true)} disabled={isPending}>
+            <Button variant="cta" onClick={() => setShowConfirmDialog(true)} disabled={isPending}>
               Подтвердить ПЗ
             </Button>
           )}
@@ -163,6 +212,7 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
                 <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Количество</th>
                 <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Оператор</th>
                 <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Работники</th>
+                <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Действия</th>
               </tr>
             </thead>
             <tbody>
@@ -185,6 +235,18 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
                       ? line.workerAssignments.map((wa) => wa.employee.fullName).join(', ')
                       : '—'}
                   </td>
+                  <td className="border-b border-mist-metal px-4 py-3 text-graphite">
+                    {canSubstitute && (line.status === 'ASSIGNED' || line.status === 'ACCEPTED') && (
+                      <Button
+                        variant="cta"
+                        size="sm"
+                        disabled={isPending}
+                        onClick={() => openSubstituteDialog(line.id)}
+                      >
+                        Ввести за Оператора
+                      </Button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -192,18 +254,70 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
         </div>
       </Card>
 
-      <Dialog open={showDialog} onClose={() => setShowDialog(false)} title="Подтвердить ПЗ?">
+      <Dialog open={showConfirmDialog} onClose={() => setShowConfirmDialog(false)} title="Подтвердить ПЗ?">
         <p className="text-graphite">
           Операторы получат уведомления. После подтверждения корректировка будет возможна только до первого отчёта Оператора.
         </p>
         <div className="mt-6 flex justify-end gap-3">
-          <Button variant="secondary" onClick={() => setShowDialog(false)} disabled={isPending}>
+          <Button variant="secondary" onClick={() => setShowConfirmDialog(false)} disabled={isPending}>
             Отмена
           </Button>
           <Button variant="cta" onClick={handleConfirm} disabled={isPending}>
             {isPending ? 'Подтверждение...' : 'Подтвердить'}
           </Button>
         </div>
+      </Dialog>
+
+      <Dialog
+        open={showSubstituteDialog}
+        onClose={() => setShowSubstituteDialog(false)}
+        title="Внести итог за Оператора"
+      >
+        <form onSubmit={handleSubstituteSubmit} className="space-y-4">
+          <div>
+            <Label>Оператор</Label>
+            <p className="text-graphite">
+              {order.lines.find((line) => line.id === substituteLineId)?.operator?.fullName ?? '—'}
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="substitute-reason">Причина</Label>
+            <Select
+              id="substitute-reason"
+              value={substituteReason}
+              onChange={(e) => setSubstituteReason(e.target.value)}
+              options={SUBSTITUTION_REASON_OPTIONS}
+              placeholder="Выберите причину"
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="substitute-comment">Комментарий</Label>
+            <textarea
+              id="substitute-comment"
+              value={substituteComment}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setSubstituteComment(e.target.value)}
+              placeholder="Укажите причину ввода за Оператора"
+              required
+              rows={3}
+              className="flex min-h-[80px] w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
+            />
+          </div>
+          {substituteError && <p className="text-sm text-signal-amber">{substituteError}</p>}
+          <div className="mt-6 flex justify-end gap-3">
+            <Button
+              variant="secondary"
+              type="button"
+              onClick={() => setShowSubstituteDialog(false)}
+              disabled={isPending}
+            >
+              Отмена
+            </Button>
+            <Button variant="cta" type="submit" disabled={isPending}>
+              {isPending ? 'Сохранение...' : 'Внести итог'}
+            </Button>
+          </div>
+        </form>
       </Dialog>
     </div>
   );

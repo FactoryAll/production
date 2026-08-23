@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Prisma, type WorkCenter, type Product, type Employee, type Shift } from '@prisma/client';
 const Decimal = Prisma.Decimal;
-import { createProductionOrder, createProductionOrderAction, confirmProductionOrder, updateProductionOrder } from '../actions';
+import { createProductionOrder, createProductionOrderAction, confirmProductionOrder, updateProductionOrder, substituteOperator } from '../actions';
 
 vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
@@ -145,9 +145,11 @@ function buildMockPrisma(overrides: {
           confirmedByUserId: args.data.status === 'CONFIRMED' ? 'user-1' : resolvedOrder.confirmedByUserId,
         });
       });
+      const lineUpdateSpy = vi.fn().mockResolvedValue(undefined);
       const createManySpy = vi.fn().mockResolvedValue(undefined);
       const deleteManySpy = vi.fn().mockResolvedValue(undefined);
       const createSpy = vi.fn().mockResolvedValue({ id: 'line-new' });
+      const userFindManySpy = vi.fn().mockResolvedValue([{ id: 's1c-user-1' }]);
       const tx = {
         productionOrder: {
           create: vi.fn().mockResolvedValue(resolvedOrder),
@@ -157,9 +159,14 @@ function buildMockPrisma(overrides: {
         productionOrderLine: {
           deleteMany: deleteManySpy,
           create: createSpy,
+          findUnique: vi.fn().mockResolvedValue(resolvedOrder.lines[0]),
+          update: lineUpdateSpy,
         },
         notification: {
           createMany: createManySpy,
+        },
+        user: {
+          findMany: userFindManySpy,
         },
       };
       const result = await cb(tx);
@@ -1064,5 +1071,270 @@ describe('updateProductionOrder', () => {
         deps,
       ),
     ).rejects.toThrow('Заполните РЦ, номенклатуру, количество и Оператора');
+  });
+});
+
+function buildSubstitutableLine(status: 'ASSIGNED' | 'ACCEPTED' | 'REPORTED', overrides: Partial<MockOrderLine> = {}): MockOrderLine {
+  return {
+    id: 'line-1',
+    orderId: 'po-1',
+    workCenterId: 'wc-01',
+    productId: 'mass-1',
+    plannedQuantity: new Decimal(10),
+    operatorId: 'emp-1',
+    status,
+    comment: null,
+    substitutionReasonId: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    operator: {
+      id: 'emp-1',
+      tabNumber: '001',
+      fullName: 'Иванов И.И.',
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as Employee,
+    ...overrides,
+  } as MockOrderLine;
+}
+
+function buildSubstituteDeps(
+  line: MockOrderLine,
+  order: ReturnType<typeof buildConfirmableOrder>,
+  s1cUsers: { id: string }[] = [{ id: 's1c-user-1' }],
+) {
+  const requirePermission = vi.fn().mockResolvedValue({
+    userId: 'user-1',
+    user: { roles: [{ role: { code: 'NP' } }] },
+  });
+  const writeAudit = vi.fn();
+  const writeTiming = vi.fn();
+  const lineUpdate = vi.fn().mockResolvedValue({ ...line, status: 'REPORTED' });
+  const notificationCreateMany = vi.fn().mockResolvedValue(undefined);
+  const userFindMany = vi.fn().mockResolvedValue(s1cUsers);
+  const orderUpdate = vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+    Promise.resolve({ ...order, ...data }),
+  );
+  const orderFindUnique = vi.fn().mockResolvedValue(order);
+  const productionOrderLineFindUnique = vi.fn().mockResolvedValue(line);
+
+  const tx = {
+    productionOrderLine: {
+      update: lineUpdate,
+      findUnique: productionOrderLineFindUnique,
+    },
+    productionOrder: {
+      update: orderUpdate,
+      findUnique: orderFindUnique,
+    },
+    notification: {
+      createMany: notificationCreateMany,
+    },
+    user: {
+      findMany: userFindMany,
+    },
+  };
+
+  const prisma = {
+    productionOrderLine: {
+      findUnique: productionOrderLineFindUnique,
+    },
+    $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(tx)),
+  } as unknown as NonNullable<Parameters<typeof substituteOperator>[2]>['prisma'];
+
+  return {
+    prisma,
+    requirePermission,
+    writeAudit,
+    writeTiming,
+    lineUpdate,
+    notificationCreateMany,
+    userFindMany,
+    tx,
+  };
+}
+
+function buildSubstitutableOrder(
+  status: 'CONFIRMED' | 'IN_PROGRESS',
+  lines: MockOrderLine[],
+): ReturnType<typeof buildConfirmableOrder> {
+  return buildConfirmableOrder({ status, lines });
+}
+
+vi.mock('@/lib/production-order-closing', () => ({
+  transitionToInProgress: vi.fn().mockResolvedValue({ transitioned: true }),
+  checkAndCloseProductionOrder: vi.fn().mockResolvedValue({ closed: false, status: 'CONFIRMED' }),
+}));
+
+describe('substituteOperator', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('reports ASSIGNED line for ILLNESS with comment', async () => {
+    const line = buildSubstitutableLine('ASSIGNED');
+    const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
+    const deps = buildSubstituteDeps(line, order);
+    await substituteOperator('line-1', { reasonCode: 'ILLNESS', comment: 'Заболевание' }, {
+      prisma: deps.prisma,
+      requirePermission: deps.requirePermission,
+      writeAudit: deps.writeAudit,
+      writeTiming: deps.writeTiming,
+    });
+
+    expect(deps.lineUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REPORTED' } }));
+    expect(deps.writeAudit).toHaveBeenCalledTimes(2);
+    expect(deps.writeTiming).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports ACCEPTED line', async () => {
+    const line = buildSubstitutableLine('ACCEPTED');
+    const order = buildSubstitutableOrder('IN_PROGRESS', [line as MockOrderLine]);
+    const deps = buildSubstituteDeps(line, order);
+    await substituteOperator('line-1', { reasonCode: 'NO_SHOW', comment: 'Не вышел' }, {
+      prisma: deps.prisma,
+      requirePermission: deps.requirePermission,
+      writeAudit: deps.writeAudit,
+      writeTiming: deps.writeTiming,
+    });
+
+    expect(deps.lineUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REPORTED' } }));
+  });
+
+  it('generates EV_08 and EV_03 notifications with correct payload and recipients', async () => {
+    const line = buildSubstitutableLine('ASSIGNED');
+    const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
+    const deps = buildSubstituteDeps(line, order, [{ id: 's1c-user-1' }, { id: 's1c-user-2' }]);
+    await substituteOperator('line-1', { reasonCode: 'LEFT_SHIFT', comment: 'Ушёл' }, {
+      prisma: deps.prisma,
+      requirePermission: deps.requirePermission,
+      writeAudit: deps.writeAudit,
+      writeTiming: deps.writeTiming,
+    });
+
+    expect(deps.notificationCreateMany).toHaveBeenCalledTimes(2);
+    const calls = deps.notificationCreateMany.mock.calls;
+    const ev08Call = calls.find((call) => call[0].data.some((item: { eventCode: string }) => item.eventCode === 'EV_08'));
+    const ev03Call = calls.find((call) => call[0].data.some((item: { eventCode: string }) => item.eventCode === 'EV_03'));
+
+    expect(ev08Call).toBeDefined();
+    const ev08Data = ev08Call![0].data;
+    expect(ev08Data).toHaveLength(3); // operator + 2 S1C
+    expect(ev08Data.map((item: { recipientId: string }) => item.recipientId).sort()).toEqual(['emp-1', 's1c-user-1', 's1c-user-2']);
+    const ev08Payload = JSON.parse(ev08Data[0].body);
+    expect(ev08Payload).toMatchObject({ orderId: 'po-1', lineId: 'line-1', operatorId: 'emp-1', reasonCode: 'LEFT_SHIFT', comment: 'Ушёл' });
+
+    expect(ev03Call).toBeDefined();
+    const ev03Data = ev03Call![0].data;
+    expect(ev03Data).toHaveLength(2);
+    expect(ev03Data.every((item: { recipientId: string }) => ['s1c-user-1', 's1c-user-2'].includes(item.recipientId))).toBe(true);
+  });
+
+  it('calls writeAudit for status and substitution fields', async () => {
+    const line = buildSubstitutableLine('ASSIGNED');
+    const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
+    const deps = buildSubstituteDeps(line, order);
+    await substituteOperator('line-1', { reasonCode: 'OTHER', comment: 'Иная' }, {
+      prisma: deps.prisma,
+      requirePermission: deps.requirePermission,
+      writeAudit: deps.writeAudit,
+      writeTiming: deps.writeTiming,
+    });
+
+    const statusAudit = deps.writeAudit.mock.calls.find((call) => call[1].field === 'status');
+    const substitutionAudit = deps.writeAudit.mock.calls.find((call) => call[1].field === 'substitution');
+    expect(statusAudit).toBeDefined();
+    expect(substitutionAudit).toBeDefined();
+    expect(statusAudit![1]).toMatchObject({ objectType: 'ProductionOrderLine', oldValue: 'ASSIGNED', newValue: 'REPORTED' });
+    expect(substitutionAudit![1]).toMatchObject({ objectType: 'ProductionOrderLine', field: 'substitution' });
+    expect(JSON.parse(substitutionAudit![1].newValue)).toEqual({ reasonCode: 'OTHER', comment: 'Иная' });
+  });
+
+  it('calls checkAndCloseProductionOrder via closing module', async () => {
+    const line = buildSubstitutableLine('ASSIGNED');
+    const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
+    const deps = buildSubstituteDeps(line, order);
+    const { checkAndCloseProductionOrder, transitionToInProgress } = await import('@/lib/production-order-closing');
+    await substituteOperator('line-1', { reasonCode: 'ILLNESS', comment: 'Болезнь' }, {
+      prisma: deps.prisma,
+      requirePermission: deps.requirePermission,
+      writeAudit: deps.writeAudit,
+      writeTiming: deps.writeTiming,
+    });
+
+    expect(transitionToInProgress).toHaveBeenCalled();
+    expect(checkAndCloseProductionOrder).toHaveBeenCalled();
+  });
+
+  it('blocks substitute for REPORTED line', async () => {
+    const line = buildSubstitutableLine('REPORTED');
+    const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
+    const deps = buildSubstituteDeps(line, order);
+    await expect(
+      substituteOperator('line-1', { reasonCode: 'ILLNESS', comment: 'Болезнь' }, {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+      }),
+    ).rejects.toThrow('Строка уже в REPORTED');
+  });
+
+  it('blocks substitute without reason', async () => {
+    const line = buildSubstitutableLine('ASSIGNED');
+    const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
+    const deps = buildSubstituteDeps(line, order);
+    await expect(
+      substituteOperator('line-1', { reasonCode: '', comment: 'Болезнь' }, {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+      }),
+    ).rejects.toThrow('Недопустимый код причины ввода за Оператора');
+  });
+
+  it('blocks substitute with unknown reason', async () => {
+    const line = buildSubstitutableLine('ASSIGNED');
+    const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
+    const deps = buildSubstituteDeps(line, order);
+    await expect(
+      substituteOperator('line-1', { reasonCode: 'UNKNOWN', comment: 'Болезнь' }, {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+      }),
+    ).rejects.toThrow('Недопустимый код причины ввода за Оператора');
+  });
+
+  it('blocks substitute without comment', async () => {
+    const line = buildSubstitutableLine('ASSIGNED');
+    const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
+    const deps = buildSubstituteDeps(line, order);
+    await expect(
+      substituteOperator('line-1', { reasonCode: 'ILLNESS', comment: '' }, {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+      }),
+    ).rejects.toThrow('Комментарий обязателен');
+  });
+
+  it('blocks substitute without permission', async () => {
+    const line = buildSubstitutableLine('ASSIGNED');
+    const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
+    const deps = buildSubstituteDeps(line, order);
+    deps.requirePermission.mockRejectedValue(new Error('Forbidden'));
+    await expect(
+      substituteOperator('line-1', { reasonCode: 'ILLNESS', comment: 'Болезнь' }, {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+      }),
+    ).rejects.toThrow('Forbidden');
   });
 });
