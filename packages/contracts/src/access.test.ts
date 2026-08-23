@@ -3,8 +3,10 @@ import {
   RoleCode,
   hasPermission,
   requirePermission,
+  getAttributeRole,
   ALL_PERMISSIONS,
   ROLE_PERMISSIONS,
+  ROLE_PRIORITY,
 } from './index';
 
 describe('access matrix', () => {
@@ -26,6 +28,8 @@ describe('access matrix', () => {
     expect(hasPermission([RoleCode.OPR, RoleCode.KSGP], 'production_order:accept')).toBe(true);
     expect(hasPermission([RoleCode.OPR, RoleCode.KSGP], 'transfer:receive')).toBe(true);
     expect(hasPermission([RoleCode.OPR, RoleCode.KSGP], 'nsi:manage')).toBe(false);
+    expect(hasPermission([RoleCode.NP, RoleCode.OPR], 'production_order:report')).toBe(true);
+    expect(hasPermission([RoleCode.NP, RoleCode.OPR], 'stock:read')).toBe(true);
   });
 
   it('requirePermission throws for missing permission', () => {
@@ -48,5 +52,30 @@ describe('access matrix', () => {
     expect(ROLE_PERMISSIONS[RoleCode.KSGP]).toContain('transfer:reconcile');
     expect(ROLE_PERMISSIONS[RoleCode.USGP]).toContain('transfer:reconcile');
     expect(ROLE_PERMISSIONS[RoleCode.S1C]).toContain('onec:process');
+  });
+});
+
+describe('getAttributeRole', () => {
+  it('returns the only role that has the permission', () => {
+    expect(getAttributeRole([RoleCode.NP, RoleCode.OPR], 'production_order:report')).toBe(RoleCode.OPR);
+  });
+
+  it('returns the highest-priority role when multiple roles have the permission', () => {
+    expect(getAttributeRole([RoleCode.NP, RoleCode.OPR], 'stock:read')).toBe(RoleCode.NP);
+    expect(getAttributeRole([RoleCode.KSGP, RoleCode.OPR], 'stock:read')).toBe(RoleCode.OPR);
+  });
+
+  it('returns ADM for any action when ADM is in roles', () => {
+    expect(getAttributeRole([RoleCode.ADM, RoleCode.NP], 'production_order:create')).toBe(RoleCode.ADM);
+    expect(getAttributeRole([RoleCode.ADM, RoleCode.OPR], 'dashboard:read_own')).toBe(RoleCode.ADM);
+  });
+
+  it('returns null when no role has the permission', () => {
+    expect(getAttributeRole([RoleCode.OPR], 'nsi:manage')).toBeNull();
+    expect(getAttributeRole([RoleCode.S1C], 'production_order:create')).toBeNull();
+  });
+
+  it('priority order is ADM > NP > OPR > KSGP > USGP > S1C', () => {
+    expect(ROLE_PRIORITY).toEqual([RoleCode.ADM, RoleCode.NP, RoleCode.OPR, RoleCode.KSGP, RoleCode.USGP, RoleCode.S1C]);
   });
 });

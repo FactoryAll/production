@@ -57,6 +57,10 @@ export const ROLES = [
 const ADMIN_LOGIN = 'admin';
 const ADMIN_PASSWORD = 'admin123';
 
+export const TEST_MULTI_ROLE_LOGIN = 'test_multi_role';
+export const TEST_MULTI_ROLE_PASSWORD = 'test1234';
+export const TEST_MULTI_ROLE_ROLES: RoleCode[] = ['NP', 'OPR'];
+
 export const PERMISSIONS = [
   { code: 'production_order:create', action: 'Создание производственного задания' },
   { code: 'production_order:update', action: 'Изменение производственного задания' },
@@ -237,6 +241,31 @@ async function seedRoles() {
   }
 }
 
+async function seedMultiRoleUser() {
+  const roles = await prisma.role.findMany({
+    where: { code: { in: TEST_MULTI_ROLE_ROLES } },
+  });
+
+  if (roles.length === 0) return;
+
+  const passwordHash = await bcrypt.hash(TEST_MULTI_ROLE_PASSWORD, 10);
+  await prisma.user.upsert({
+    where: { login: TEST_MULTI_ROLE_LOGIN },
+    update: {
+      passwordHash,
+      active: true,
+      mustChangePassword: false,
+    },
+    create: {
+      login: TEST_MULTI_ROLE_LOGIN,
+      passwordHash,
+      active: true,
+      mustChangePassword: false,
+      roles: { create: roles.map((role) => ({ roleId: role.id })) },
+    },
+  });
+}
+
 async function seedAdmin() {
   const adminRole = await prisma.role.findUnique({ where: { code: 'ADM' } });
   if (!adminRole) return;
@@ -267,6 +296,7 @@ async function main() {
   await seedShifts();
   await seedRoles();
   await seedAdmin();
+  await seedMultiRoleUser();
   console.log('Reference data seeded successfully.');
 }
 

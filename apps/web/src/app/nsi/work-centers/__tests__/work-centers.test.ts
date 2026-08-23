@@ -31,7 +31,7 @@ vi.mock('@prodtrack/db', async () => {
 });
 
 vi.mock('@/lib/auth/access', () => ({
-  requirePermission: vi.fn().mockResolvedValue({ userId: 'admin-user' } as any),
+  requirePermission: vi.fn().mockResolvedValue({ userId: 'admin-user', user: { roles: [{ role: { code: 'ADM' } }] } } as any),
 }));
 
 const base: WorkCenter = {
@@ -78,7 +78,8 @@ describe('createWorkCenter', () => {
     expect(created.producesMass).toBe(true);
     expect(writeAudit).toHaveBeenCalled();
     const auditCall = (writeAudit as ReturnType<typeof vi.fn>).mock.calls[0][1];
-    expect(auditCall.role).toBe('ADM');
+    expect(auditCall.userRoles).toEqual(['ADM']);
+    expect(auditCall.permission).toBe('nsi:manage');
   });
 
   it('creates РЦ with producesMass=false for code 03', async () => {
@@ -144,4 +145,3 @@ describe('UC-M01-2: deactivation warnings (Phase 2/3 stub)', () => {
     expect(warnings).toEqual([]);
   });
 });
-

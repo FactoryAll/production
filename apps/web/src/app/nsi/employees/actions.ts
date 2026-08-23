@@ -36,7 +36,8 @@ function assertInput(input: EmployeeInput): void {
 }
 
 export async function createEmployee(input: EmployeeInput): Promise<Employee> {
-  const { userId } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const roles = userSession.roles.map((ur) => ur.role.code);
   const normalizedTabNumber = normalizeTabNumber(input.tabNumber);
   await assertTabNumberUnique(normalizedTabNumber);
   assertInput(input);
@@ -50,13 +51,13 @@ export async function createEmployee(input: EmployeeInput): Promise<Employee> {
       },
     });
 
-    // TODO T-021: роль определяется по типу действия (Р-23), сейчас захардкожено ADM
-    await writeAudit(tx, {
+        await writeAudit(tx, {
       action: 'CREATE',
       objectType: 'Employee',
       objectId: created.id,
       userId,
-      role: 'ADM',
+      userRoles: roles,
+      permission: 'nsi:manage',
       newValue: JSON.stringify({
         fullName: created.fullName,
         tabNumber: created.tabNumber,
@@ -71,7 +72,8 @@ export async function createEmployee(input: EmployeeInput): Promise<Employee> {
 }
 
 export async function updateEmployee(id: string, input: EmployeeInput): Promise<Employee> {
-  const { userId } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const roles = userSession.roles.map((ur) => ur.role.code);
   const normalizedTabNumber = normalizeTabNumber(input.tabNumber);
   await assertTabNumberUnique(normalizedTabNumber, id);
   assertInput(input);
@@ -91,13 +93,13 @@ export async function updateEmployee(id: string, input: EmployeeInput): Promise<
       },
     });
 
-    // TODO T-021: роль определяется по типу действия (Р-23), сейчас захардкожено ADM
-    await writeAudit(tx, {
+        await writeAudit(tx, {
       action: 'UPDATE',
       objectType: 'Employee',
       objectId: updated.id,
       userId,
-      role: 'ADM',
+      userRoles: roles,
+      permission: 'nsi:manage',
       field: 'fullName,tabNumber',
       oldValue,
       newValue: JSON.stringify({
@@ -120,7 +122,8 @@ export async function getDeactivationWarnings(id: string): Promise<DeactivationW
 }
 
 export async function toggleEmployeeActive(id: string): Promise<Employee> {
-  const { userId } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const roles = userSession.roles.map((ur) => ur.role.code);
 
   const existing = await prisma.employee.findUniqueOrThrow({ where: { id } });
   const newActive = !existing.active;
@@ -131,13 +134,13 @@ export async function toggleEmployeeActive(id: string): Promise<Employee> {
       data: { active: newActive },
     });
 
-    // TODO T-021: полноценная атрибуция роли в аудите (Р-23), сейчас захардкожено ADM
-    await writeAudit(tx, {
+        await writeAudit(tx, {
       action: 'UPDATE',
       objectType: 'Employee',
       objectId: updated.id,
       userId,
-      role: 'ADM',
+      userRoles: roles,
+      permission: 'nsi:manage',
       field: 'active',
       oldValue: String(existing.active),
       newValue: String(updated.active),

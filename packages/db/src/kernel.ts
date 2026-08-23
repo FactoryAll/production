@@ -1,4 +1,5 @@
-import type { Prisma, PrismaClient, EventCode, AuditAction, DocumentType, EntityType } from '@prisma/client';
+import type { Prisma, PrismaClient, EventCode, AuditAction, DocumentType, EntityType, RoleCode } from '@prisma/client';
+import { getAttributeRole, type PermissionCode } from '@prodtrack/contracts';
 
 export type TxClient = PrismaClient | Prisma.TransactionClient;
 
@@ -33,10 +34,23 @@ export interface WriteAuditInput {
   oldValue?: string;
   newValue?: string;
   userId?: string;
+  /** @deprecated Pass userRoles and permission for automatic attribution. */
   role?: string;
+  userRoles?: RoleCode[];
+  permission?: PermissionCode;
 }
 
 export async function writeAudit(tx: TxClient, input: WriteAuditInput): Promise<void> {
+  let role = input.role ?? null;
+
+  if (input.userRoles && input.permission) {
+    const attributedRole = getAttributeRole(input.userRoles, input.permission);
+    if (!attributedRole) {
+      throw new Error(`No role has permission ${input.permission}`);
+    }
+    role = attributedRole;
+  }
+
   await tx.auditRecord.create({
     data: {
       action: input.action,
@@ -46,7 +60,7 @@ export async function writeAudit(tx: TxClient, input: WriteAuditInput): Promise<
       oldValue: input.oldValue ?? null,
       newValue: input.newValue ?? null,
       userId: input.userId ?? null,
-      role: input.role ?? null,
+      role,
     },
   });
 }
@@ -78,4 +92,3 @@ export async function writeTiming(tx: TxClient, input: WriteTimingInput): Promis
     },
   });
 }
-

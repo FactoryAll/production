@@ -37,7 +37,8 @@ function assertInput(input: SubstitutionReasonInput): void {
 }
 
 export async function createSubstitutionReason(input: SubstitutionReasonInput): Promise<PrismaSubstitutionReason> {
-  const { userId } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const roles = userSession.roles.map((ur) => ur.role.code);
   assertInput(input);
   await assertCodeUnique(input.code);
 
@@ -50,13 +51,13 @@ export async function createSubstitutionReason(input: SubstitutionReasonInput): 
       },
     });
 
-    // TODO T-021: роль определяется по типу действия (Р-23), сейчас захардкожено ADM
-    await writeAudit(tx, {
+        await writeAudit(tx, {
       action: 'CREATE',
       objectType: 'SubstitutionReason',
       objectId: created.id,
       userId,
-      role: 'ADM',
+      userRoles: roles,
+      permission: 'nsi:manage',
       newValue: JSON.stringify({ code: created.code, name: created.name }),
     });
 
@@ -71,7 +72,8 @@ export async function updateSubstitutionReason(
   id: string,
   input: SubstitutionReasonInput,
 ): Promise<PrismaSubstitutionReason> {
-  const { userId } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const roles = userSession.roles.map((ur) => ur.role.code);
   assertInput(input);
   await assertCodeUnique(input.code, id);
 
@@ -87,13 +89,13 @@ export async function updateSubstitutionReason(
       },
     });
 
-    // TODO T-021: роль определяется по типу действия (Р-23), сейчас захардкожено ADM
-    await writeAudit(tx, {
+        await writeAudit(tx, {
       action: 'UPDATE',
       objectType: 'SubstitutionReason',
       objectId: updated.id,
       userId,
-      role: 'ADM',
+      userRoles: roles,
+      permission: 'nsi:manage',
       field: 'code,name',
       oldValue,
       newValue: JSON.stringify({ code: updated.code, name: updated.name }),
@@ -113,7 +115,8 @@ export async function getDeactivationWarnings(id: string): Promise<DeactivationW
 }
 
 export async function toggleSubstitutionReasonActive(id: string): Promise<PrismaSubstitutionReason> {
-  const { userId } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const roles = userSession.roles.map((ur) => ur.role.code);
 
   const existing = await prisma.substitutionReason.findUniqueOrThrow({ where: { id } });
   const newActive = !existing.active;
@@ -124,13 +127,13 @@ export async function toggleSubstitutionReasonActive(id: string): Promise<Prisma
       data: { active: newActive },
     });
 
-    // TODO T-021: полноценная атрибуция роли в аудите (Р-23), сейчас захардкожено ADM
-    await writeAudit(tx, {
+        await writeAudit(tx, {
       action: 'UPDATE',
       objectType: 'SubstitutionReason',
       objectId: updated.id,
       userId,
-      role: 'ADM',
+      userRoles: roles,
+      permission: 'nsi:manage',
       field: 'active',
       oldValue: String(existing.active),
       newValue: String(updated.active),

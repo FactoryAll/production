@@ -53,7 +53,8 @@ function assertInput(input: ProductInput): void {
 }
 
 export async function createProduct(input: ProductInput): Promise<Product> {
-  const { userId } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const roles = userSession.roles.map((ur) => ur.role.code);
   const normalizedCode = normalizeCode(input.code);
   await assertCodeUnique(normalizedCode);
   assertCategory(input.category);
@@ -70,13 +71,13 @@ export async function createProduct(input: ProductInput): Promise<Product> {
       },
     });
 
-    // TODO T-021: роль определяется по типу действия (Р-23), сейчас захардкожено ADM
-    await writeAudit(tx, {
+        await writeAudit(tx, {
       action: 'CREATE',
       objectType: 'Product',
       objectId: created.id,
       userId,
-      role: 'ADM',
+      userRoles: roles,
+      permission: 'nsi:manage',
       newValue: JSON.stringify({
         code: created.code,
         name: created.name,
@@ -93,7 +94,8 @@ export async function createProduct(input: ProductInput): Promise<Product> {
 }
 
 export async function updateProduct(id: string, input: ProductInput): Promise<Product> {
-  const { userId } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const roles = userSession.roles.map((ur) => ur.role.code);
   const normalizedCode = normalizeCode(input.code);
   await assertCodeUnique(normalizedCode, id);
   assertCategory(input.category);
@@ -118,13 +120,13 @@ export async function updateProduct(id: string, input: ProductInput): Promise<Pr
       },
     });
 
-    // TODO T-021: роль определяется по типу действия (Р-23), сейчас захардкожено ADM
-    await writeAudit(tx, {
+        await writeAudit(tx, {
       action: 'UPDATE',
       objectType: 'Product',
       objectId: updated.id,
       userId,
-      role: 'ADM',
+      userRoles: roles,
+      permission: 'nsi:manage',
       field: 'code,name,category,unit',
       oldValue,
       newValue: JSON.stringify({
@@ -149,7 +151,8 @@ export async function getDeactivationWarnings(id: string): Promise<DeactivationW
 }
 
 export async function toggleProductActive(id: string): Promise<Product> {
-  const { userId } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const roles = userSession.roles.map((ur) => ur.role.code);
 
   const existing = await prisma.product.findUniqueOrThrow({ where: { id } });
   const newActive = !existing.active;
@@ -160,13 +163,13 @@ export async function toggleProductActive(id: string): Promise<Product> {
       data: { active: newActive },
     });
 
-    // TODO T-021: полноценная атрибуция роли в аудите (Р-23), сейчас захардкожено ADM
-    await writeAudit(tx, {
+        await writeAudit(tx, {
       action: 'UPDATE',
       objectType: 'Product',
       objectId: updated.id,
       userId,
-      role: 'ADM',
+      userRoles: roles,
+      permission: 'nsi:manage',
       field: 'active',
       oldValue: String(existing.active),
       newValue: String(updated.active),

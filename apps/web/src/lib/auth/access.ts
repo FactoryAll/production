@@ -1,3 +1,5 @@
+// TODO T-018-future: добавить UI выбора активной роли при входе и хранить activeRole в сессии,
+// если потребуется разделение данных по ролям в одной сессии.
 'use server';
 
 import { hasPermission, requirePermission as requirePermissionSync, type PermissionCode } from '@prodtrack/contracts';
@@ -26,4 +28,8 @@ export async function requireAnyPermission(actions: PermissionCode[]): Promise<S
 
 export async function getCurrentUser(): Promise<SessionWithUser> {
   return requireSession();
+}
+
+export async function getUserRoles(session: SessionWithUser): Promise<string[]> {
+  return session.user.roles.map((ur) => ur.role.code);
 }

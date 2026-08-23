@@ -34,7 +34,8 @@ async function assertCodeUnique(code: string, excludeId?: string): Promise<void>
 }
 
 export async function createWorkCenter(input: WorkCenterInput): Promise<WorkCenter> {
-  const { userId } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const roles = userSession.roles.map((ur) => ur.role.code);
   const normalizedCode = normalizeCode(input.code);
   await assertCodeUnique(normalizedCode);
 
@@ -52,13 +53,13 @@ export async function createWorkCenter(input: WorkCenterInput): Promise<WorkCent
       },
     });
 
-    // TODO T-021: роль определяется по типу действия (Р-23), сейчас захардкожено ADM
-    await writeAudit(tx, {
+        await writeAudit(tx, {
       action: 'CREATE',
       objectType: 'WorkCenter',
       objectId: created.id,
       userId,
-      role: 'ADM',
+      userRoles: roles,
+      permission: 'nsi:manage',
       newValue: JSON.stringify({ code: created.code, name: created.name, producesMass: created.producesMass }),
     });
 
@@ -70,7 +71,8 @@ export async function createWorkCenter(input: WorkCenterInput): Promise<WorkCent
 }
 
 export async function updateWorkCenter(id: string, input: WorkCenterInput): Promise<WorkCenter> {
-  const { userId } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const roles = userSession.roles.map((ur) => ur.role.code);
   const normalizedCode = normalizeCode(input.code);
   await assertCodeUnique(normalizedCode, id);
 
@@ -91,13 +93,13 @@ export async function updateWorkCenter(id: string, input: WorkCenterInput): Prom
       },
     });
 
-    // TODO T-021: роль определяется по типу действия (Р-23), сейчас захардкожено ADM
-    await writeAudit(tx, {
+        await writeAudit(tx, {
       action: 'UPDATE',
       objectType: 'WorkCenter',
       objectId: updated.id,
       userId,
-      role: 'ADM',
+      userRoles: roles,
+      permission: 'nsi:manage',
       field: 'code,name,producesMass',
       oldValue,
       newValue: JSON.stringify({ code: updated.code, name: updated.name, producesMass: updated.producesMass }),
@@ -117,7 +119,8 @@ export async function getDeactivationWarnings(id: string): Promise<DeactivationW
 }
 
 export async function toggleWorkCenterActive(id: string): Promise<WorkCenter> {
-  const { userId } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const roles = userSession.roles.map((ur) => ur.role.code);
 
   const existing = await prisma.workCenter.findUniqueOrThrow({ where: { id } });
   const newActive = !existing.active;
@@ -128,13 +131,13 @@ export async function toggleWorkCenterActive(id: string): Promise<WorkCenter> {
       data: { active: newActive },
     });
 
-    // TODO T-021: полноценная атрибуция роли в аудите (Р-23), сейчас захардкожено ADM
-    await writeAudit(tx, {
+        await writeAudit(tx, {
       action: 'UPDATE',
       objectType: 'WorkCenter',
       objectId: updated.id,
       userId,
-      role: 'ADM',
+      userRoles: roles,
+      permission: 'nsi:manage',
       field: 'active',
       oldValue: String(existing.active),
       newValue: String(updated.active),

@@ -29,7 +29,7 @@ vi.mock('@prodtrack/db', async () => {
 });
 
 vi.mock('@/lib/auth/access', () => ({
-  requirePermission: vi.fn().mockResolvedValue({ userId: 'admin-user' } as any),
+  requirePermission: vi.fn().mockResolvedValue({ userId: 'admin-user', user: { roles: [{ role: { code: 'ADM' } }] } } as any),
 }));
 
 const base: Warehouse = {
@@ -67,7 +67,8 @@ describe('updateWarehouse', () => {
     expect(updated.description).toBe('Обновлённое');
     expect(writeAudit).toHaveBeenCalled();
     const auditCall = (writeAudit as ReturnType<typeof vi.fn>).mock.calls[0][1];
-    expect(auditCall.role).toBe('ADM');
+    expect(auditCall.userRoles).toEqual(['ADM']);
+    expect(auditCall.permission).toBe('nsi:manage');
     expect(auditCall.action).toBe('UPDATE');
   });
 });

@@ -48,7 +48,7 @@ export const ALL_PERMISSIONS: PermissionCode[] = [
 ];
 
 export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
-  [RoleCode.NP]: [
+  NP: [
     'production_order:create',
     'production_order:update',
     'production_order:confirm',
@@ -60,32 +60,35 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     'dashboard:read',
     'audit:read',
   ],
-  [RoleCode.OPR]: [
+  OPR: [
     'production_order:read_own',
     'production_order:accept',
     'production_order:report',
     'stock:read',
     'dashboard:read_own',
   ],
-  [RoleCode.KSGP]: [
+  KSGP: [
     'transfer:receive',
     'transfer:reconcile',
     'stock:read',
     'dashboard:read',
   ],
-  [RoleCode.USGP]: [
+  USGP: [
     'transfer:reconcile',
     'stock:read',
     'dashboard:read',
   ],
-  [RoleCode.S1C]: [
+  S1C: [
     'onec:read',
     'onec:process',
     'stock:read',
     'dashboard:read',
   ],
-  [RoleCode.ADM]: [...ALL_PERMISSIONS],
+  ADM: [...ALL_PERMISSIONS],
 };
+
+/** Role priority for audit attribution (highest → lowest). */
+export const ROLE_PRIORITY: RoleCode[] = ['ADM', 'NP', 'OPR', 'KSGP', 'USGP', 'S1C'] as RoleCode[];
 
 export function hasPermission(userRoles: string[], action: PermissionCode): boolean {
   return userRoles.some((role) => ROLE_PERMISSIONS[role as RoleCode]?.includes(action));
@@ -95,4 +98,19 @@ export function requirePermission(userRoles: string[], action: PermissionCode): 
   if (!hasPermission(userRoles, action)) {
     throw new Error('Forbidden: insufficient permissions');
   }
+}
+
+export function getAttributeRole(
+  userRoles: string[],
+  action: PermissionCode,
+): RoleCode | null {
+  const matchingRoles = userRoles.filter((role) => ROLE_PERMISSIONS[role as RoleCode]?.includes(action));
+  if (matchingRoles.length === 0) {
+    return null;
+  }
+  return matchingRoles.reduce((highest, role) => {
+    const highestIndex = ROLE_PRIORITY.indexOf(highest as RoleCode);
+    const roleIndex = ROLE_PRIORITY.indexOf(role as RoleCode);
+    return roleIndex < highestIndex ? role : highest;
+  }, matchingRoles[0]) as RoleCode;
 }

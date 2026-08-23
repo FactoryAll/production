@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { PERMISSIONS, ROLES, ROLE_PERMISSION_MAP } from '../prisma/seed';
+import {
+  PERMISSIONS,
+  ROLES,
+  ROLE_PERMISSION_MAP,
+  TEST_MULTI_ROLE_LOGIN,
+  TEST_MULTI_ROLE_PASSWORD,
+  TEST_MULTI_ROLE_ROLES,
+} from '../prisma/seed';
 
 describe('seed configuration', () => {
   it('creates 6 roles', () => {
@@ -29,5 +36,13 @@ describe('seed configuration', () => {
     for (const { code } of PERMISSIONS) {
       expect(adminPermissions.has(code)).toBe(true);
     }
+  });
+});
+
+describe('multi-role test user', () => {
+  it('seed defines test_multi_role with NP and OPR', () => {
+    expect(TEST_MULTI_ROLE_LOGIN).toBe('test_multi_role');
+    expect(TEST_MULTI_ROLE_PASSWORD).toBe('test1234');
+    expect(TEST_MULTI_ROLE_ROLES).toEqual(['NP', 'OPR']);
   });
 });

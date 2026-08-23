@@ -36,7 +36,8 @@ function assertInput(input: DefectReasonInput): void {
 }
 
 export async function createDefectReason(input: DefectReasonInput): Promise<DefectReason> {
-  const { userId } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const roles = userSession.roles.map((ur) => ur.role.code);
   const normalizedCode = normalizeCode(input.code);
   await assertCodeUnique(normalizedCode);
   assertInput(input);
@@ -50,13 +51,13 @@ export async function createDefectReason(input: DefectReasonInput): Promise<Defe
       },
     });
 
-    // TODO T-021: роль определяется по типу действия (Р-23), сейчас захардкожено ADM
-    await writeAudit(tx, {
+        await writeAudit(tx, {
       action: 'CREATE',
       objectType: 'DefectReason',
       objectId: created.id,
       userId,
-      role: 'ADM',
+      userRoles: roles,
+      permission: 'nsi:manage',
       newValue: JSON.stringify({ code: created.code, name: created.name }),
     });
 
@@ -68,7 +69,8 @@ export async function createDefectReason(input: DefectReasonInput): Promise<Defe
 }
 
 export async function updateDefectReason(id: string, input: DefectReasonInput): Promise<DefectReason> {
-  const { userId } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const roles = userSession.roles.map((ur) => ur.role.code);
   const normalizedCode = normalizeCode(input.code);
   await assertCodeUnique(normalizedCode, id);
   assertInput(input);
@@ -85,13 +87,13 @@ export async function updateDefectReason(id: string, input: DefectReasonInput): 
       },
     });
 
-    // TODO T-021: роль определяется по типу действия (Р-23), сейчас захардкожено ADM
-    await writeAudit(tx, {
+        await writeAudit(tx, {
       action: 'UPDATE',
       objectType: 'DefectReason',
       objectId: updated.id,
       userId,
-      role: 'ADM',
+      userRoles: roles,
+      permission: 'nsi:manage',
       field: 'code,name',
       oldValue,
       newValue: JSON.stringify({ code: updated.code, name: updated.name }),
@@ -111,7 +113,8 @@ export async function getDeactivationWarnings(id: string): Promise<DeactivationW
 }
 
 export async function toggleDefectReasonActive(id: string): Promise<DefectReason> {
-  const { userId } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const roles = userSession.roles.map((ur) => ur.role.code);
 
   const existing = await prisma.defectReason.findUniqueOrThrow({ where: { id } });
   const newActive = !existing.active;
@@ -122,13 +125,13 @@ export async function toggleDefectReasonActive(id: string): Promise<DefectReason
       data: { active: newActive },
     });
 
-    // TODO T-021: полноценная атрибуция роли в аудите (Р-23), сейчас захардкожено ADM
-    await writeAudit(tx, {
+        await writeAudit(tx, {
       action: 'UPDATE',
       objectType: 'DefectReason',
       objectId: updated.id,
       userId,
-      role: 'ADM',
+      userRoles: roles,
+      permission: 'nsi:manage',
       field: 'active',
       oldValue: String(existing.active),
       newValue: String(updated.active),

@@ -17,7 +17,8 @@ function assertInput(input: WarehouseInput): void {
 }
 
 export async function updateWarehouse(id: string, input: WarehouseInput): Promise<Warehouse> {
-  const { userId } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const roles = userSession.roles.map((ur) => ur.role.code);
   assertInput(input);
 
   const existing = await prisma.warehouse.findUniqueOrThrow({ where: { id } });
@@ -35,13 +36,13 @@ export async function updateWarehouse(id: string, input: WarehouseInput): Promis
       },
     });
 
-    // TODO T-021: роль определяется по типу действия (Р-23), сейчас захардкожено ADM
-    await writeAudit(tx, {
+        await writeAudit(tx, {
       action: 'UPDATE',
       objectType: 'Warehouse',
       objectId: updated.id,
       userId,
-      role: 'ADM',
+      userRoles: roles,
+      permission: 'nsi:manage',
       field: 'name,description',
       oldValue,
       newValue: JSON.stringify({
@@ -58,7 +59,8 @@ export async function updateWarehouse(id: string, input: WarehouseInput): Promis
 }
 
 export async function toggleWarehouseActive(id: string): Promise<Warehouse> {
-  const { userId } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const roles = userSession.roles.map((ur) => ur.role.code);
 
   const existing = await prisma.warehouse.findUniqueOrThrow({ where: { id } });
   const newActive = !existing.active;
@@ -69,13 +71,13 @@ export async function toggleWarehouseActive(id: string): Promise<Warehouse> {
       data: { active: newActive },
     });
 
-    // TODO T-021: полноценная атрибуция роли в аудите (Р-23), сейчас захардкожено ADM
-    await writeAudit(tx, {
+        await writeAudit(tx, {
       action: 'UPDATE',
       objectType: 'Warehouse',
       objectId: updated.id,
       userId,
-      role: 'ADM',
+      userRoles: roles,
+      permission: 'nsi:manage',
       field: 'active',
       oldValue: String(existing.active),
       newValue: String(updated.active),

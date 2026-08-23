@@ -45,7 +45,8 @@ function getShiftTimes(number: 1 | 2): { start: string; end: string } {
 }
 
 export async function createShift(input: ShiftInput): Promise<Shift> {
-  const { userId } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const roles = userSession.roles.map((ur) => ur.role.code);
   assertNumber(input.number);
   const date = parseDate(input.date);
   await assertUniquePair(input.number, date);
@@ -63,13 +64,13 @@ export async function createShift(input: ShiftInput): Promise<Shift> {
       },
     });
 
-    // TODO T-021: роль определяется по типу действия (Р-23), сейчас захардкожено ADM
-    await writeAudit(tx, {
+        await writeAudit(tx, {
       action: 'CREATE',
       objectType: 'Shift',
       objectId: created.id,
       userId,
-      role: 'ADM',
+      userRoles: roles,
+      permission: 'nsi:manage',
       newValue: JSON.stringify({
         number: created.number,
         date: created.date.toISOString(),
@@ -86,7 +87,8 @@ export async function createShift(input: ShiftInput): Promise<Shift> {
 }
 
 export async function updateShift(id: string, input: ShiftInput): Promise<Shift> {
-  const { userId } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const roles = userSession.roles.map((ur) => ur.role.code);
   assertNumber(input.number);
   const date = parseDate(input.date);
   await assertUniquePair(input.number, date, id);
@@ -112,13 +114,13 @@ export async function updateShift(id: string, input: ShiftInput): Promise<Shift>
       },
     });
 
-    // TODO T-021: роль определяется по типу действия (Р-23), сейчас захардкожено ADM
-    await writeAudit(tx, {
+        await writeAudit(tx, {
       action: 'UPDATE',
       objectType: 'Shift',
       objectId: updated.id,
       userId,
-      role: 'ADM',
+      userRoles: roles,
+      permission: 'nsi:manage',
       field: 'number,date,start,end',
       oldValue,
       newValue: JSON.stringify({
@@ -143,7 +145,8 @@ export async function getDeactivationWarnings(id: string): Promise<DeactivationW
 }
 
 export async function toggleShiftActive(id: string): Promise<Shift> {
-  const { userId } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const roles = userSession.roles.map((ur) => ur.role.code);
 
   const existing = await prisma.shift.findUniqueOrThrow({ where: { id } });
   const newActive = !existing.active;
@@ -154,13 +157,13 @@ export async function toggleShiftActive(id: string): Promise<Shift> {
       data: { active: newActive },
     });
 
-    // TODO T-021: полноценная атрибуция роли в аудите (Р-23), сейчас захардкожено ADM
-    await writeAudit(tx, {
+        await writeAudit(tx, {
       action: 'UPDATE',
       objectType: 'Shift',
       objectId: updated.id,
       userId,
-      role: 'ADM',
+      userRoles: roles,
+      permission: 'nsi:manage',
       field: 'active',
       oldValue: String(existing.active),
       newValue: String(updated.active),
