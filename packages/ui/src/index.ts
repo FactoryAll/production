@@ -3,3 +3,7 @@ export * from './card';
 export * from './input';
 export * from './dialog';
 export * from './table';
+export * from './label';
+export * from './select';
+export * from './checkbox-list';
+export * from './switch';

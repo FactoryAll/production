@@ -1,0 +1,161 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { NextRequest } from 'next/server';
+import { middleware } from './middleware';
+import { prisma } from '@prodtrack/db';
+import * as shiftWindow from './lib/auth/shift-window';
+
+vi.mock('@prodtrack/db', () => ({
+  prisma: {
+    session: {
+      findUnique: vi.fn(),
+    },
+  },
+}));
+
+function buildRequest(pathname: string, cookie?: string, method = 'GET') {
+  return new NextRequest(`http://localhost${pathname}`, { method, headers: cookie ? { cookie } : undefined });
+}
+
+function mockSession(roleCode: string | string[], expired = false, mustChangePassword = false) {
+  const roles = Array.isArray(roleCode) ? roleCode : [roleCode];
+  (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+    id: 's1',
+    token: 'tok',
+    userId: 'u1',
+    expiresAt: new Date(Date.now() + (expired ? -1000 : 1000)),
+    user: {
+      id: 'u1',
+      active: true,
+      mustChangePassword,
+      passwordHash: 'hashed',
+      roles: roles.map((code) => ({ role: { code } })),
+    },
+  });
+}
+
+describe('middleware', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(shiftWindow, 'isWithinShiftWindow').mockReturnValue(true);
+  });
+
+  it('allows public paths without a session', async () => {
+    (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    const response = await middleware(buildRequest('/login'));
+    expect(response.status).toBe(200);
+  });
+
+  it('redirects to /login when session is missing', async () => {
+    (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    const response = await middleware(buildRequest('/dashboard'));
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toBe('http://localhost/login');
+  });
+
+  it('redirects to /login when session is expired', async () => {
+    mockSession('ADM', true);
+    const response = await middleware(buildRequest('/nsi/work-centers'));
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toBe('http://localhost/login');
+  });
+
+  it('allows /dashboard for ADM', async () => {
+    mockSession('ADM');
+    const response = await middleware(buildRequest('/dashboard', 'session=valid-token'));
+    expect(response.status).toBe(200);
+  });
+
+  it('allows /dashboard for OPR with single role inside shift window', async () => {
+    mockSession('OPR');
+    const response = await middleware(buildRequest('/dashboard', 'session=valid-token'));
+    expect(response.status).toBe(200);
+  });
+
+  it('redirects single-role OPR to /login outside shift window', async () => {
+    vi.spyOn(shiftWindow, 'isWithinShiftWindow').mockReturnValue(false);
+    mockSession('OPR');
+    const response = await middleware(buildRequest('/dashboard', 'session=valid-token'));
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toContain('/login');
+    expect(response.headers.get('location')).toContain('error=outside_shift_window');
+  });
+
+  it('allows OPR with additional roles outside shift window (Р-23)', async () => {
+    vi.spyOn(shiftWindow, 'isWithinShiftWindow').mockReturnValue(false);
+    mockSession(['OPR', 'NP']);
+    const response = await middleware(buildRequest('/dashboard', 'session=valid-token'));
+    expect(response.status).toBe(200);
+  });
+
+  it('allows non-OPR role outside shift window', async () => {
+    vi.spyOn(shiftWindow, 'isWithinShiftWindow').mockReturnValue(false);
+    mockSession('NP');
+    const response = await middleware(buildRequest('/dashboard', 'session=valid-token'));
+    expect(response.status).toBe(200);
+  });
+
+  it('redirects logged-in users away from /login', async () => {
+    mockSession('ADM');
+    const response = await middleware(buildRequest('/login', 'session=valid-token'));
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toBe('http://localhost/dashboard');
+  });
+
+  it('allows /nsi/* for ADM (nsi:manage)', async () => {
+    mockSession('ADM');
+    const response = await middleware(buildRequest('/nsi/work-centers', 'session=valid-token'));
+    expect(response.status).toBe(200);
+  });
+
+  it('allows /nsi index read for OPR with nsi:read', async () => {
+    mockSession('OPR');
+    const response = await middleware(buildRequest('/nsi', 'session=valid-token'));
+    expect(response.status).toBe(200);
+  });
+
+  it('allows /nsi/* read for OPR with nsi:read', async () => {
+    mockSession('OPR');
+    const response = await middleware(buildRequest('/nsi/work-centers', 'session=valid-token'));
+    expect(response.status).toBe(200);
+  });
+
+  it('blocks /nsi/* mutation for OPR without nsi:manage', async () => {
+    mockSession('OPR');
+    const response = await middleware(buildRequest('/nsi/work-centers', 'session=valid-token', 'POST'));
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toBe('http://localhost/forbidden');
+  });
+
+  it('attaches x-user-id and x-user-roles headers for valid session', async () => {
+    mockSession('ADM');
+    const response = await middleware(buildRequest('/dashboard', 'session=valid-token'));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-user-id')).toBe('u1');
+    expect(response.headers.get('x-user-roles')).toBe('ADM');
+  });
+
+  it('redirects to /change-password when mustChangePassword is true and route is not allowed', async () => {
+    mockSession('ADM', false, true);
+    const response = await middleware(buildRequest('/dashboard', 'session=valid-token'));
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toBe('http://localhost/change-password');
+  });
+
+  it('allows /change-password when mustChangePassword is true', async () => {
+    mockSession('ADM', false, true);
+    const response = await middleware(buildRequest('/change-password', 'session=valid-token'));
+    expect(response.status).toBe(200);
+  });
+
+  it('allows /api/auth/logout when mustChangePassword is true', async () => {
+    mockSession('ADM', false, true);
+    const response = await middleware(buildRequest('/api/auth/logout', 'session=valid-token'));
+    expect(response.status).toBe(200);
+  });
+
+  it('allows normal access after password change', async () => {
+    mockSession('ADM', false, false);
+    const response = await middleware(buildRequest('/dashboard', 'session=valid-token'));
+    expect(response.status).toBe(200);
+  });
+});

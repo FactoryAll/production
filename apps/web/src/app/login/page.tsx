@@ -1,21 +1,32 @@
-import { login } from './actions';
-import { Button, Input } from '@prodtrack/ui';
+import { Suspense } from 'react';
+import { LoginForm } from './_components/login-form';
+
+function ErrorMessage({ error }: { error: string }) {
+  return (
+    <div className="mb-4 rounded-md bg-signal-amber/10 p-3 text-sm text-graphite" role="alert">
+      {error}
+    </div>
+  );
+}
+
+function SearchParamsError() {
+  const searchParams = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+  const error = searchParams.get('error');
+
+  if (error === 'outside_shift_window') {
+    return <ErrorMessage error="Вне рабочего времени. Операторы могут входить за 1 час до начала смены и выходить через 1 час после окончания." />;
+  }
+
+  return null;
+}
 
 export default function LoginPage() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-graphite-surface">
-      <form action={login} className="w-full max-w-md space-y-4 rounded-md border border-mist-metal bg-white p-6 shadow-sm">
-        <h1 className="text-2xl font-bold text-graphite">Вход в ProdTrack</h1>
-        <label className="block space-y-1">
-          <span className="text-sm font-medium text-graphite">Логин</span>
-          <Input name="login" required autoFocus />
-        </label>
-        <label className="block space-y-1">
-          <span className="text-sm font-medium text-graphite">Пароль</span>
-          <Input type="password" name="password" required />
-        </label>
-        <Button type="submit" className="w-full">Войти</Button>
-      </form>
+    <main className="flex min-h-screen items-center justify-center bg-graphite-surface px-4">
+      <Suspense fallback={null}>
+        <SearchParamsError />
+      </Suspense>
+      <LoginForm />
     </main>
   );
 }
