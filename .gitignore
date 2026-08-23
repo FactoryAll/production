@@ -45,3 +45,5 @@ packages/db/prisma/seed.js
 packages/db/prisma/seed.js.map
 packages/db/prisma/seed.d.ts
 packages/db/prisma/seed.d.ts.map
+# Local postgres test cluster
+.local/pg
