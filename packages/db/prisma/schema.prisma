@@ -171,7 +171,7 @@ model User {
   login              String   @unique
   passwordHash       String
   mustChangePassword Boolean  @default(true)
-  blocked            Boolean  @default(false)
+  active             Boolean  @default(true)
   employeeId         String?  @unique
   employee           Employee? @relation("EmployeeUser", fields: [employeeId], references: [id])
   createdAt          DateTime @default(now())
@@ -192,9 +192,11 @@ model Session {
   token     String   @unique
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userAgent String?
   expiresAt DateTime
   createdAt DateTime @default(now())
 
+  @@index([expiresAt])
   @@map("sessions")
 }
 
@@ -502,6 +504,7 @@ enum AuditAction {
   DELETE
   LOGIN
   LOGOUT
+  LOGIN_FAILED
   CANCEL
 }
 

@@ -1,4 +1,5 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, RoleCode } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
@@ -39,6 +40,18 @@ const SHIFTS = [
   { number: 1, start: '08:00', end: '20:00' },
   { number: 2, start: '20:00', end: '08:00' },
 ];
+
+const ROLES = [
+  { code: 'NP', name: 'Начальник производства' },
+  { code: 'OPR', name: 'Оператор' },
+  { code: 'KSGP', name: 'Кладовщик склада ГП' },
+  { code: 'USGP', name: 'УСГП' },
+  { code: 'S1C', name: 'Специалист 1С' },
+  { code: 'ADM', name: 'Администратор' },
+];
+
+const ADMIN_LOGIN = 'admin';
+const ADMIN_PASSWORD = 'admin123';
 
 // Reference/template shift date used only for seed idempotency.
 const SHIFT_SEED_DATE = new Date('2000-01-01');
@@ -112,12 +125,50 @@ async function seedShifts() {
   );
 }
 
+
+
+async function seedRoles() {
+  await Promise.all(
+    ROLES.map(({ code, name }) =>
+      prisma.role.upsert({
+        where: { code: code as RoleCode },
+        update: { name },
+        create: { code: code as RoleCode, name },
+      }),
+    ),
+  );
+}
+
+async function seedAdmin() {
+  const adminRole = await prisma.role.findUnique({ where: { code: 'ADM' } });
+  if (!adminRole) return;
+
+  const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
+  await prisma.user.upsert({
+    where: { login: ADMIN_LOGIN },
+    update: {
+      passwordHash,
+      active: true,
+      mustChangePassword: false,
+    },
+    create: {
+      login: ADMIN_LOGIN,
+      passwordHash,
+      active: true,
+      mustChangePassword: false,
+      roles: { create: { roleId: adminRole.id } },
+    },
+  });
+}
+
 async function main() {
   await seedWorkCenters();
   await seedWarehouses();
   await seedSubstitutionReasons();
   await seedDefectReasons();
   await seedShifts();
+  await seedRoles();
+  await seedAdmin();
   console.log('Reference data seeded successfully.');
 }
 
