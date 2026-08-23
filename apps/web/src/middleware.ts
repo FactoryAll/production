@@ -5,7 +5,7 @@ import { SESSION_COOKIE_NAME } from './lib/auth/constants';
 import { getSessionFromToken } from './lib/auth/session-token';
 import type { PermissionCode } from './lib/auth/access';
 
-const PUBLIC_PATHS = ['/login', '/change-password', '/api/auth', '/_next', '/favicon.ico', '/public', '/health'];
+const PUBLIC_PATHS = ['/login', '/api/auth', '/_next', '/favicon.ico', '/public', '/health'];
 const PUBLIC_EXTENSIONS = ['.ico', '.png', '.jpg', '.jpeg', '.svg', '.css', '.js', '.woff2', '.map'];
 
 function isPublicPath(pathname: string): boolean {
@@ -19,7 +19,6 @@ function getRequiredPermissions(pathname: string): PermissionCode[] | null {
   if (pathname.startsWith('/users/')) return ['users:manage'];
   if (pathname.startsWith('/roles/')) return ['roles:manage'];
   if (pathname.startsWith('/production-orders/')) {
-    // read routes allow read or read_own; write routes require create/update.
     if (pathname.includes('/edit') || pathname.includes('/create')) {
       return ['production_order:create', 'production_order:update'];
     }
@@ -52,7 +51,6 @@ function getRequiredPermissions(pathname: string): PermissionCode[] | null {
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
 
-  // Logged-in users should not see the login page.
   if (pathname === '/login') {
     const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
     const session = await getSessionFromToken(token);
@@ -73,9 +71,16 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
+  // Force password change before accessing any other protected route.
+  if (session.user.mustChangePassword) {
+    if (pathname !== '/change-password') {
+      return NextResponse.redirect(new URL('/change-password', request.url));
+    }
+    return NextResponse.next();
+  }
+
   const userRoles = session.user.roles.map((ur) => ur.role.code);
 
-  // Route-level access check.
   const requiredPermissions = getRequiredPermissions(pathname);
   if (requiredPermissions) {
     const allowed = requiredPermissions.some((permission) => hasPermission(userRoles, permission));
@@ -85,7 +90,6 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     }
   }
 
-  // Attach user identity/roles to request headers for server components/actions.
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set('x-user-id', session.userId);
   requestHeaders.set('x-user-roles', userRoles.join(','));

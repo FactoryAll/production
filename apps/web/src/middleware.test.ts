@@ -15,13 +15,19 @@ function buildRequest(pathname: string, cookie?: string) {
   return new NextRequest(`http://localhost${pathname}`, cookie ? { headers: { cookie } } : undefined);
 }
 
-function mockSession(roleCode: string, expired = false) {
+function mockSession(roleCode: string, expired = false, mustChangePassword = false) {
   (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
     id: 's1',
     token: 'tok',
     userId: 'u1',
     expiresAt: new Date(Date.now() + (expired ? -1000 : 1000)),
-    user: { id: 'u1', active: true, roles: [{ role: { code: roleCode } }] },
+    user: {
+      id: 'u1',
+      active: true,
+      mustChangePassword,
+      passwordHash: 'hashed',
+      roles: [{ role: { code: roleCode } }],
+    },
   });
 }
 
@@ -84,5 +90,30 @@ describe('middleware', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('x-user-id')).toBe('u1');
     expect(response.headers.get('x-user-roles')).toBe('ADM');
+  });
+
+  it('redirects to /change-password when mustChangePassword is true and route is not allowed', async () => {
+    mockSession('ADM', false, true);
+    const response = await middleware(buildRequest('/dashboard', 'session=valid-token'));
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toBe('http://localhost/change-password');
+  });
+
+  it('allows /change-password when mustChangePassword is true', async () => {
+    mockSession('ADM', false, true);
+    const response = await middleware(buildRequest('/change-password', 'session=valid-token'));
+    expect(response.status).toBe(200);
+  });
+
+  it('allows /api/auth/logout when mustChangePassword is true', async () => {
+    mockSession('ADM', false, true);
+    const response = await middleware(buildRequest('/api/auth/logout', 'session=valid-token'));
+    expect(response.status).toBe(200);
+  });
+
+  it('allows normal access after password change', async () => {
+    mockSession('ADM', false, false);
+    const response = await middleware(buildRequest('/dashboard', 'session=valid-token'));
+    expect(response.status).toBe(200);
   });
 });

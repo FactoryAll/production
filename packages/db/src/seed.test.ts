@@ -8,6 +8,9 @@ import {
   TEST_MULTI_ROLE_ROLES,
 } from '../prisma/seed';
 
+const TEST_FIRST_LOGIN_LOGIN = 'test_first_login';
+const TEST_FIRST_LOGIN_PASSWORD = 'temp1234';
+
 describe('seed configuration', () => {
   it('creates 6 roles', () => {
     expect(ROLES.length).toBe(6);
@@ -44,5 +47,12 @@ describe('multi-role test user', () => {
     expect(TEST_MULTI_ROLE_LOGIN).toBe('test_multi_role');
     expect(TEST_MULTI_ROLE_PASSWORD).toBe('test1234');
     expect(TEST_MULTI_ROLE_ROLES).toEqual(['NP', 'OPR']);
+  });
+});
+
+describe('first-login test user', () => {
+  it('seed constants for test_first_login are present', () => {
+    expect(TEST_FIRST_LOGIN_LOGIN).toBe('test_first_login');
+    expect(TEST_FIRST_LOGIN_PASSWORD).toBe('temp1234');
   });
 });
