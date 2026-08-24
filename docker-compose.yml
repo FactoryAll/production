@@ -1,0 +1,48 @@
+name: prodtrack
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: ./apps/web/Dockerfile
+      args:
+        VERSION: v1.0.0
+    container_name: prodtrack_web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - VERSION=v1.0.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - prodtrack_net
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: prodtrack_postgres
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - prodtrack_pgdata:/var/lib/postgresql/data
+    networks:
+      - prodtrack_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  prodtrack_pgdata:
+    driver: local
+
+networks:
+  prodtrack_net:
+    driver: bridge
