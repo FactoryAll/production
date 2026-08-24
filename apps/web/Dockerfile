@@ -3,7 +3,7 @@
 FROM node:22-slim AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
-RUN corepack enable
+RUN npm install -g pnpm@11.8.0
 
 FROM base AS deps
 WORKDIR /app
@@ -21,6 +21,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc turbo.json tsconfig.
 COPY apps/web ./apps/web
 COPY packages ./packages
 ENV NEXT_TELEMETRY_DISABLED=1
+RUN pnpm --filter @prodtrack/db db:generate
 RUN pnpm build
 
 FROM base AS runner

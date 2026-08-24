@@ -65,7 +65,7 @@ jobs:
         run: pnpm --filter @prodtrack/db db:generate
 
       - name: Install Playwright browsers
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm --filter @prodtrack/web exec playwright install --with-deps chromium
 
       - name: Run e2e tests
         run: pnpm --filter @prodtrack/web test:e2e
