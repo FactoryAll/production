@@ -2,14 +2,20 @@
 
 import { revalidatePath } from 'next/cache';
 import { Prisma, type ProductionOrderLine, type ProductionFact, type ProductCategory } from '@prisma/client';
-import { prisma, writeAudit, writeTiming, type TxClient } from '@prodtrack/db';
+import { prisma, writeAudit, writeTiming } from '@prodtrack/db';
 import { requireShiftWindow } from '@/lib/auth/require-shift-window';
 import { hasPermission, getAttributeRole } from '@prodtrack/contracts';
 import {
   checkAndCloseProductionOrder,
   transitionToInProgress,
 } from '@/lib/production-order-closing';
-import { getAvailableBalance } from '@/lib/stock-preview';
+import {
+  applyStockMovements,
+  getAvailableBalance,
+  buildProductionFactMovements,
+  consumptionProductCategoryToStockCategory,
+  factCategoryToStockCategory,
+} from '@/lib/stock-service';
 
 export type AcceptLineResult =
   | { success: true }
@@ -36,6 +42,7 @@ export interface ReportFactDeps {
   writeTiming: typeof writeTiming;
   requireShiftWindow: typeof requireShiftWindow;
   getAvailableBalance: typeof getAvailableBalance;
+  applyStockMovements: typeof applyStockMovements;
 }
 
 export interface CorrectFactDeps extends ReportFactDeps {}
@@ -166,7 +173,7 @@ function parseConsumptionInput(raw: unknown): ConsumptionInput[] {
 
 async function validateReportLikeInput(
   input: ReportFactInput,
-  deps: { prisma: typeof prisma; getAvailableBalance: typeof getAvailableBalance },
+  deps: { prisma: typeof prisma; getAvailableBalance: typeof getAvailableBalance; applyStockMovements: typeof applyStockMovements },
   line: ProductionOrderLine & { product: { category: ProductCategory }; workCenter: { producesMass: boolean } },
 ): Promise<{ factCategory: FactCategoryInput; quantity: Prisma.Decimal; defectQuantity: Prisma.Decimal; stopsCount: number; stopsDurationMinutes: number; consumption: ConsumptionInput[]; warnings: string[] }> {
   const quantity = parseNonNegativeDecimal(input.quantity);
@@ -218,7 +225,7 @@ async function validateReportLikeInput(
 
   const warnings: string[] = [];
   for (const item of consumption) {
-    const balance = await deps.getAvailableBalance(item.productId, deps.prisma as unknown as TxClient);
+    const balance = await deps.getAvailableBalance(deps.prisma, item.productId);
     const diff = new Prisma.Decimal(item.quantity).minus(balance.available);
     if (diff.greaterThan(0)) {
       warnings.push(
@@ -355,6 +362,7 @@ export async function reportProductionFact(
     writeTiming,
     requireShiftWindow,
     getAvailableBalance,
+    applyStockMovements,
   },
 ): Promise<{ fact: ProductionFact; warnings: string[] }> {
   const session = await deps.requireShiftWindow();
@@ -417,6 +425,41 @@ export async function reportProductionFact(
         })),
       });
     }
+
+    const productionWarehouse = await tx.warehouse.findFirstOrThrow({
+      where: { type: 'PRODUCTION' },
+    });
+
+    const consumedProductIds = [...new Set(consumption.map((item) => item.productId))];
+    const consumedProducts = consumedProductIds.length > 0
+      ? await tx.product.findMany({
+          where: { id: { in: consumedProductIds } },
+          select: { id: true, category: true },
+        })
+      : [];
+    const categoryById = new Map(consumedProducts.map((p) => [p.id, p.category]));
+
+    const movements = buildProductionFactMovements({
+      factId: fact.id,
+      productId: line.productId,
+      factCategory,
+      quantity,
+      warehouseId: productionWarehouse.id,
+      sourceType: 'PRODUCTION_FACT',
+      consumption: consumption.map((item) => {
+        const productCategory = categoryById.get(item.productId);
+        if (!productCategory) {
+          throw new Error('Продукт потребления не найден');
+        }
+        return {
+          productId: item.productId,
+          productCategory,
+          quantity: new Prisma.Decimal(item.quantity),
+        };
+      }),
+    });
+
+    await deps.applyStockMovements(tx, movements);
 
     const updatedLine = await tx.productionOrderLine.update({
       where: { id: lineId },
@@ -539,7 +582,7 @@ export async function getAvailableBalanceAction(productId: string): Promise<Bala
       return { success: false, error: 'Forbidden: insufficient permissions' };
     }
 
-    const balance = await getAvailableBalance(productId);
+    const balance = await getAvailableBalance(prisma, productId);
     return { success: true, balance };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Не удалось получить остаток';
@@ -556,6 +599,7 @@ export async function correctFactByOperator(
     writeTiming,
     requireShiftWindow,
     getAvailableBalance,
+    applyStockMovements,
   },
 ): Promise<{ fact: ProductionFact; warnings: string[] }> {
   const session = await deps.requireShiftWindow();
@@ -643,6 +687,94 @@ export async function correctFactByOperator(
       });
     }
 
+    const productionWarehouse = await tx.warehouse.findFirstOrThrow({
+      where: { type: 'PRODUCTION' },
+    });
+
+    const allProductIds = [
+      ...new Set([
+        ...existingFact.consumptions.map((c) => c.productId),
+        ...consumption.map((c) => c.productId),
+      ]),
+    ];
+    const relatedProducts =
+      allProductIds.length > 0
+        ? await tx.product.findMany({
+            where: { id: { in: allProductIds } },
+            select: { id: true, category: true },
+          })
+        : [];
+    const categoryById = new Map(relatedProducts.map((p) => [p.id, p.category]));
+
+    const deltas = new Map<
+      string,
+      {
+        warehouseId: string;
+        productId: string;
+        stockCategory: import('@prisma/client').StockCategory;
+        delta: Prisma.Decimal;
+      }
+    >();
+
+    function addDelta(
+      productId: string,
+      stockCategory: import('@prisma/client').StockCategory,
+      signedAmount: Prisma.Decimal,
+    ) {
+      const key = `${productionWarehouse.id}:${productId}:${stockCategory}`;
+      const entry = deltas.get(key) ?? {
+        warehouseId: productionWarehouse.id,
+        productId,
+        stockCategory,
+        delta: new Prisma.Decimal(0),
+      };
+      entry.delta = entry.delta.plus(signedAmount);
+      deltas.set(key, entry);
+    }
+
+    addDelta(
+      line.productId,
+      factCategoryToStockCategory(existingFact.factCategory),
+      existingFact.quantity.times(-1),
+    );
+    addDelta(line.productId, factCategoryToStockCategory(factCategory), quantity);
+
+    for (const c of existingFact.consumptions) {
+      const category = categoryById.get(c.productId);
+      if (!category) {
+        throw new Error('Продукт потребления не найден');
+      }
+      addDelta(c.productId, consumptionProductCategoryToStockCategory(category), c.quantity);
+    }
+
+    for (const item of consumption) {
+      const category = categoryById.get(item.productId);
+      if (!category) {
+        throw new Error('Продукт потребления не найден');
+      }
+      addDelta(
+        item.productId,
+        consumptionProductCategoryToStockCategory(category),
+        new Prisma.Decimal(item.quantity).times(-1),
+      );
+    }
+
+    const correctionMovements = Array.from(deltas.values())
+      .filter((entry) => !entry.delta.equals(0))
+      .map((entry) => ({
+        warehouseId: entry.warehouseId,
+        productId: entry.productId,
+        stockCategory: entry.stockCategory,
+        type: entry.delta.greaterThan(0)
+          ? ('RECEIPT' as import('@prisma/client').StockMovementType)
+          : ('CONSUMPTION' as import('@prisma/client').StockMovementType),
+        quantity: entry.delta.absoluteValue(),
+        sourceType: 'FACT_CORRECTION',
+        sourceId: existingFact.id,
+      }));
+
+    await deps.applyStockMovements(tx, correctionMovements);
+
     const newValue = JSON.stringify({
       factCategory,
       quantity: quantity.toString(),
@@ -705,4 +837,3 @@ export async function correctFactByOperatorAction(lineId: string, formData: Form
   }
 }
 
-// TODO T-035: заменить getAvailableBalance на баланс-сервис поверх StockMovement

@@ -1116,6 +1116,7 @@ function buildSubstituteDeps(
   });
   const writeAudit = vi.fn();
   const writeTiming = vi.fn();
+  const applyStockMovements = vi.fn().mockResolvedValue(undefined);
   const lineUpdate = vi.fn().mockResolvedValue({ ...line, status: 'REPORTED' });
   const notificationCreateMany = vi.fn().mockResolvedValue(undefined);
   const userFindMany = vi.fn().mockResolvedValue(s1cUsers);
@@ -1154,6 +1155,7 @@ function buildSubstituteDeps(
     requirePermission,
     writeAudit,
     writeTiming,
+    applyStockMovements,
     lineUpdate,
     notificationCreateMany,
     userFindMany,
@@ -1187,6 +1189,7 @@ describe('substituteOperator', () => {
       requirePermission: deps.requirePermission,
       writeAudit: deps.writeAudit,
       writeTiming: deps.writeTiming,
+      applyStockMovements: deps.applyStockMovements,
     });
 
     expect(deps.lineUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REPORTED' } }));
@@ -1203,6 +1206,7 @@ describe('substituteOperator', () => {
       requirePermission: deps.requirePermission,
       writeAudit: deps.writeAudit,
       writeTiming: deps.writeTiming,
+      applyStockMovements: deps.applyStockMovements,
     });
 
     expect(deps.lineUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REPORTED' } }));
@@ -1217,6 +1221,7 @@ describe('substituteOperator', () => {
       requirePermission: deps.requirePermission,
       writeAudit: deps.writeAudit,
       writeTiming: deps.writeTiming,
+      applyStockMovements: deps.applyStockMovements,
     });
 
     expect(deps.notificationCreateMany).toHaveBeenCalledTimes(2);
@@ -1246,6 +1251,7 @@ describe('substituteOperator', () => {
       requirePermission: deps.requirePermission,
       writeAudit: deps.writeAudit,
       writeTiming: deps.writeTiming,
+      applyStockMovements: deps.applyStockMovements,
     });
 
     const statusAudit = deps.writeAudit.mock.calls.find((call) => call[1].field === 'status');
@@ -1267,6 +1273,7 @@ describe('substituteOperator', () => {
       requirePermission: deps.requirePermission,
       writeAudit: deps.writeAudit,
       writeTiming: deps.writeTiming,
+      applyStockMovements: deps.applyStockMovements,
     });
 
     expect(transitionToInProgress).toHaveBeenCalled();
@@ -1381,6 +1388,7 @@ function buildCancelDeps(
 ) {
   const writeAudit = vi.fn();
   const writeTiming = vi.fn();
+  const applyStockMovements = vi.fn().mockResolvedValue(undefined);
   const requirePermission = vi.fn().mockResolvedValue({
     userId: 'user-1',
     user: { roles: userRoles.map((code) => ({ role: { code } })) },
@@ -1414,6 +1422,7 @@ function buildCancelDeps(
     requirePermission,
     writeAudit,
     writeTiming,
+    applyStockMovements,
     orderUpdate,
     notificationCreateMany,
     tx,
@@ -1433,6 +1442,7 @@ describe('cancelProductionOrder', () => {
       requirePermission: deps.requirePermission,
       writeAudit: deps.writeAudit,
       writeTiming: deps.writeTiming,
+      applyStockMovements: deps.applyStockMovements,
     });
 
     expect(result.status).toBe('CANCELLED');
@@ -1452,6 +1462,7 @@ describe('cancelProductionOrder', () => {
       requirePermission: deps.requirePermission,
       writeAudit: deps.writeAudit,
       writeTiming: deps.writeTiming,
+      applyStockMovements: deps.applyStockMovements,
     });
 
     expect(result.status).toBe('CANCELLED');
@@ -1469,6 +1480,7 @@ describe('cancelProductionOrder', () => {
       requirePermission: deps.requirePermission,
       writeAudit: deps.writeAudit,
       writeTiming: deps.writeTiming,
+      applyStockMovements: deps.applyStockMovements,
     });
 
     expect(deps.notificationCreateMany).toHaveBeenCalled();
@@ -1490,6 +1502,7 @@ describe('cancelProductionOrder', () => {
       requirePermission: deps.requirePermission,
       writeAudit: deps.writeAudit,
       writeTiming: deps.writeTiming,
+      applyStockMovements: deps.applyStockMovements,
     });
 
     const data = deps.notificationCreateMany.mock.calls[0][0].data;
@@ -1638,6 +1651,7 @@ function buildCorrectFactDeps(
 ) {
   const writeAudit = vi.fn();
   const writeTiming = vi.fn();
+  const applyStockMovements = vi.fn().mockResolvedValue(undefined);
   const requirePermission = vi.fn().mockResolvedValue({
     userId: 'user-1',
     user: { roles: userRoles.map((code) => ({ role: { code } })) },
@@ -1652,6 +1666,9 @@ function buildCorrectFactDeps(
     productionFact: {
       update: factUpdate,
       findUnique: factFindUnique,
+    },
+    warehouse: {
+      findFirstOrThrow: vi.fn().mockResolvedValue({ id: 'wh-prod', type: 'PRODUCTION' }),
     },
   };
 
@@ -1669,6 +1686,7 @@ function buildCorrectFactDeps(
     writeTiming,
     factUpdate,
     tx,
+    applyStockMovements,
   };
 }
 
@@ -1688,6 +1706,7 @@ describe('correctProductionFact', () => {
       requirePermission: deps.requirePermission,
       writeAudit: deps.writeAudit,
       writeTiming: deps.writeTiming,
+      applyStockMovements: deps.applyStockMovements,
     });
 
     expect(result.quantity.toNumber()).toBe(15);
@@ -1711,6 +1730,7 @@ describe('correctProductionFact', () => {
       requirePermission: deps.requirePermission,
       writeAudit: deps.writeAudit,
       writeTiming: deps.writeTiming,
+      applyStockMovements: deps.applyStockMovements,
     });
 
     expect(result.defectQuantity.toNumber()).toBe(2);
@@ -1729,6 +1749,7 @@ describe('correctProductionFact', () => {
       requirePermission: deps.requirePermission,
       writeAudit: deps.writeAudit,
       writeTiming: deps.writeTiming,
+      applyStockMovements: deps.applyStockMovements,
     });
 
     expect(result.stopsDurationMinutes).toBe(45);

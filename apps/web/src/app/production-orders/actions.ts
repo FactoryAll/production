@@ -14,6 +14,10 @@ import { prisma, writeAudit, writeTiming } from '@prodtrack/db';
 import { requirePermission } from '@/lib/auth/access';
 import { getAttributeRole } from '@prodtrack/contracts';
 import {
+  applyStockMovements,
+  factCategoryToStockCategory,
+} from '@/lib/stock-service';
+import {
   validateProductionOrder,
   parsePositiveDecimal,
   type ProductionOrderLineInput,
@@ -53,6 +57,7 @@ export interface CreateProductionOrderDeps {
   writeAudit: typeof writeAudit;
   writeTiming: typeof writeTiming;
   requirePermission: typeof requirePermission;
+  applyStockMovements?: typeof applyStockMovements;
 }
 
 export type PrismaLike = CreateProductionOrderDeps['prisma'];
@@ -865,6 +870,26 @@ export async function correctProductionFact(
         updatedAt: new Date(),
       },
     });
+
+    const correctionDelta = quantity.minus(fact.quantity);
+    if (!correctionDelta.equals(0)) {
+      const productionWarehouse = await tx.warehouse.findFirstOrThrow({
+        where: { type: 'PRODUCTION' },
+      });
+      await (deps.applyStockMovements ?? applyStockMovements)(tx, [
+        {
+          warehouseId: productionWarehouse.id,
+          productId: fact.productId,
+          stockCategory: factCategoryToStockCategory(fact.factCategory),
+          type: correctionDelta.greaterThan(0)
+            ? 'RECEIPT'
+            : 'CONSUMPTION',
+          quantity: correctionDelta.absoluteValue(),
+          sourceType: 'FACT_CORRECTION',
+          sourceId: fact.id,
+        },
+      ]);
+    }
 
     await deps.writeAudit(tx, {
       action: 'UPDATE',

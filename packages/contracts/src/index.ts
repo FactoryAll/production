@@ -11,6 +11,12 @@ export enum FactCategory {
   PF = 'PF',
 }
 
+export enum StockCategory {
+  MASS = 'MASS',
+  PF = 'PF',
+  GP = 'GP',
+}
+
 export enum TaskType {
   PRODUCTION = 'PRODUCTION',
   TRANSFER = 'TRANSFER',
@@ -61,7 +67,7 @@ export enum EventCode {
 
 export enum StockMovementType {
   RECEIPT = 'RECEIPT',
-  WRITE_OFF = 'WRITE_OFF',
+  ISSUE = 'ISSUE',
   CONSUMPTION = 'CONSUMPTION',
   RETURN = 'RETURN',
 }
@@ -125,12 +131,14 @@ export const PRODUCTION_ORDER_LINE_STATUSES = Object.values(ProductionOrderLineS
 export const TRANSFER_STATUSES = Object.values(TransferStatus);
 export const PRODUCT_CATEGORIES = Object.values(ProductCategory);
 export const FACT_CATEGORIES = Object.values(FactCategory);
+export const STOCK_CATEGORIES = Object.values(StockCategory);
 export const SUBSTITUTION_REASONS = Object.values(SubstitutionReason);
 export const TASK_TYPES = Object.values(TaskType);
 
 // Type aliases for enum value unions
 export type ProductCategoryValue = `${ProductCategory}`;
 export type FactCategoryValue = `${FactCategory}`;
+export type StockCategoryValue = `${StockCategory}`;
 export type TaskTypeValue = `${TaskType}`;
 export type SubstitutionReasonValue = `${SubstitutionReason}`;
 export type ProductionOrderStatusValue = `${ProductionOrderStatus}`;
@@ -200,5 +208,9 @@ export function isProductCategory(value: unknown): value is ProductCategory {
 
 export function isFactCategory(value: unknown): value is FactCategory {
   return typeof value === 'string' && FACT_CATEGORIES.includes(value as FactCategory);
+}
+
+export function isStockCategory(value: unknown): value is StockCategory {
+  return typeof value === 'string' && STOCK_CATEGORIES.includes(value as StockCategory);
 }
 export * from './access';

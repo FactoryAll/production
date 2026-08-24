@@ -107,6 +107,19 @@ describe('middleware', () => {
     expect(response.status).toBe(200);
   });
 
+  it('allows /stock for OPR with stock:read', async () => {
+    mockSession('OPR');
+    const response = await middleware(buildRequest('/stock', 'session=valid-token'));
+    expect(response.status).toBe(200);
+  });
+
+  it('redirects unauthenticated user from /stock to /login', async () => {
+    (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    const response = await middleware(buildRequest('/stock'));
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toBe('http://localhost/login');
+  });
+
   it('allows /nsi index read for OPR with nsi:read', async () => {
     mockSession('OPR');
     const response = await middleware(buildRequest('/nsi', 'session=valid-token'));

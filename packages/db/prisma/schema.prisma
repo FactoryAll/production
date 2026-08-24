@@ -67,7 +67,6 @@ model Product {
 
   orderLines    ProductionOrderLine[]
   facts         ProductionFact[]
-  consumptions  ProductionFactConsumption[]
   factConsumptions FactConsumption[]
   movements     StockMovement[]
   balances      StockBalance[]
@@ -301,7 +300,6 @@ model ProductionFact {
   updatedAt                DateTime         @updatedAt
 
   consumptions FactConsumption[]
-  legacyConsumptions ProductionFactConsumption[]
 
   @@unique([lineId])
   @@map("production_facts")
@@ -320,24 +318,17 @@ model FactConsumption {
   @@map("fact_consumptions")
 }
 
-model ProductionFactConsumption {
-  id        String         @id @default(uuid())
-  factId    String
-  fact      ProductionFact @relation(fields: [factId], references: [id], onDelete: Cascade)
-  productId String
-  product   Product        @relation(fields: [productId], references: [id])
-  quantity  Decimal        @db.Decimal(18, 4)
-
-  @@map("production_fact_consumptions")
+enum StockCategory {
+  MASS
+  PF
+  GP
 }
-
-// TODO T-035: migrate ProductionFactConsumption -> FactConsumption or remove legacy
 
 // === M05: Stock ===
 
 enum StockMovementType {
   RECEIPT
-  WRITE_OFF
+  ISSUE
   CONSUMPTION
   RETURN
 }
@@ -348,25 +339,28 @@ model StockMovement {
   warehouse    Warehouse       @relation(fields: [warehouseId], references: [id])
   productId    String
   product      Product         @relation(fields: [productId], references: [id])
+  stockCategory StockCategory
   type         StockMovementType
   quantity     Decimal         @db.Decimal(18, 4)
-  documentType String?
-  documentId   String?
+  sourceType   String
+  sourceId     String
   createdAt    DateTime        @default(now())
 
+  @@index([warehouseId, productId, stockCategory])
   @@map("stock_movements")
 }
 
 model StockBalance {
-  id          String    @id @default(uuid())
-  warehouseId String
-  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
-  productId   String
-  product     Product   @relation(fields: [productId], references: [id])
-  quantity    Decimal   @db.Decimal(18, 4)
-  updatedAt   DateTime  @updatedAt
+  id            String        @id @default(uuid())
+  warehouseId   String
+  warehouse     Warehouse     @relation(fields: [warehouseId], references: [id])
+  productId     String
+  product       Product       @relation(fields: [productId], references: [id])
+  stockCategory StockCategory
+  quantity      Decimal       @db.Decimal(18, 4)
+  updatedAt     DateTime      @updatedAt
 
-  @@unique([warehouseId, productId])
+  @@unique([warehouseId, productId, stockCategory])
   @@map("stock_balances")
 }
 
