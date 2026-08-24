@@ -87,7 +87,7 @@ jobs:
         run: pnpm --filter @prodtrack/db db:migrate
 
       - name: Seed database
-        run: pnpm db:seed
+        run: pnpm --filter @prodtrack/db db:seed
 
       - name: Install Playwright browsers
         run: pnpm --filter @prodtrack/web exec playwright install --with-deps chromium
