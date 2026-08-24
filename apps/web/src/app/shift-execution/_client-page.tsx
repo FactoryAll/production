@@ -15,6 +15,7 @@ interface ShiftExecutionPageProps {
     }
   >;
   defectReasons: DefectReason[];
+  consumableProducts: Product[];
   employeeId: string | null;
 }
 
@@ -32,6 +33,16 @@ const STATUS_BADGE_CLASS: Record<string, string> = {
 
 type DialogMode = 'accept' | 'report' | null;
 
+interface ConsumptionRow {
+  productId: string;
+  quantity: string;
+}
+
+interface BalanceInfo {
+  available: number;
+  unit: string;
+}
+
 function emptyReportForm(): {
   quantity: string;
   factCategory: string;
@@ -39,6 +50,7 @@ function emptyReportForm(): {
   defectReasonId: string;
   stopsCount: string;
   stopsDurationMinutes: string;
+  consumption: ConsumptionRow[];
 } {
   return {
     quantity: '',
@@ -47,21 +59,31 @@ function emptyReportForm(): {
     defectReasonId: '',
     stopsCount: '',
     stopsDurationMinutes: '',
+    consumption: [],
   };
 }
 
-export default function ShiftExecutionPage({ lines, employeeId, defectReasons }: ShiftExecutionPageProps) {
+export default function ShiftExecutionPage({ lines, employeeId, defectReasons, consumableProducts }: ShiftExecutionPageProps) {
   function productCategory() {
     if (!dialogState) return undefined;
     const line = lines.find((l) => l.id === dialogState.line.id);
     return line?.product.category;
   }
+
+  function workCenterProducesMass() {
+    if (!dialogState) return true;
+    const line = lines.find((l) => l.id === dialogState.line.id);
+    return line?.workCenter.producesMass ?? true;
+  }
+
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [dialogState, setDialogState] = useState<{ line: ProductionOrderLine; mode: Exclude<DialogMode, null> } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState(emptyReportForm());
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof typeof form, string>>>({});
+  const [balances, setBalances] = useState<Record<string, BalanceInfo | null>>({});
+  const [warnings, setWarnings] = useState<string[] | null>(null);
 
   function openAcceptDialog(line: ProductionOrderLine) {
     setDialogState({ line, mode: 'accept' });
@@ -76,12 +98,24 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons }:
     });
     setError(null);
     setFieldErrors({});
+    setBalances({});
+    setWarnings(null);
   }
 
   function closeDialog() {
     setDialogState(null);
     setError(null);
     setFieldErrors({});
+    setBalances({});
+    setWarnings(null);
+  }
+
+  async function fetchBalance(productId: string) {
+    const { getAvailableBalanceAction } = await import('./actions');
+    const result = await getAvailableBalanceAction(productId);
+    if (result.success) {
+      setBalances((prev) => ({ ...prev, [productId]: result.balance }));
+    }
   }
 
   function validateReportForm(): boolean {
@@ -110,6 +144,25 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons }:
     if (form.factCategory === 'MASS' && productCategory() === 'GP') {
       errors.factCategory = 'Для ГП выберите GP или PF';
     }
+
+    const seen = new Set<string>();
+    for (const row of form.consumption) {
+      if (!row.productId) {
+        errors.consumption = 'Выберите продукт в строке потребления';
+        break;
+      }
+      if (seen.has(row.productId)) {
+        errors.consumption = 'Продукт в потреблении не может повторяться';
+        break;
+      }
+      seen.add(row.productId);
+      const q = Number(row.quantity);
+      if (Number.isNaN(q) || q <= 0) {
+        errors.consumption = 'Количество потребления должно быть больше 0';
+        break;
+      }
+    }
+
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
   }
@@ -127,6 +180,27 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons }:
     });
   }
 
+  function addConsumptionRow() {
+    setForm((f) => ({ ...f, consumption: [...f.consumption, { productId: '', quantity: '' }] }));
+  }
+
+  function removeConsumptionRow(index: number) {
+    setForm((f) => ({
+      ...f,
+      consumption: f.consumption.filter((_, i) => i !== index),
+    }));
+  }
+
+  function updateConsumptionRow(index: number, patch: Partial<ConsumptionRow>) {
+    setForm((f) => ({
+      ...f,
+      consumption: f.consumption.map((row, i) => (i === index ? { ...row, ...patch } : row)),
+    }));
+    if (patch.productId) {
+      void fetchBalance(patch.productId);
+    }
+  }
+
   function handleReport() {
     if (!dialogState) return;
     if (!validateReportForm()) return;
@@ -138,11 +212,24 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons }:
       if (form.defectReasonId) formData.set('defectReasonId', form.defectReasonId);
       if (form.stopsCount) formData.set('stopsCount', form.stopsCount);
       if (form.stopsDurationMinutes) formData.set('stopsDurationMinutes', form.stopsDurationMinutes);
+      if (form.consumption.length > 0) {
+        formData.set(
+          'consumption',
+          JSON.stringify(
+            form.consumption
+              .filter((row) => row.productId && row.quantity)
+              .map((row) => ({ productId: row.productId, quantity: Number(row.quantity) })),
+          ),
+        );
+      }
 
       const result: ReportFactResult = await reportProductionFactAction(dialogState.line.id, formData);
       if (result.success) {
         closeDialog();
         setForm(emptyReportForm());
+        if (result.warnings && result.warnings.length > 0) {
+          setWarnings(result.warnings);
+        }
         router.refresh();
       } else {
         setError(result.error ?? 'Не удалось внести итог');
@@ -162,6 +249,16 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons }:
   return (
     <div className="space-y-4 p-6">
       <h1 className="text-2xl font-semibold text-graphite">Исполнение смены</h1>
+
+      {warnings && warnings.length > 0 && (
+        <div className="rounded-md bg-signal-amber/10 p-4 text-signal-amber">
+          <ul className="list-disc space-y-1 pl-5">
+            {warnings.map((w, i) => (
+              <li key={i}>{w}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {lines.length === 0 ? (
         <p className="text-graphite">Нет активных заданий на смену.</p>
@@ -330,6 +427,64 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons }:
               </div>
               {fieldErrors.stopsCount && <p className="col-span-2 text-sm text-signal-amber">{fieldErrors.stopsCount}</p>}
             </div>
+
+            {!workCenterProducesMass() && (
+              <div className="rounded-md border border-neutral-200 p-3">
+                <p className="mb-2 text-sm font-medium text-graphite">Потребление</p>
+                {form.consumption.map((row, index) => {
+                  const selectedProduct = consumableProducts.find((p) => p.id === row.productId);
+                  const balance = row.productId ? balances[row.productId] : null;
+                  const quantityNum = Number(row.quantity);
+                  const showWarning = balance && !Number.isNaN(quantityNum) && quantityNum > balance.available && balance.available >= 0;
+                  return (
+                    <div key={index} className="mb-3 grid grid-cols-[1fr_1fr_auto] gap-2">
+                      <Select
+                        options={consumableProducts.map((p) => ({ value: p.id, label: `${p.name} (${p.unit})` }))}
+                        placeholder="Продукт"
+                        value={row.productId}
+                        onChange={(e) => updateConsumptionRow(index, { productId: e.target.value })}
+                      />
+                      <Input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        placeholder={selectedProduct ? `Количество, ${selectedProduct.unit}` : 'Количество'}
+                        value={row.quantity}
+                        onChange={(e) => updateConsumptionRow(index, { quantity: e.target.value })}
+                      />
+                      <Button
+                        variant="secondary"
+                        type="button"
+                        onClick={() => removeConsumptionRow(index)}
+                        disabled={isPending}
+                      >
+                        ×
+                      </Button>
+                      {balance && (
+                        <p className="col-span-3 text-xs text-neutral-500">
+                          Доступно: {balance.available} {balance.unit}
+                        </p>
+                      )}
+                      {showWarning && (
+                        <p className="col-span-3 text-sm text-signal-amber">
+                          Превышение остатка на {(quantityNum - balance!.available).toFixed(2)} {balance!.unit}; будет записано с предупреждением
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+                <Button
+                  variant="secondary"
+                  type="button"
+                  onClick={addConsumptionRow}
+                  disabled={isPending}
+                  className="w-full"
+                >
+                  Добавить строку потребления
+                </Button>
+                {fieldErrors.consumption && <p className="mt-2 text-sm text-signal-amber">{fieldErrors.consumption}</p>}
+              </div>
+            )}
           </div>
 
           {error && <p className="text-sm text-signal-amber">{error}</p>}

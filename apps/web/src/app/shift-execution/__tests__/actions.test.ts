@@ -89,10 +89,12 @@ function buildMockPrisma(overrides: {
   order?: ProductionOrder;
   product?: Product;
   defectReason?: DefectReason | null;
+  workCenter?: { id: string; code: string; name: string; active: boolean; producesMass: boolean };
 } = {}) {
   const order = overrides.order ?? makeOrder();
   const line = overrides.line ?? makeLine({ orderId: order.id });
   const product = overrides.product ?? baseProduct;
+  const workCenter = overrides.workCenter ?? { id: 'wc-01', code: 'WC-01', name: 'РЦ 01', active: true, producesMass: true };
 
   const lineUpdate = vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) =>
     Promise.resolve({ ...line, ...data }),
@@ -101,6 +103,7 @@ function buildMockPrisma(overrides: {
     ...line,
     order,
     product,
+    workCenter,
     operator: { id: 'emp-1', tabNumber: '001', fullName: 'Иванов И.И.', active: true },
   });
   const notificationCreateMany = vi.fn().mockResolvedValue(undefined);
@@ -128,6 +131,9 @@ function buildMockPrisma(overrides: {
     updatedAt: new Date(),
   });
 
+  const getAvailableBalance = vi.fn().mockResolvedValue({ available: 100, unit: 'кг' });
+  const factConsumptionCreateMany = vi.fn().mockResolvedValue(undefined);
+
   const tx = {
     productionOrderLine: {
       update: lineUpdate,
@@ -135,6 +141,9 @@ function buildMockPrisma(overrides: {
     },
     productionFact: {
       create: productionFactCreate,
+    },
+    factConsumption: {
+      createMany: factConsumptionCreateMany,
     },
     notification: {
       createMany: notificationCreateMany,
@@ -154,6 +163,16 @@ function buildMockPrisma(overrides: {
     productionFact: {
       create: productionFactCreate,
     },
+    factConsumption: {
+      createMany: factConsumptionCreateMany,
+    },
+    product: {
+      findUnique: vi.fn().mockImplementation(({ where }: { where: { id: string } }) => {
+        if (where.id === 'mass-1') return Promise.resolve(baseProduct);
+        if (where.id === 'gp-1') return Promise.resolve(gpProduct);
+        return Promise.resolve(null);
+      }),
+    },
     defectReason: {
       findUnique: defectReasonFindUnique,
     },
@@ -164,9 +183,11 @@ function buildMockPrisma(overrides: {
     prisma,
     lineUpdate,
     productionFactCreate,
+    factConsumptionCreateMany,
     notificationCreateMany,
     userFindMany,
     defectReasonFindUnique,
+    getAvailableBalance,
   };
 }
 
@@ -393,10 +414,10 @@ describe('reportProductionFact', () => {
     const result = await reportProductionFact(
       'line-1',
       { quantity: 5, factCategory: 'GP' },
-      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
     );
 
-    expect(result.factCategory).toBe('GP');
+    expect(result.fact.factCategory).toBe('GP');
     expect(deps.productionFactCreate).toHaveBeenCalled();
     expect(deps.lineUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REPORTED' } }));
     expect(writeAudit).toHaveBeenCalledTimes(2);
@@ -414,7 +435,7 @@ describe('reportProductionFact', () => {
     await reportProductionFact(
       'line-1',
       { quantity: 5, factCategory: 'GP' },
-      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
     );
 
     expect(deps.notificationCreateMany).toHaveBeenCalled();
@@ -435,10 +456,10 @@ describe('reportProductionFact', () => {
     const result = await reportProductionFact(
       'line-1',
       { quantity: 10, factCategory: 'MASS' },
-      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
     );
 
-    expect(result.factCategory).toBe('MASS');
+    expect(result.fact.factCategory).toBe('MASS');
   });
 
   it('blocks MASS line with input PF', async () => {
@@ -452,7 +473,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'PF' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
       ),
     ).rejects.toThrow('Для массового продукта категория факта всегда MASS');
   });
@@ -468,7 +489,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 5, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
       ),
     ).rejects.toThrow('Для готовой продукции разрешены категории GP или PF');
   });
@@ -483,7 +504,7 @@ describe('reportProductionFact', () => {
     await reportProductionFact(
       'line-1',
       { quantity: 10, factCategory: 'MASS', defectQuantity: 1, defectReasonId: 'defect-1' },
-      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
     );
 
     expect(deps.productionFactCreate).toHaveBeenCalledWith(
@@ -504,7 +525,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'MASS', defectQuantity: 1 },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
       ),
     ).rejects.toThrow('Укажите причину брака');
   });
@@ -526,7 +547,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'MASS', defectQuantity: 1, defectReasonId: 'defect-2' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
       ),
     ).rejects.toThrow('Причина брака не найдена или неактивна');
   });
@@ -541,7 +562,7 @@ describe('reportProductionFact', () => {
     await reportProductionFact(
       'line-1',
       { quantity: 10, factCategory: 'MASS', stopsCount: 2, stopsDurationMinutes: 30 },
-      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
     );
 
     expect(deps.productionFactCreate).toHaveBeenCalledWith(
@@ -562,7 +583,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'MASS', stopsCount: 2 },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
       ),
     ).rejects.toThrow('Количество остановок и длительность должны быть заданы вместе');
   });
@@ -578,7 +599,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'MASS', stopsDurationMinutes: 30 },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
       ),
     ).rejects.toThrow('Количество остановок и длительность должны быть заданы вместе');
   });
@@ -594,7 +615,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: -1, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
       ),
     ).rejects.toThrow('Значение не может быть отрицательным');
   });
@@ -610,7 +631,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
       ),
     ).rejects.toThrow('Строка не готова к вводу итога');
   });
@@ -626,7 +647,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
       ),
     ).rejects.toThrow('Строка не готова к вводу итога');
   });
@@ -642,7 +663,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
       ),
     ).rejects.toThrow('Внести итог может только Оператор, назначенный на этот РЦ');
   });
@@ -659,7 +680,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
       ),
     ).rejects.toThrow('ПЗ не может принять итог в этом статусе');
   });
@@ -679,7 +700,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
       ),
     ).rejects.toThrow('Forbidden: insufficient permissions');
   });
@@ -695,8 +716,220 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
       ),
     ).rejects.toThrow('Вне рабочего времени');
+  });
+});
+
+describe('fact consumption', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('creates consumption rows for GP work center', async () => {
+    const line = makeLine({ status: 'ACCEPTED', productId: 'gp-1', workCenterId: 'wc-03' });
+    const deps = buildMockPrisma({
+      line,
+      product: gpProduct,
+      workCenter: { id: 'wc-03', code: 'WC-03', name: 'РЦ 03', active: true, producesMass: false },
+    });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    const { fact } = await reportProductionFact(
+      'line-1',
+      {
+        quantity: 5,
+        factCategory: 'GP',
+        consumption: [
+          { productId: 'mass-1', quantity: 2 },
+          { productId: 'gp-1', quantity: 1 },
+        ],
+      },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+    );
+
+    expect(fact.factCategory).toBe('GP');
+    expect(deps.factConsumptionCreateMany).toHaveBeenCalledWith({
+      data: expect.arrayContaining([
+        expect.objectContaining({ productionFactId: fact.id, productId: 'mass-1' }),
+        expect.objectContaining({ productionFactId: fact.id, productId: 'gp-1' }),
+      ]),
+    });
+  });
+
+  it('returns warnings when consumption exceeds available balance', async () => {
+    const line = makeLine({ status: 'ACCEPTED', productId: 'gp-1', workCenterId: 'wc-03' });
+    const deps = buildMockPrisma({
+      line,
+      product: gpProduct,
+      workCenter: { id: 'wc-03', code: 'WC-03', name: 'РЦ 03', active: true, producesMass: false },
+    });
+    deps.getAvailableBalance.mockResolvedValue({ available: 0.5, unit: 'кг' });
+
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    const { warnings } = await reportProductionFact(
+      'line-1',
+      {
+        quantity: 5,
+        factCategory: 'GP',
+        consumption: [{ productId: 'mass-1', quantity: 2 }],
+      },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+    );
+
+    expect(warnings.length).toBeGreaterThan(0);
+    expect(warnings[0]).toContain('превышает остаток');
+  });
+
+  it('succeeds without consumption on mass-producing work center', async () => {
+    const line = makeLine({ status: 'ACCEPTED', productId: 'mass-1' });
+    const deps = buildMockPrisma({ line, product: baseProduct });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    const { fact } = await reportProductionFact(
+      'line-1',
+      { quantity: 10, factCategory: 'MASS' },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+    );
+
+    expect(fact.factCategory).toBe('MASS');
+    expect(deps.factConsumptionCreateMany).not.toHaveBeenCalled();
+  });
+
+  it('blocks consumption on mass-producing work center', async () => {
+    const line = makeLine({ status: 'ACCEPTED', productId: 'mass-1' });
+    const deps = buildMockPrisma({ line, product: baseProduct });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      reportProductionFact(
+        'line-1',
+        { quantity: 10, factCategory: 'MASS', consumption: [{ productId: 'mass-1', quantity: 2 }] },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      ),
+    ).rejects.toThrow('Потребление указывается только на ГП/ПФ-РЦ');
+  });
+
+  it('blocks zero consumption quantity', async () => {
+    const line = makeLine({ status: 'ACCEPTED', productId: 'gp-1', workCenterId: 'wc-03' });
+    const deps = buildMockPrisma({
+      line,
+      product: gpProduct,
+      workCenter: { id: 'wc-03', code: 'WC-03', name: 'РЦ 03', active: true, producesMass: false },
+    });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      reportProductionFact(
+        'line-1',
+        { quantity: 5, factCategory: 'GP', consumption: [{ productId: 'mass-1', quantity: 0 }] },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      ),
+    ).rejects.toThrow('Количество потребления должно быть больше 0');
+  });
+
+  it('blocks duplicate product in consumption', async () => {
+    const line = makeLine({ status: 'ACCEPTED', productId: 'gp-1', workCenterId: 'wc-03' });
+    const deps = buildMockPrisma({
+      line,
+      product: gpProduct,
+      workCenter: { id: 'wc-03', code: 'WC-03', name: 'РЦ 03', active: true, producesMass: false },
+    });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      reportProductionFact(
+        'line-1',
+        {
+          quantity: 5,
+          factCategory: 'GP',
+          consumption: [
+            { productId: 'mass-1', quantity: 1 },
+            { productId: 'mass-1', quantity: 2 },
+          ],
+        },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      ),
+    ).rejects.toThrow('Продукт в потреблении не может повторяться');
+  });
+
+  it('blocks consumption of unknown product', async () => {
+    const line = makeLine({ status: 'ACCEPTED', productId: 'gp-1', workCenterId: 'wc-03' });
+    const deps = buildMockPrisma({
+      line,
+      product: gpProduct,
+      workCenter: { id: 'wc-03', code: 'WC-03', name: 'РЦ 03', active: true, producesMass: false },
+    });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      reportProductionFact(
+        'line-1',
+        { quantity: 5, factCategory: 'GP', consumption: [{ productId: 'unknown', quantity: 1 }] },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      ),
+    ).rejects.toThrow('Продукт не найден');
+  });
+});
+
+
+describe('getAvailableBalance', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('calculates MASS balance from MASS facts minus consumption', async () => {
+    const { getAvailableBalance } = await import('@/lib/stock-preview');
+    const productFindUnique = vi.fn().mockResolvedValue({ unit: 'кг', category: 'MASS' });
+    const productionFactFindMany = vi.fn().mockImplementation(({ where }: { where: { factCategory: string; productId: string } }) => {
+      if (where.factCategory === 'MASS') return Promise.resolve([{ quantity: new Decimal(100) }]);
+      return Promise.resolve([]);
+    });
+    const factConsumptionFindMany = vi.fn().mockResolvedValue([{ quantity: new Decimal(30) }]);
+
+    const result = await getAvailableBalance('mass-1', {
+      product: { findUnique: productFindUnique },
+      productionFact: { findMany: productionFactFindMany },
+      factConsumption: { findMany: factConsumptionFindMany },
+    } as never);
+
+    expect(result.available).toBe(70);
+    expect(result.unit).toBe('кг');
+  });
+
+  it('calculates GP PF balance from PF facts minus consumption, ignoring GP facts', async () => {
+    const { getAvailableBalance } = await import('@/lib/stock-preview');
+    const productionFactFindMany = vi.fn().mockImplementation(({ where }: { where: { factCategory: string; productId: string } }) => {
+      if (where.factCategory === 'PF') return Promise.resolve([{ quantity: new Decimal(50) }]);
+      return Promise.resolve([{ quantity: new Decimal(20) }]);
+    });
+    const factConsumptionFindMany = vi.fn().mockResolvedValue([{ quantity: new Decimal(10) }]);
+
+    const result = await getAvailableBalance('gp-1', {
+      product: { findUnique: vi.fn().mockResolvedValue({ unit: 'шт', category: 'GP' }) },
+      productionFact: { findMany: productionFactFindMany },
+      factConsumption: { findMany: factConsumptionFindMany },
+    } as never);
+
+    expect(result.available).toBe(40);
+    expect(productionFactFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { factCategory: 'PF', productId: 'gp-1' } }),
+    );
   });
 });

@@ -2,20 +2,21 @@
 
 import { revalidatePath } from 'next/cache';
 import { Prisma, type ProductionOrderLine, type ProductionFact, type ProductCategory } from '@prisma/client';
-import { prisma, writeAudit, writeTiming } from '@prodtrack/db';
+import { prisma, writeAudit, writeTiming, type TxClient } from '@prodtrack/db';
 import { requireShiftWindow } from '@/lib/auth/require-shift-window';
 import { hasPermission, getAttributeRole } from '@prodtrack/contracts';
 import {
   checkAndCloseProductionOrder,
   transitionToInProgress,
 } from '@/lib/production-order-closing';
+import { getAvailableBalance } from '@/lib/stock-preview';
 
 export type AcceptLineResult =
   | { success: true }
   | { success: false; error: string };
 
 export type ReportFactResult =
-  | { success: true }
+  | { success: true; warnings?: string[] }
   | { success: false; error: string };
 
 export interface AcceptLineDeps {
@@ -30,9 +31,15 @@ export interface ReportFactDeps {
   writeAudit: typeof writeAudit;
   writeTiming: typeof writeTiming;
   requireShiftWindow: typeof requireShiftWindow;
+  getAvailableBalance: typeof getAvailableBalance;
 }
 
 export type FactCategoryInput = 'MASS' | 'GP' | 'PF';
+
+export interface ConsumptionInput {
+  productId: string;
+  quantity: number;
+}
 
 export interface ReportFactInput {
   quantity: number;
@@ -41,6 +48,7 @@ export interface ReportFactInput {
   defectReasonId?: string;
   stopsCount?: number;
   stopsDurationMinutes?: number;
+  consumption?: ConsumptionInput[];
 }
 
 function assertStatusTransitionAllowed(
@@ -104,6 +112,27 @@ function parseFactCategory(value: unknown): FactCategoryInput {
     return v;
   }
   throw new Error('Недопустимая категория факта');
+}
+
+function parseConsumptionInput(raw: unknown): ConsumptionInput[] {
+  if (!raw || (Array.isArray(raw) && raw.length === 0)) return [];
+  if (!Array.isArray(raw)) {
+    throw new Error('Некорректный формат потребления');
+  }
+  return raw.map((item) => {
+    if (!item || typeof item !== 'object') {
+      throw new Error('Некорректный формат строки потребления');
+    }
+    const productId = (item as Record<string, unknown>).productId;
+    const quantity = Number((item as Record<string, unknown>).quantity);
+    if (typeof productId !== 'string' || !productId) {
+      throw new Error('Укажите продукт в строке потребления');
+    }
+    if (Number.isNaN(quantity) || quantity <= 0) {
+      throw new Error('Количество потребления должно быть больше 0');
+    }
+    return { productId, quantity };
+  });
 }
 
 export async function acceptProductionOrderLine(
@@ -225,8 +254,14 @@ export async function acceptProductionOrderLineAction(lineId: string): Promise<A
 export async function reportProductionFact(
   lineId: string,
   input: ReportFactInput,
-  deps: ReportFactDeps = { prisma, writeAudit, writeTiming, requireShiftWindow },
-): Promise<ProductionFact> {
+  deps: ReportFactDeps = {
+    prisma,
+    writeAudit,
+    writeTiming,
+    requireShiftWindow,
+    getAvailableBalance,
+  },
+): Promise<{ fact: ProductionFact; warnings: string[] }> {
   const session = await deps.requireShiftWindow();
   const userRoles = session.user.roles.map((ur) => ur.role.code);
 
@@ -240,6 +275,7 @@ export async function reportProductionFact(
       operator: true,
       order: true,
       product: true,
+      workCenter: true,
     },
   });
 
@@ -266,6 +302,29 @@ export async function reportProductionFact(
   }
 
   const factCategory = resolveFactCategory(line.product.category, parseFactCategory(input.factCategory));
+  const consumption = parseConsumptionInput(input.consumption);
+
+  if (line.workCenter.producesMass && consumption.length > 0) {
+    throw new Error('Потребление указывается только на ГП/ПФ-РЦ');
+  }
+
+  const seenProducts = new Set<string>();
+  for (const item of consumption) {
+    if (seenProducts.has(item.productId)) {
+      throw new Error('Продукт в потреблении не может повторяться');
+    }
+    seenProducts.add(item.productId);
+
+    const product = await deps.prisma.product.findUnique({
+      where: { id: item.productId },
+    });
+    if (!product) {
+      throw new Error('Продукт не найден');
+    }
+    if (!product.active) {
+      throw new Error('Продукт неактивен');
+    }
+  }
 
   if (defectQuantity.greaterThan(0) && input.defectReasonId) {
     const reason = await deps.prisma.defectReason.findUnique({
@@ -278,6 +337,8 @@ export async function reportProductionFact(
 
   const attributedRole = getAttributeRole(userRoles, 'production_order:report') ?? undefined;
   const now = new Date();
+
+  const warnings: string[] = [];
 
   const result = await deps.prisma.$transaction(async (tx) => {
     const fact = await tx.productionFact.create({
@@ -297,6 +358,16 @@ export async function reportProductionFact(
         postCompletionCorrection: false,
       },
     });
+
+    if (consumption.length > 0) {
+      await tx.factConsumption.createMany({
+        data: consumption.map((item) => ({
+          productionFactId: fact.id,
+          productId: item.productId,
+          quantity: new Prisma.Decimal(item.quantity),
+        })),
+      });
+    }
 
     const updatedLine = await tx.productionOrderLine.update({
       where: { id: lineId },
@@ -327,6 +398,7 @@ export async function reportProductionFact(
         defectQuantity: defectQuantity.toString(),
         stopsCount,
         stopsDurationMinutes,
+        consumption,
       }),
       userId: session.userId,
       userRoles,
@@ -343,6 +415,16 @@ export async function reportProductionFact(
       initiatorRole: attributedRole,
       initiatorId: session.userId,
     });
+
+    for (const item of consumption) {
+      const balance = await deps.getAvailableBalance(item.productId, tx as unknown as TxClient);
+      const diff = new Prisma.Decimal(item.quantity).minus(balance.available);
+      if (diff.greaterThan(0)) {
+        warnings.push(
+          `Потребление ${item.productId} превышает остаток на ${diff.toFixed(2)} ${balance.unit}; записано с предупреждением`,
+        );
+      }
+    }
 
     const s1cUsers = await tx.user.findMany({
       where: {
@@ -381,11 +463,12 @@ export async function reportProductionFact(
 
   revalidatePath('/shift-execution');
   revalidatePath('/production-orders/' + line.order.id);
-  return result as unknown as ProductionFact;
+  return { fact: result as unknown as ProductionFact, warnings };
 }
 
 export async function reportProductionFactAction(lineId: string, formData: FormData): Promise<ReportFactResult> {
   try {
+    const rawConsumption = formData.get('consumption')?.toString();
     const input: ReportFactInput = {
       quantity: Number(formData.get('quantity')),
       factCategory: parseFactCategory(formData.get('factCategory')),
@@ -393,15 +476,37 @@ export async function reportProductionFactAction(lineId: string, formData: FormD
       defectReasonId: formData.get('defectReasonId')?.toString() || undefined,
       stopsCount: formData.get('stopsCount') ? Number(formData.get('stopsCount')) : undefined,
       stopsDurationMinutes: formData.get('stopsDurationMinutes') ? Number(formData.get('stopsDurationMinutes')) : undefined,
+      consumption: rawConsumption ? JSON.parse(rawConsumption) : undefined,
     };
 
-    await reportProductionFact(lineId, input);
-    return { success: true };
+    const { warnings } = await reportProductionFact(lineId, input);
+    return { success: true, warnings };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Не удалось внести итог';
     return { success: false, error: message };
   }
 }
 
-// TODO T-033: реализовать потребление факта
+export type BalanceResult =
+  | { success: true; balance: { available: number; unit: string } }
+  | { success: false; error: string };
+
+export async function getAvailableBalanceAction(productId: string): Promise<BalanceResult> {
+  try {
+    const session = await requireShiftWindow();
+    const userRoles = session.user.roles.map((ur) => ur.role.code);
+
+    if (!hasPermission(userRoles, 'production_order:report')) {
+      return { success: false, error: 'Forbidden: insufficient permissions' };
+    }
+
+    const balance = await getAvailableBalance(productId);
+    return { success: true, balance };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Не удалось получить остаток';
+    return { success: false, error: message };
+  }
+}
+
 // TODO T-034: реализовать корректировку факта Оператором
+// TODO T-035: заменить getAvailableBalance на баланс-сервис поверх StockMovement

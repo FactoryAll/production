@@ -68,6 +68,7 @@ model Product {
   orderLines    ProductionOrderLine[]
   facts         ProductionFact[]
   consumptions  ProductionFactConsumption[]
+  factConsumptions FactConsumption[]
   movements     StockMovement[]
   balances      StockBalance[]
   summaries     ShiftSummary[]
@@ -299,10 +300,24 @@ model ProductionFact {
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
 
-  consumptions ProductionFactConsumption[]
+  consumptions FactConsumption[]
+  legacyConsumptions ProductionFactConsumption[]
 
   @@unique([lineId])
   @@map("production_facts")
+}
+
+model FactConsumption {
+  id               String         @id @default(uuid())
+  productionFactId String
+  productionFact   ProductionFact @relation(fields: [productionFactId], references: [id], onDelete: Cascade)
+  productId        String
+  product          Product        @relation(fields: [productId], references: [id])
+  quantity         Decimal        @db.Decimal(10, 2)
+  createdAt        DateTime       @default(now())
+
+  @@unique([productionFactId, productId])
+  @@map("fact_consumptions")
 }
 
 model ProductionFactConsumption {
@@ -315,6 +330,8 @@ model ProductionFactConsumption {
 
   @@map("production_fact_consumptions")
 }
+
+// TODO T-035: migrate ProductionFactConsumption -> FactConsumption or remove legacy
 
 // === M05: Stock ===
 
