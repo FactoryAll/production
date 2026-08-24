@@ -46,6 +46,22 @@ jobs:
     name: End-to-end tests (Playwright)
     runs-on: ubuntu-latest
     needs: quality
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: prodtrack
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://user:password@localhost:5432/prodtrack?schema=public
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -63,6 +79,15 @@ jobs:
 
       - name: Generate Prisma client
         run: pnpm --filter @prodtrack/db db:generate
+
+      - name: Build workspace packages
+        run: pnpm --filter @prodtrack/contracts --filter @prodtrack/db --filter @prodtrack/ui build
+
+      - name: Apply database migrations
+        run: pnpm --filter @prodtrack/db db:migrate
+
+      - name: Seed database
+        run: pnpm db:seed
 
       - name: Install Playwright browsers
         run: pnpm --filter @prodtrack/web exec playwright install --with-deps chromium
