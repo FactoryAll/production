@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Prisma, type ProductionOrder, type ProductionOrderLine, type Product, type DefectReason } from '@prisma/client';
 const Decimal = Prisma.Decimal;
-import { acceptProductionOrderLine, reportProductionFact } from '../actions';
+import { acceptProductionOrderLine, reportProductionFact, correctFactByOperator } from '../actions';
 
 vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
@@ -90,11 +90,15 @@ function buildMockPrisma(overrides: {
   product?: Product;
   defectReason?: DefectReason | null;
   workCenter?: { id: string; code: string; name: string; active: boolean; producesMass: boolean };
+  existingFact?: { id?: string; quantity?: number; factCategory?: 'MASS' | 'GP' | 'PF'; defectQuantity?: number; defectReasonId?: string | null; stopsCount?: number; stopsDurationMinutes?: number; consumptions?: Array<{ productId: string; quantity: number | Prisma.Decimal }> };
 } = {}) {
   const order = overrides.order ?? makeOrder();
   const line = overrides.line ?? makeLine({ orderId: order.id });
   const product = overrides.product ?? baseProduct;
   const workCenter = overrides.workCenter ?? { id: 'wc-01', code: 'WC-01', name: 'РЦ 01', active: true, producesMass: true };
+  const existingFact = overrides.existingFact;
+  const defaultFactId = 'fact-1';
+  const existingFactId = line.id ? `fact-${line.id}` : defaultFactId;
 
   const lineUpdate = vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) =>
     Promise.resolve({ ...line, ...data }),
@@ -105,7 +109,47 @@ function buildMockPrisma(overrides: {
     product,
     workCenter,
     operator: { id: 'emp-1', tabNumber: '001', fullName: 'Иванов И.И.', active: true },
+    facts: existingFact ? [
+      {
+        id: existingFact?.id ?? existingFactId,
+        lineId: line.id,
+        productId: line.productId,
+        factCategory: existingFact.factCategory ?? product.category,
+        quantity: new Decimal(existingFact.quantity ?? 5),
+        defectQuantity: new Decimal(existingFact.defectQuantity ?? 0),
+        defectReasonId: existingFact.defectReasonId ?? null,
+        stopsCount: existingFact.stopsCount ?? 0,
+        stopsDurationMinutes: existingFact.stopsDurationMinutes ?? 0,
+        recordedAt: new Date(),
+        reportedAt: new Date(),
+        reportedByUserId: 'user-1',
+        createdById: 'user-1',
+        postCompletionCorrection: false,
+        consumptions: (existingFact.consumptions ?? []).map((c) => ({
+          id: `fc-${c.productId}`,
+          productionFactId: existingFact?.id ?? existingFactId,
+          productId: c.productId,
+          quantity: c.quantity instanceof Decimal ? c.quantity : new Decimal(c.quantity),
+          createdAt: new Date(),
+        })),
+      },
+    ] : [],
   });
+
+  const productionFactCreate = vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve({
+    id: existingFactId,
+    ...data,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }));
+
+  const productionFactUpdate = vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve({
+    id: existingFact?.id ?? existingFactId,
+    ...data,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }));
+
   const notificationCreateMany = vi.fn().mockResolvedValue(undefined);
   const userFindMany = vi.fn().mockImplementation(({ where }: { where: { roles?: { some: { role: { code: string } } } } }) => {
     const roleCode = where.roles?.some.role.code;
@@ -114,13 +158,10 @@ function buildMockPrisma(overrides: {
     return Promise.resolve([]);
   });
 
-  const createdFactId = 'fact-1';
-  const productionFactCreate = vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve({
-    id: createdFactId,
-    ...data,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  }));
+
+
+  const factConsumptionDeleteMany = vi.fn().mockResolvedValue(undefined);
+  const factConsumptionFindMany = vi.fn().mockResolvedValue([]);
 
   const defectReasonFindUnique = vi.fn().mockResolvedValue(overrides.defectReason ?? {
     id: 'defect-1',
@@ -141,9 +182,12 @@ function buildMockPrisma(overrides: {
     },
     productionFact: {
       create: productionFactCreate,
+      update: productionFactUpdate,
     },
     factConsumption: {
       createMany: factConsumptionCreateMany,
+      deleteMany: factConsumptionDeleteMany,
+      findMany: factConsumptionFindMany,
     },
     notification: {
       createMany: notificationCreateMany,
@@ -162,9 +206,12 @@ function buildMockPrisma(overrides: {
     },
     productionFact: {
       create: productionFactCreate,
+      update: productionFactUpdate,
     },
     factConsumption: {
       createMany: factConsumptionCreateMany,
+      deleteMany: factConsumptionDeleteMany,
+      findMany: factConsumptionFindMany,
     },
     product: {
       findUnique: vi.fn().mockImplementation(({ where }: { where: { id: string } }) => {
@@ -183,7 +230,9 @@ function buildMockPrisma(overrides: {
     prisma,
     lineUpdate,
     productionFactCreate,
+    productionFactUpdate,
     factConsumptionCreateMany,
+    factConsumptionDeleteMany,
     notificationCreateMany,
     userFindMany,
     defectReasonFindUnique,
@@ -931,5 +980,273 @@ describe('getAvailableBalance', () => {
     expect(productionFactFindMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { factCategory: 'PF', productId: 'gp-1' } }),
     );
+  });
+});
+
+
+describe('correctFactByOperator', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('updates quantity, defect, stops and writes audit with oldValue/newValue', async () => {
+    const deps = buildMockPrisma({
+      line: makeLine({ status: 'REPORTED' }),
+      existingFact: { id: 'fact-old', quantity: 5, factCategory: 'MASS', defectQuantity: 0, stopsCount: 0, stopsDurationMinutes: 0 },
+      workCenter: { id: 'wc-01', code: 'WC-01', name: 'РЦ 01', active: true, producesMass: true },
+    });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    const { fact } = await correctFactByOperator(
+      'line-1',
+      { quantity: 12, factCategory: 'MASS', defectQuantity: 1, defectReasonId: 'defect-1', stopsCount: 2, stopsDurationMinutes: 15 },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+    );
+
+    expect(fact.quantity.toString()).toBe('12');
+    expect(fact.factCategory).toBe('MASS');
+    expect(fact.postCompletionCorrection).toBe(false);
+    expect(deps.productionFactUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ quantity: expect.anything(), defectQuantity: expect.anything(), stopsCount: 2, stopsDurationMinutes: 15 }),
+      }),
+    );
+    expect(writeAudit).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: 'UPDATE',
+        objectType: 'ProductionFact',
+        field: 'fact',
+        oldValue: expect.stringContaining('5'),
+        newValue: expect.stringContaining('12'),
+      }),
+    );
+    expect(writeTiming).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ fromStatus: 'REPORTED', toStatus: 'REPORTED' }),
+    );
+  });
+
+  it('changes factCategory from GP to PF (Р-01)', async () => {
+    const deps = buildMockPrisma({
+      line: makeLine({ status: 'REPORTED', productId: 'gp-1' }),
+      order: makeOrder(),
+      product: gpProduct,
+      existingFact: { id: 'fact-old', quantity: 5, factCategory: 'GP' },
+      workCenter: { id: 'wc-02', code: 'WC-02', name: 'РЦ 02', active: true, producesMass: false },
+    });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    const { fact } = await correctFactByOperator(
+      'line-1',
+      { quantity: 5, factCategory: 'PF' },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+    );
+
+    expect(fact.factCategory).toBe('PF');
+  });
+
+  it('replaces consumption set and warns on overconsumption', async () => {
+    const deps = buildMockPrisma({
+      line: makeLine({ status: 'REPORTED', productId: 'gp-1' }),
+      order: makeOrder(),
+      product: gpProduct,
+      existingFact: { id: 'fact-old', quantity: 5, factCategory: 'GP', consumptions: [{ productId: 'mass-1', quantity: 2 }] },
+      workCenter: { id: 'wc-02', code: 'WC-02', name: 'РЦ 02', active: true, producesMass: false },
+    });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+    deps.getAvailableBalance.mockResolvedValue({ available: 0, unit: 'кг' });
+
+    const { warnings } = await correctFactByOperator(
+      'line-1',
+      { quantity: 5, factCategory: 'GP', consumption: [{ productId: 'mass-1', quantity: 5 }] },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+    );
+
+    expect(deps.factConsumptionDeleteMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { productionFactId: 'fact-old' } }),
+    );
+    expect(deps.factConsumptionCreateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({ productId: 'mass-1', quantity: expect.any(Decimal) }),
+        ]),
+      }),
+    );
+    expect(warnings.length).toBeGreaterThan(0);
+  });
+
+  it('fails when order is COMPLETED (mentions NP)', async () => {
+    const deps = buildMockPrisma({
+      line: makeLine({ status: 'REPORTED' }),
+      order: makeOrder({ status: 'COMPLETED' }),
+      existingFact: { id: 'fact-old', quantity: 5 },
+    });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      correctFactByOperator(
+        'line-1',
+        { quantity: 5, factCategory: 'MASS' },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      ),
+    ).rejects.toThrow('После закрытия корректировка доступна только начальнику производства');
+  });
+
+  it('fails when order is CANCELLED', async () => {
+    const deps = buildMockPrisma({
+      line: makeLine({ status: 'REPORTED' }),
+      order: makeOrder({ status: 'CANCELLED' }),
+      existingFact: { id: 'fact-old', quantity: 5 },
+    });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      correctFactByOperator(
+        'line-1',
+        { quantity: 5, factCategory: 'MASS' },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      ),
+    ).rejects.toThrow('ПЗ отменено');
+  });
+
+  it('fails when line is ACCEPTED (fact not reported)', async () => {
+    const deps = buildMockPrisma({
+      line: makeLine({ status: 'ACCEPTED' }),
+    });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      correctFactByOperator(
+        'line-1',
+        { quantity: 5, factCategory: 'MASS' },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      ),
+    ).rejects.toThrow('Факт ещё не внесён');
+  });
+
+  it('fails when correcting another operator line', async () => {
+    const deps = buildMockPrisma({
+      line: makeLine({ status: 'REPORTED', operatorId: 'emp-2' }),
+      existingFact: { id: 'fact-old', quantity: 5 },
+    });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      correctFactByOperator(
+        'line-1',
+        { quantity: 5, factCategory: 'MASS' },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      ),
+    ).rejects.toThrow('Корректировать факт может только Оператор');
+  });
+
+  it('fails when defect > 0 without reason', async () => {
+    const deps = buildMockPrisma({
+      line: makeLine({ status: 'REPORTED' }),
+      existingFact: { id: 'fact-old', quantity: 5 },
+      workCenter: { id: 'wc-02', code: 'WC-02', name: 'РЦ 02', active: true, producesMass: false },
+    });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      correctFactByOperator(
+        'line-1',
+        { quantity: 5, factCategory: 'MASS', defectQuantity: 1 },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      ),
+    ).rejects.toThrow('Укажите причину брака');
+  });
+
+  it('fails when quantity is negative', async () => {
+    const deps = buildMockPrisma({
+      line: makeLine({ status: 'REPORTED' }),
+      existingFact: { id: 'fact-old', quantity: 5 },
+    });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      correctFactByOperator(
+        'line-1',
+        { quantity: -1, factCategory: 'MASS' },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      ),
+    ).rejects.toThrow('Значение не может быть отрицательным');
+  });
+
+  it('fails when consumption on mass work center', async () => {
+    const deps = buildMockPrisma({
+      line: makeLine({ status: 'REPORTED' }),
+      existingFact: { id: 'fact-old', quantity: 5 },
+      workCenter: { id: 'wc-01', code: 'WC-01', name: 'РЦ 01', active: true, producesMass: true },
+    });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      correctFactByOperator(
+        'line-1',
+        { quantity: 5, factCategory: 'MASS', consumption: [{ productId: 'mass-1', quantity: 1 }] },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      ),
+    ).rejects.toThrow('Потребление указывается только на ГП/ПФ-РЦ');
+  });
+
+  it('fails when out of shift window (OPR with single role)', async () => {
+    const deps = buildMockPrisma({
+      line: makeLine({ status: 'REPORTED' }),
+      existingFact: { id: 'fact-old', quantity: 5 },
+    });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockRejectedValue(new Error('Смена не открыта'));
+
+    await expect(
+      correctFactByOperator(
+        'line-1',
+        { quantity: 5, factCategory: 'MASS' },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      ),
+    ).rejects.toThrow('Смена не открыта');
+  });
+
+  it('fails without production_order:report permission', async () => {
+    const deps = buildMockPrisma({
+      line: makeLine({ status: 'REPORTED' }),
+      existingFact: { id: 'fact-old', quantity: 5 },
+    });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue({
+      ...baseSession,
+      user: { ...baseSession.user, roles: [{ role: { code: 'NP' } }] },
+    });
+
+    await expect(
+      correctFactByOperator(
+        'line-1',
+        { quantity: 5, factCategory: 'MASS' },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      ),
+    ).rejects.toThrow('Forbidden: insufficient permissions');
   });
 });
