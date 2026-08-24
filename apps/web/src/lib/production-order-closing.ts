@@ -56,7 +56,7 @@ async function writeStatusTransition(ctx: ClosingContext) {
 
 export async function checkAndCloseProductionOrder(
   orderId: string,
-  prisma: PrismaClient,
+  prisma: PrismaClient | TxClient,
   session: SessionWithUser,
 ): Promise<{ closed: boolean; status: ProductionOrderStatus }> {
   const order = await prisma.productionOrder.findUnique({
@@ -92,21 +92,17 @@ export async function checkAndCloseProductionOrder(
     return { closed: false, status };
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
-    const result = await tx.productionOrder.update({
-      where: { id: orderId },
-      data: { status: 'COMPLETED', completedAt: new Date() },
-    });
+  const updated = await prisma.productionOrder.update({
+    where: { id: orderId },
+    data: { status: 'COMPLETED', completedAt: new Date() },
+  });
 
-    await writeStatusTransition({
-      tx,
-      order,
-      session,
-      newStatus: 'COMPLETED',
-      permission: 'production_order:confirm',
-    });
-
-    return result;
+  await writeStatusTransition({
+    tx: prisma,
+    order,
+    session,
+    newStatus: 'COMPLETED',
+    permission: 'production_order:confirm',
   });
 
   return { closed: true, status: updated.status };
@@ -114,7 +110,7 @@ export async function checkAndCloseProductionOrder(
 
 export async function transitionToInProgress(
   orderId: string,
-  prisma: PrismaClient,
+  prisma: PrismaClient | TxClient,
   session: SessionWithUser,
 ): Promise<{ transitioned: boolean }> {
   const order = await prisma.productionOrder.findUnique({
@@ -135,19 +131,17 @@ export async function transitionToInProgress(
     return { transitioned: false };
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.productionOrder.update({
-      where: { id: orderId },
-      data: { status: 'IN_PROGRESS' },
-    });
+  await prisma.productionOrder.update({
+    where: { id: orderId },
+    data: { status: 'IN_PROGRESS' },
+  });
 
-    await writeStatusTransition({
-      tx,
-      order,
-      session,
-      newStatus: 'IN_PROGRESS',
-      permission: 'production_order:confirm',
-    });
+  await writeStatusTransition({
+    tx: prisma,
+    order,
+    session,
+    newStatus: 'IN_PROGRESS',
+    permission: 'production_order:confirm',
   });
 
   return { transitioned: true };
