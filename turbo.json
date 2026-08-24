@@ -18,6 +18,7 @@
         "^build",
         "^db:generate"
       ],
+      "env": ["VERSION", "NODE_ENV"],
       "outputs": [
         ".next/**",
         "!.next/cache/**",
