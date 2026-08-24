@@ -24,6 +24,7 @@ import {
 import { Card } from '@prodtrack/ui';
 import { formatDuration } from '@/lib/format';
 import type { SerializableShiftReportData } from './page';
+// TODO T-064: render own-only notice when data.canReadAll is false
 
 // TODO T-060: include this screen in Phase 2 release checklist and manual QA.
 

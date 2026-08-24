@@ -3,8 +3,10 @@ export const dynamic = 'force-dynamic';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { prisma } from '@prodtrack/db';
+import { RoleCode } from '@prodtrack/contracts';
 import { Button } from '@prodtrack/ui';
 import { getShiftReportData, type ShiftReportData } from '@/lib/shift-report-service';
+import { requireSession } from '@/lib/auth/session';
 import ShiftReportClientPage from './_client-page';
 
 interface ShiftReportPageProps {
@@ -12,7 +14,10 @@ interface ShiftReportPageProps {
 }
 
 export default async function ShiftReportPage({ params }: ShiftReportPageProps) {
-  const data = await getShiftReportData(params.orderId, prisma);
+  const session = await requireSession();
+  const userRoles = session.user.roles.map((ur) => ur.role.code);
+
+  const data = await getShiftReportData(params.orderId, prisma, userRoles, session.user.employeeId);
   if (!data.order) {
     notFound();
   }
@@ -50,6 +55,7 @@ export default async function ShiftReportPage({ params }: ShiftReportPageProps) 
     defectsByReason: data.defectsByReason,
     stopsByDuration: data.stopsByDuration,
     consumptionByProduct: data.consumptionByProduct,
+    canReadAll: userRoles.includes('production_order:read' as RoleCode) || userRoles.includes('dashboard:read' as RoleCode),
   };
 
   return (
@@ -102,4 +108,5 @@ export interface SerializableShiftReportData {
   defectsByReason: ShiftReportData['defectsByReason'];
   stopsByDuration: ShiftReportData['stopsByDuration'];
   consumptionByProduct: ShiftReportData['consumptionByProduct'];
+  canReadAll: boolean;
 }

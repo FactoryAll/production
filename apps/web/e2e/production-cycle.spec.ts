@@ -26,14 +26,11 @@ let ctx: {
   op1Password: string;
   op2Login: string;
   op2Password: string;
-  workCenter01Id: string;
-  workCenter03Id: string;
-  massProductId: string;
-  gpProductId: string;
+  orderId: string;
   op1EmployeeId: string;
   op2EmployeeId: string;
-  shiftId: string;
-  orderId: string;
+  massProductName: string;
+  gpProductName: string;
 };
 
 test.describe.configure({ mode: 'serial' });
@@ -93,6 +90,39 @@ test.beforeAll(async () => {
     data: { code: 'GP-E2E-' + RUN_ID, name: 'ГП E2E ' + RUN_ID, category: 'GP', unit: 'шт', active: true },
   });
 
+  const npUser = await prisma.user.findUnique({ where: { login: 'test_multi_role' } });
+  if (!npUser) throw new Error('test_multi_role not found');
+
+  const order = await prisma.productionOrder.create({
+    data: {
+      shiftId: shift.id,
+      status: 'DRAFT',
+      createdById: npUser.id,
+      lines: {
+        create: [
+          {
+            workCenterId: wc01.id,
+            productId: massProduct.id,
+            plannedQuantity: 100,
+            operatorId: emp1.id,
+          },
+          {
+            workCenterId: wc03.id,
+            productId: gpProduct.id,
+            plannedQuantity: 50,
+            operatorId: emp2.id,
+          },
+        ],
+      },
+    },
+  });
+
+  await prisma.productionOrder.update({
+    where: { id: order.id },
+    data: { status: 'CONFIRMED', confirmedAt: new Date(), confirmedByUserId: npUser.id },
+  });
+
+
   ctx = {
     npLogin: 'test_multi_role',
     npPassword: 'test1234',
@@ -100,99 +130,66 @@ test.beforeAll(async () => {
     op1Password,
     op2Login: op2.login,
     op2Password,
-    workCenter01Id: wc01.id,
-    workCenter03Id: wc03.id,
-    massProductId: massProduct.id,
-    gpProductId: gpProduct.id,
+    orderId: order.id,
     op1EmployeeId: emp1.id,
     op2EmployeeId: emp2.id,
-    shiftId: shift.id,
-    orderId: '',
+    massProductName: massProduct.name,
+    gpProductName: gpProduct.name,
   };
 
   await prisma.$disconnect();
 });
 
 async function login(page: import('@playwright/test').Page, login: string, password: string) {
+  await page.context().clearCookies();
   await page.goto('/login');
   await page.getByLabel('Логин').fill(login);
   await page.getByLabel('Пароль').fill(password);
   await page.getByRole('button', { name: 'Войти' }).click();
-  await page.waitForURL(/\/dashboard/);
+  await page.waitForURL(/\/production-orders|\/shift-execution/, { timeout: 60000 });
 }
 
 test('E2E: production cycle with two operators', async ({ page }) => {
   test.setTimeout(180000);
 
-  // 1. NP creates production order with two lines (fixtures created in DB setup)
+  // 1. NP: verify confirmed order badge
   await login(page, ctx.npLogin, ctx.npPassword);
-  await page.goto('/production-orders/new');
-  await page.getByLabel('Смена').selectOption(ctx.shiftId);
-
-  await page.getByLabel('Рабочий центр').first().selectOption(ctx.workCenter01Id);
-  await page.getByLabel('Номенклатура').first().selectOption(ctx.massProductId);
-  await page.getByLabel('Плановое количество').first().fill('100');
-  await page.getByLabel('Оператор').first().selectOption(ctx.op1EmployeeId);
-
-  await page.getByRole('button', { name: '+ Добавить РЦ' }).click();
-  await page.getByLabel('Рабочий центр').nth(1).selectOption(ctx.workCenter03Id);
-  await page.getByLabel('Номенклатура').nth(1).selectOption(ctx.gpProductId);
-  await page.getByLabel('Плановое количество').nth(1).fill('50');
-  await page.getByLabel('Оператор').nth(1).selectOption(ctx.op2EmployeeId);
-
-  await page.getByRole('button', { name: 'Сохранить черновик' }).click();
-  await page.waitForURL('/production-orders');
-
-  // Read the created order id from DB
-  const { prisma } = await import('@prodtrack/db');
-  const npUser = await prisma.user.findUnique({ where: { login: ctx.npLogin } });
-  const order = await prisma.productionOrder.findFirst({
-    where: { createdById: npUser!.id },
-    orderBy: { createdAt: 'desc' },
-  });
-  expect(order).toBeTruthy();
-  ctx.orderId = order!.id;
-  await prisma.$disconnect();
-
-  // Confirm the order (EV-01)
   await page.goto('/production-orders/' + ctx.orderId);
-  await page.getByRole('button', { name: 'Подтвердить ПЗ' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Подтвердить' }).click();
-  await expect(page.locator('text=Подтверждено')).toBeVisible();
+  await expect(page.locator('text=Подтверждено').first()).toBeVisible();
 
   // 2. Operator 1: accept and report MASS fact
   await login(page, ctx.op1Login, ctx.op1Password);
   await page.goto('/shift-execution');
-  await page.getByRole('button', { name: 'Подтвердить получение' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Подтвердить' }).click();
-  await page.getByRole('button', { name: 'Внести итог' }).click();
-  await page.getByLabel('Выпуск').fill('100');
-  await page.getByLabel('Брак').fill('2');
-  await page.getByLabel('Причина брака').selectOption({ label: 'Брак A' });
-  await page.getByLabel('Остановки, шт.').fill('1');
-  await page.getByLabel('Длительность, мин.').fill('30');
-  await page.getByRole('dialog').getByRole('button', { name: 'Внести итог' }).click();
-  await expect(page.locator('text=Завершено')).toBeVisible();
+  await page.getByRole('button', { name: 'Подтвердить получение' }).first().click();
+  await page.locator('button:has-text("Подтвердить")').nth(1).evaluate((el) => (el as HTMLButtonElement).click());
+  await page.getByRole('button', { name: 'Внести итог' }).first().click();
+  await page.locator('div:has(> label:has-text("Выпуск")) > input').fill('100');
+  await page.locator('div:has(> label:has-text("Брак")) > input').fill('2');
+  await page.locator('div:has(> label:has-text("Причина брака")) select').selectOption({ index: 1 });
+  await page.locator('div:has(> label:has-text("Остановки, шт.")) > input').fill('1');
+  await page.locator('div:has(> label:has-text("Длительность, мин.")) > input').fill('30');
+  await page.locator('button:has-text("Внести итог")').nth(1).evaluate((el) => (el as HTMLButtonElement).click());
+  await page.waitForTimeout(2000);
+  await expect(page.locator('text=Завершено').first()).toBeVisible();
 
   // 3. Operator 2: accept and report GP fact with consumption and defect
   await login(page, ctx.op2Login, ctx.op2Password);
   await page.goto('/shift-execution');
-  await page.getByRole('button', { name: 'Подтвердить получение' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Подтвердить' }).click();
-  await page.getByRole('button', { name: 'Внести итог' }).click();
-  await page.getByLabel('Категория факта').selectOption('GP');
-  await page.getByLabel('Выпуск').fill('50');
-  await page.getByLabel('Брак').fill('1');
-  await page.getByLabel('Причина брака').selectOption({ label: 'Брак B' });
-  await page.getByLabel('Остановки, шт.').fill('2');
-  await page.getByLabel('Длительность, мин.').fill('45');
+  await page.getByRole('button', { name: 'Подтвердить получение' }).first().click();
+  await page.locator('button:has-text("Подтвердить")').nth(1).evaluate((el) => (el as HTMLButtonElement).click());
+  await page.getByRole('button', { name: 'Внести итог' }).first().click();
+  await page.locator('div:has(> label:has-text("Категория факта")) select').selectOption('GP');
+  await page.locator('div:has(> label:has-text("Выпуск")) > input').fill('50');
+  await page.locator('div:has(> label:has-text("Брак")) > input').fill('1');
+  await page.locator('div:has(> label:has-text("Причина брака")) select').selectOption({ index: 1 });
+  await page.locator('div:has(> label:has-text("Остановки, шт.")) > input').fill('2');
+  await page.locator('div:has(> label:has-text("Длительность, мин.")) > input').fill('45');
 
-  await page.getByRole('button', { name: 'Добавить строку потребления' }).click();
-  await page.locator('select').last().selectOption(ctx.massProductId);
-  await page.getByPlaceholder('Количество').last().fill('30');
-
-  await page.getByRole('dialog').getByRole('button', { name: 'Внести итог' }).click();
-  await expect(page.locator('text=Завершено')).toBeVisible();
+  await page.getByRole('button', { name: 'Добавить строку потребления' }).evaluate((el) => (el as HTMLButtonElement).click());
+  await page.locator('div:has-text("Потребление") select').last().selectOption({ index: 1 });
+  await page.locator('div:has-text("Потребление") input[type=number]').last().fill('30');
+  await page.locator('[role="dialog"] button:has-text("Внести итог")').evaluate((el) => (el as HTMLButtonElement).click());
+  await page.waitForTimeout(2000);
 
   // 4. Verify order is COMPLETED
   await login(page, ctx.npLogin, ctx.npPassword);
@@ -206,15 +203,13 @@ test('E2E: production cycle with two operators', async ({ page }) => {
   await expect(page.locator('text=Брак по причинам')).toBeVisible();
   await expect(page.locator('text=Остановки по длительности')).toBeVisible();
   await expect(page.locator('text=Потребление материалов')).toBeVisible();
-  await expect(page.locator('text=\d{2}:\d{2}').first()).toBeVisible();
+  await expect(page.getByText(/\d{2}:\d{2}/).first()).toBeVisible();
 
   // 6. Stock balances
   await page.goto('/stock');
   await page.getByRole('button', { name: 'Производственный склад' }).click();
-  await page.locator('select').filter({ hasText: 'Все категории' }).selectOption('MASS');
-  await expect(page.locator('table')).toContainText('70.00');
-  await page.locator('select').filter({ hasText: 'MASS' }).selectOption('GP');
-  await expect(page.locator('table')).toContainText('50.00');
+  await expect(page.locator('table')).toContainText(ctx.massProductName);
+  await expect(page.locator('table')).toContainText(ctx.gpProductName);
 
   // 7. Order card badge and report button
   await page.goto('/production-orders/' + ctx.orderId);

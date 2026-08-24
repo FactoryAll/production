@@ -12,6 +12,8 @@ export function Dialog({ open, onClose, title, children }: DialogProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div
+        role="dialog"
+        aria-modal="true"
         className="w-full max-w-md rounded-md border border-mist-metal bg-graphite-surface p-6 shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >

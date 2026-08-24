@@ -229,4 +229,141 @@ describe('getShiftReportData', () => {
     expect(data.consumptionByProduct[0]).toEqual({ productName: 'Этикетка', quantity: 25, unit: 'шт' });
     expect(data.consumptionByProduct[1]).toEqual({ productName: 'Упаковка', quantity: 17, unit: 'шт' });
   });
+
+
+  it('returns empty metrics for read_own with no assigned work centers', async () => {
+    const lines = [
+      makeLine({ id: 'line-1', workCenterId: 'wc-01', operatorId: 'emp-1' }),
+      makeLine({ id: 'line-2', workCenterId: 'wc-02', operatorId: 'emp-2' }),
+    ];
+    const summaries = [makeSummary({ workCenterId: 'wc-02' })];
+    const { client } = makePrismaClient({ order: { lines }, summaries });
+
+    const data = await getShiftReportData('po-1', client, ['production_order:read_own'], 'emp-3');
+
+    expect(data.planVsFact).toHaveLength(0);
+    expect(data.summaries).toHaveLength(0);
+    expect(data.outputStructure).toHaveLength(0);
+    expect(data.consumptionByProduct).toHaveLength(0);
+  });
+
+  it('gives full access when both read and read_own are present', async () => {
+    const lines = [
+      makeLine({ id: 'line-1', workCenterId: 'wc-01', operatorId: 'emp-1' }),
+      makeLine({ id: 'line-2', workCenterId: 'wc-02', operatorId: 'emp-2' }),
+    ];
+    const summaries = [makeSummary({ workCenterId: 'wc-01' }), makeSummary({ id: 'summary-2', workCenterId: 'wc-02' })];
+    const { client } = makePrismaClient({ order: { lines }, summaries });
+
+    const data = await getShiftReportData('po-1', client, ['production_order:read', 'production_order:read_own'], 'emp-1');
+
+    expect(data.planVsFact).toHaveLength(2);
+    expect(data.summaries).toHaveLength(2);
+  });
+
+  it('filters outputStructure to own work centers', async () => {
+    const lines = [
+      makeLine({ id: 'line-1', workCenterId: 'wc-01', operatorId: 'emp-1' }),
+      makeLine({ id: 'line-2', workCenterId: 'wc-02', operatorId: 'emp-2' }),
+    ];
+    const summaries = [
+      makeSummary({ workCenterId: 'wc-01', massOutput: new Decimal(20), pfOutput: new Decimal(5), gpOutput: new Decimal(0) }),
+      makeSummary({ id: 'summary-2', workCenterId: 'wc-02', massOutput: new Decimal(100), pfOutput: new Decimal(0), gpOutput: new Decimal(0) }),
+    ];
+    const { client } = makePrismaClient({ order: { lines }, summaries });
+
+    const data = await getShiftReportData('po-1', client, ['production_order:read_own'], 'emp-1');
+
+    expect(data.outputStructure).toHaveLength(2);
+    const mass = data.outputStructure.find((i) => i.category === 'MASS');
+    expect(mass?.quantity).toBe(20);
+  });
+
+
+describe('getShiftReportData ownership filtering', () => {
+  it('shows all work centers for users with production_order:read', async () => {
+    const lines = [
+      makeLine({ id: 'line-1', workCenterId: 'wc-01', operatorId: 'emp-1' }),
+      makeLine({ id: 'line-2', workCenterId: 'wc-02', operatorId: 'emp-2' }),
+    ];
+    const summaries = [
+      makeSummary({ workCenterId: 'wc-01' }),
+      makeSummary({ id: 'summary-2', workCenterId: 'wc-02' }),
+    ];
+    const { client } = makePrismaClient({ order: { lines }, summaries });
+
+    const data = await getShiftReportData('po-1', client, ['production_order:read'], 'emp-1');
+
+    expect(data.planVsFact).toHaveLength(2);
+    expect(data.summaries).toHaveLength(2);
+  });
+
+  it('filters to own work center for production_order:read_own only', async () => {
+    const lines = [
+      makeLine({ id: 'line-1', workCenterId: 'wc-01', operatorId: 'emp-1' }),
+      makeLine({ id: 'line-2', workCenterId: 'wc-02', operatorId: 'emp-2' }),
+    ];
+    const summaries = [
+      makeSummary({ workCenterId: 'wc-01' }),
+      makeSummary({ id: 'summary-2', workCenterId: 'wc-02' }),
+    ];
+    const { client } = makePrismaClient({ order: { lines }, summaries });
+
+    const data = await getShiftReportData('po-1', client, ['production_order:read_own'], 'emp-1');
+
+    expect(data.planVsFact).toHaveLength(1);
+    expect(data.planVsFact[0].workCenterCode).toBe('01');
+    expect(data.summaries).toHaveLength(1);
+    expect(data.summaries[0].workCenterId).toBe('wc-01');
+  });
+
+  it('aggregates consumption only from own work centers', async () => {
+    const lines = [
+      makeLine({ id: 'line-1', workCenterId: 'wc-01', operatorId: 'emp-1' }),
+      makeLine({ id: 'line-2', workCenterId: 'wc-02', operatorId: 'emp-2' }),
+    ];
+    const summaries = [
+      makeSummary({
+        workCenterId: 'wc-01',
+        consumption: [{ id: 'c-1', shiftSummaryId: 'summary-1', productId: 'gp-2', product: { id: 'gp-2', name: 'Упаковка', unit: 'шт' }, quantity: new Decimal(10), unit: 'шт' }],
+      }),
+      makeSummary({
+        id: 'summary-2',
+        workCenterId: 'wc-02',
+        consumption: [{ id: 'c-2', shiftSummaryId: 'summary-2', productId: 'gp-2', product: { id: 'gp-2', name: 'Упаковка', unit: 'шт' }, quantity: new Decimal(99), unit: 'шт' }],
+      }),
+    ];
+    const { client } = makePrismaClient({ order: { lines }, summaries });
+
+    const data = await getShiftReportData('po-1', client, ['production_order:read_own'], 'emp-1');
+
+    expect(data.consumptionByProduct).toHaveLength(1);
+    expect(data.consumptionByProduct[0].quantity).toBe(10);
+  });
+
+  it('excludes defects and stops from other operators', async () => {
+    const lines = [
+      makeLine({
+        id: 'line-1',
+        workCenterId: 'wc-01',
+        operatorId: 'emp-1',
+        facts: [makeFact({ stopsDurationMinutes: 10, defectQuantity: 1, defectReason: { id: 'dr-1', name: 'Перерасход', code: 'OVER' } })],
+      }),
+      makeLine({
+        id: 'line-2',
+        workCenterId: 'wc-02',
+        operatorId: 'emp-2',
+        facts: [makeFact({ stopsDurationMinutes: 75, defectQuantity: 5, defectReason: { id: 'dr-2', name: 'Брак', code: 'DEF' } })],
+      }),
+    ];
+    const { client } = makePrismaClient({ order: { lines } });
+
+    const data = await getShiftReportData('po-1', client, ['production_order:read_own'], 'emp-1');
+
+    expect(data.defectsByReason).toHaveLength(1);
+    expect(data.defectsByReason[0].reasonName).toBe('Перерасход');
+    expect(data.stopsByDuration).toHaveLength(1);
+    expect(data.stopsByDuration[0].durationRange).toBe('0-15 мин');
+  });
+});
 });

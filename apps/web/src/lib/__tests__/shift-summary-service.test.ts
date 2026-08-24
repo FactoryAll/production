@@ -51,7 +51,16 @@ function makeMockPrisma() {
     return data;
   });
 
+  const productionOrderFindUnique = vi.fn();
+  const productionOrderLineFindUnique = vi.fn();
+
   const tx = {
+    productionOrder: {
+      findUnique: productionOrderFindUnique,
+    },
+    productionOrderLine: {
+      findUnique: productionOrderLineFindUnique,
+    },
     shiftSummary: {
       upsert: shiftSummaryUpsert,
       findMany: shiftSummaryFindMany,
@@ -74,7 +83,15 @@ function makeMockPrisma() {
     },
     shiftSummary: {
       findUnique: shiftSummaryFindUnique,
+      upsert: shiftSummaryUpsert,
+      findMany: shiftSummaryFindMany,
     },
+    shiftSummaryConsumption: {
+      deleteMany: shiftSummaryConsumptionDeleteMany,
+      createMany: shiftSummaryConsumptionCreateMany,
+    },
+    auditRecord: { create: auditCreate },
+    stageTiming: { create: timingCreate },
     $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(tx)),
   } as unknown as PrismaClient;
 
@@ -387,4 +404,57 @@ describe('updateShiftSummary', () => {
     expect(auditRecords.length).toBeGreaterThan(0);
     expect(auditRecords[0]).toMatchObject({ action: 'UPDATE', objectType: 'ShiftSummary' });
   });
+
+describe('transaction client handling', () => {
+  it('buildShiftSummary works with a TxClient without $transaction', async () => {
+    const { client, tx, summaries } = makeMockPrisma();
+    tx.productionOrder.findUnique = vi.fn().mockResolvedValue(
+      makeOrder({ lines: [makeLine()] }),
+    );
+    await buildShiftSummary('po-1', tx as unknown as PrismaClient);
+    expect(summaries.size).toBe(1);
+    expect((client as unknown as { $transaction: typeof vi.fn }).$transaction).not.toHaveBeenCalled();
+  });
+
+  it('buildShiftSummary wraps work in $transaction for PrismaClient', async () => {
+    const { client, summaries } = makeMockPrisma();
+    (client.productionOrder.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(makeOrder({ lines: [makeLine()] }));
+    await buildShiftSummary('po-1', client);
+    expect((client as unknown as { $transaction: typeof vi.fn }).$transaction).toHaveBeenCalled();
+    expect(summaries.size).toBe(1);
+  });
+
+  it('updateShiftSummary works with a TxClient without $transaction', async () => {
+    const { client, tx, summaries } = makeMockPrisma();
+    tx.productionOrderLine.findUnique = vi.fn().mockResolvedValue(
+      makeLine({
+        order: { id: 'po-1', shiftId: 'shift-1', status: 'IN_PROGRESS', shift: { id: 'shift-1' } },
+        facts: [makeFact()],
+      }),
+    );
+    await updateShiftSummary('line-1', tx as unknown as PrismaClient);
+    expect(summaries.size).toBe(1);
+    expect((client as unknown as { $transaction: typeof vi.fn }).$transaction).not.toHaveBeenCalled();
+  });
+
+  it('updateShiftSummary does not start a nested transaction on PrismaClient', async () => {
+    const { client, summaries } = makeMockPrisma();
+    (client.productionOrderLine.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+      makeLine({
+        order: { id: 'po-1', shiftId: 'shift-1', status: 'IN_PROGRESS', shift: { id: 'shift-1' } },
+        facts: [makeFact()],
+      }),
+    );
+    await updateShiftSummary('line-1', client);
+    expect((client as unknown as { $transaction: typeof vi.fn }).$transaction).not.toHaveBeenCalled();
+    expect(summaries.size).toBe(1);
+  });
+
+  it('throws when order not found on TxClient', async () => {
+    const { tx } = makeMockPrisma();
+    tx.productionOrder.findUnique = vi.fn().mockResolvedValue(null);
+    await expect(buildShiftSummary('po-1', tx as unknown as PrismaClient)).rejects.toThrow('ПЗ не найдено');
+  });
+});
+
 });
