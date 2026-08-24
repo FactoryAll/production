@@ -8,12 +8,20 @@ export default async function ShiftExecutionRootPage() {
   const session = await requireSession();
   const employeeId = session.user.employeeId;
 
-  const [lines, defectReasons] = await Promise.all([
+  const [lines, defectReasons, consumableProducts] = await Promise.all([
     employeeId ? getOperatorLines(employeeId) : Promise.resolve([]),
     getActiveDefectReasons(),
+    getConsumableProducts(),
   ]);
 
-  return <ShiftExecutionPage lines={lines} employeeId={employeeId} defectReasons={defectReasons} />;
+  return (
+    <ShiftExecutionPage
+      lines={lines}
+      employeeId={employeeId}
+      defectReasons={defectReasons}
+      consumableProducts={consumableProducts}
+    />
+  );
 }
 
 async function getOperatorLines(employeeId: string) {
@@ -45,6 +53,18 @@ async function getOperatorLines(employeeId: string) {
 async function getActiveDefectReasons() {
   return prisma.defectReason.findMany({
     where: { active: true },
+    orderBy: { name: 'asc' },
+  });
+}
+
+async function getConsumableProducts() {
+  return prisma.product.findMany({
+    where: {
+      active: true,
+      category: {
+        in: ['MASS', 'GP'],
+      },
+    },
     orderBy: { name: 'asc' },
   });
 }
