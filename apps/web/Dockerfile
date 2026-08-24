@@ -28,7 +28,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ARG VERSION=dev
 ENV VERSION=${VERSION}
 RUN pnpm --filter @prodtrack/db db:generate
-RUN pnpm build
+RUN echo "BUILD_VERSION=$VERSION" && pnpm build
 
 FROM base AS runner
 WORKDIR /app
