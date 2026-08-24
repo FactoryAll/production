@@ -287,9 +287,12 @@ model ProductionFact {
   defectQuantity           Decimal          @default(0) @db.Decimal(18, 4)
   defectReasonId           String?
   defectReason             DefectReason?    @relation(fields: [defectReasonId], references: [id])
+  stopsCount               Int              @default(0)
   stopsDurationMinutes     Int              @default(0)
   comment                  String?
   recordedAt               DateTime
+  reportedAt               DateTime?
+  reportedByUserId         String?
   createdById              String
   postCompletionCorrection Boolean          @default(false)
   correctionReason         String?
@@ -298,6 +301,7 @@ model ProductionFact {
 
   consumptions ProductionFactConsumption[]
 
+  @@unique([lineId])
   @@map("production_facts")
 }
 
