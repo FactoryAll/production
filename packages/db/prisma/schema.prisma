@@ -70,7 +70,7 @@ model Product {
   factConsumptions FactConsumption[]
   movements     StockMovement[]
   balances      StockBalance[]
-  summaries     ShiftSummary[]
+  summaryConsumptions ShiftSummaryConsumption[]
   transferLines TransferLine[]
 
   @@map("products")
@@ -236,7 +236,8 @@ model ProductionOrder {
   cancelledBy         User?                 @relation(fields: [cancelledByUserId], references: [id], name: "CancelledOrders")
   cancellationReason  String?
 
-  lines ProductionOrderLine[]
+  lines              ProductionOrderLine[]
+  shiftSummaries     ShiftSummary[]
 
   @@map("production_orders")
 }
@@ -367,22 +368,43 @@ model StockBalance {
 // === M06: Shift summary ===
 
 model ShiftSummary {
-  id                   String       @id @default(uuid())
+  id                   String        @id @default(uuid())
+  productionOrderId    String
+  productionOrder      ProductionOrder @relation(fields: [productionOrderId], references: [id])
   shiftId              String
-  shift                Shift        @relation(fields: [shiftId], references: [id])
+  shift                Shift         @relation(fields: [shiftId], references: [id])
   workCenterId         String
-  workCenter           WorkCenter   @relation(fields: [workCenterId], references: [id])
-  productId            String
-  product              Product      @relation(fields: [productId], references: [id])
-  factCategory         FactCategory
-  producedQuantity     Decimal      @db.Decimal(18, 4)
-  consumedQuantity     Decimal      @default(0) @db.Decimal(18, 4)
-  defectQuantity       Decimal      @default(0) @db.Decimal(18, 4)
-  stopsDurationMinutes Int          @default(0)
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
+  workCenter           WorkCenter    @relation(fields: [workCenterId], references: [id])
+  massOutput           Decimal       @db.Decimal(10, 2) @default(0)
+  pfOutput             Decimal       @db.Decimal(10, 2) @default(0)
+  gpOutput             Decimal       @db.Decimal(10, 2) @default(0)
+  defectQuantity       Decimal       @db.Decimal(10, 2) @default(0)
+  stopsCount           Int           @default(0)
+  stopsDurationMinutes Int           @default(0)
+  plannedQuantity      Decimal       @db.Decimal(10, 2) @default(0)
+  plannedProductIds    String[]
+  completed            Boolean       @default(false)
+  completedAt          DateTime?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
 
+  consumption ShiftSummaryConsumption[]
+
+  @@unique([productionOrderId, workCenterId])
   @@map("shift_summaries")
+}
+
+model ShiftSummaryConsumption {
+  id             String       @id @default(uuid())
+  shiftSummaryId String
+  shiftSummary   ShiftSummary @relation(fields: [shiftSummaryId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product      @relation(fields: [productId], references: [id])
+  quantity       Decimal      @db.Decimal(10, 2)
+  unit           String
+
+  @@unique([shiftSummaryId, productId])
+  @@map("shift_summary_consumptions")
 }
 
 // === M07/M08: Transfer and receiving ===

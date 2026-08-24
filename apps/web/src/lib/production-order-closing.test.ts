@@ -3,11 +3,16 @@ import { Prisma, type ProductionOrder, type ProductionOrderLine } from '@prisma/
 const Decimal = Prisma.Decimal;
 import { checkAndCloseProductionOrder, transitionToInProgress } from './production-order-closing';
 import { writeAudit, writeTiming } from '@prodtrack/db';
+import { buildShiftSummary } from '@/lib/shift-summary-service';
 import type { SessionWithUser } from '@/lib/auth/session-token';
 
 vi.mock('@prodtrack/db', () => ({
   writeAudit: vi.fn(),
   writeTiming: vi.fn(),
+}));
+
+vi.mock('@/lib/shift-summary-service', () => ({
+  buildShiftSummary: vi.fn(),
 }));
 
 const baseSession: SessionWithUser = {
@@ -125,6 +130,15 @@ describe('checkAndCloseProductionOrder', () => {
 
     expect(result.closed).toBe(true);
     expect(result.status).toBe('COMPLETED');
+    expect(buildShiftSummary).toHaveBeenCalledWith('po-1', prisma);
+  });
+
+  it('does not call buildShiftSummary when closing did not happen', async () => {
+    const order = makeOrder({ status: 'IN_PROGRESS', lines: [makeLine({ status: 'REPORTED' })] });
+    order.lines[0].status = 'ACCEPTED';
+    const prisma = makeMockPrisma(order);
+    await checkAndCloseProductionOrder('po-1', prisma, baseSession);
+    expect(buildShiftSummary).not.toHaveBeenCalled();
   });
 
   it('does not close multi-RC order when 2 of 3 lines are REPORTED and 1 ACCEPTED', async () => {

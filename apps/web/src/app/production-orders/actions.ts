@@ -17,6 +17,7 @@ import {
   applyStockMovements,
   factCategoryToStockCategory,
 } from '@/lib/stock-service';
+import { updateShiftSummary } from '@/lib/shift-summary-service';
 import {
   validateProductionOrder,
   parsePositiveDecimal,
@@ -58,6 +59,7 @@ export interface CreateProductionOrderDeps {
   writeTiming: typeof writeTiming;
   requirePermission: typeof requirePermission;
   applyStockMovements?: typeof applyStockMovements;
+  updateShiftSummary?: typeof updateShiftSummary;
 }
 
 export type PrismaLike = CreateProductionOrderDeps['prisma'];
@@ -890,6 +892,8 @@ export async function correctProductionFact(
         },
       ]);
     }
+
+    await (deps.updateShiftSummary ?? updateShiftSummary)(lineId, tx);
 
     await deps.writeAudit(tx, {
       action: 'UPDATE',

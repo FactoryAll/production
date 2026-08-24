@@ -1,5 +1,6 @@
-import type { PrismaClient, ProductionOrderStatus } from '@prisma/client';
+import { type PrismaClient, type ProductionOrderStatus } from '@prisma/client';
 import { writeAudit, writeTiming, type TxClient } from '@prodtrack/db';
+import { buildShiftSummary } from '@/lib/shift-summary-service';
 import { getAttributeRole, type PermissionCode, type RoleCode } from '@prodtrack/contracts';
 import type { SessionWithUser } from '@/lib/auth/session-token';
 
@@ -104,6 +105,8 @@ export async function checkAndCloseProductionOrder(
     newStatus: 'COMPLETED',
     permission: 'production_order:confirm',
   });
+
+  await buildShiftSummary(orderId, prisma as PrismaClient);
 
   return { closed: true, status: updated.status };
 }
