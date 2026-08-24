@@ -23,6 +23,7 @@ COPY --from=deps /app/packages ./packages
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc turbo.json tsconfig.json ./
 COPY apps/web ./apps/web
 COPY packages ./packages
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm --filter @prodtrack/db db:generate
 RUN pnpm build
