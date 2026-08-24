@@ -38,7 +38,7 @@ RUN apt-get update -y && apt-get install -y openssl libssl-dev && rm -rf /var/li
 COPY --from=builder /app/apps/web/.next/standalone ./
 COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder /app/packages/db ./packages/db
-COPY --from=builder /app/node_modules/.pnpm/@prisma+client* ./node_modules/.pnpm/
+COPY --from=builder /app/node_modules ./node_modules
 RUN npm install -g prisma@5.22.0
 EXPOSE 3000
 ENV PORT=3000
