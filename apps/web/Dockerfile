@@ -39,7 +39,7 @@ COPY --from=builder /app/apps/web/.next/standalone ./
 COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder /app/packages/db ./packages/db
 COPY --from=builder /app/node_modules ./node_modules
-RUN npm install -g prisma@5.22.0 tsx@4.15.0
+RUN npm install -g prisma@5.22.0 tsx@4.15.0 && prisma generate --schema=/app/packages/db/prisma/schema.prisma
 EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
