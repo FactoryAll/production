@@ -9,7 +9,10 @@ FROM base AS deps
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY apps/web/package.json ./apps/web/package.json
-COPY packages/*/package.json ./packages/*/package.json
+COPY packages/db/package.json ./packages/db/package.json
+COPY packages/ui/package.json ./packages/ui/package.json
+COPY packages/contracts/package.json ./packages/contracts/package.json
+COPY packages/tsconfig/package.json ./packages/tsconfig/package.json
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 
 FROM base AS builder
