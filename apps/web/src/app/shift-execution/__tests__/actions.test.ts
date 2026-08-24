@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Prisma, type ProductionOrder, type ProductionOrderLine } from '@prisma/client';
+import { Prisma, type ProductionOrder, type ProductionOrderLine, type Product, type DefectReason } from '@prisma/client';
 const Decimal = Prisma.Decimal;
-import { acceptProductionOrderLine } from '../actions';
+import { acceptProductionOrderLine, reportProductionFact } from '../actions';
 
 vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
@@ -30,6 +30,23 @@ const baseSession = {
     updatedAt: new Date(),
     roles: [{ role: { code: 'OPR' } }],
   },
+};
+
+const baseProduct: Product = {
+  id: 'mass-1',
+  code: 'MASS-01',
+  name: 'Масса',
+  unit: 'кг',
+  category: 'MASS',
+  active: true,
+} as Product;
+
+const gpProduct: Product = {
+  ...baseProduct,
+  id: 'gp-1',
+  code: 'GP-01',
+  name: 'Готовая продукция',
+  category: 'GP',
 };
 
 function makeOrder(overrides: Partial<ProductionOrder> = {}): ProductionOrder {
@@ -70,9 +87,12 @@ function makeLine(overrides: Partial<ProductionOrderLine> = {}): ProductionOrder
 function buildMockPrisma(overrides: {
   line?: ProductionOrderLine;
   order?: ProductionOrder;
+  product?: Product;
+  defectReason?: DefectReason | null;
 } = {}) {
   const order = overrides.order ?? makeOrder();
   const line = overrides.line ?? makeLine({ orderId: order.id });
+  const product = overrides.product ?? baseProduct;
 
   const lineUpdate = vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) =>
     Promise.resolve({ ...line, ...data }),
@@ -80,15 +100,41 @@ function buildMockPrisma(overrides: {
   const lineFindUnique = vi.fn().mockResolvedValue({
     ...line,
     order,
+    product,
     operator: { id: 'emp-1', tabNumber: '001', fullName: 'Иванов И.И.', active: true },
   });
   const notificationCreateMany = vi.fn().mockResolvedValue(undefined);
-  const userFindMany = vi.fn().mockResolvedValue([{ id: 'np-user-1' }]);
+  const userFindMany = vi.fn().mockImplementation(({ where }: { where: { roles?: { some: { role: { code: string } } } } }) => {
+    const roleCode = where.roles?.some.role.code;
+    if (roleCode === 'NP') return Promise.resolve([{ id: 'np-user-1' }]);
+    if (roleCode === 'S1C') return Promise.resolve([{ id: 's1c-user-1' }]);
+    return Promise.resolve([]);
+  });
+
+  const createdFactId = 'fact-1';
+  const productionFactCreate = vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve({
+    id: createdFactId,
+    ...data,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }));
+
+  const defectReasonFindUnique = vi.fn().mockResolvedValue(overrides.defectReason ?? {
+    id: 'defect-1',
+    code: 'D-1',
+    name: 'Брак',
+    active: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
 
   const tx = {
     productionOrderLine: {
       update: lineUpdate,
       findUnique: lineFindUnique,
+    },
+    productionFact: {
+      create: productionFactCreate,
     },
     notification: {
       createMany: notificationCreateMany,
@@ -96,11 +142,20 @@ function buildMockPrisma(overrides: {
     user: {
       findMany: userFindMany,
     },
+    defectReason: {
+      findUnique: defectReasonFindUnique,
+    },
   };
 
   const prisma = {
     productionOrderLine: {
       findUnique: lineFindUnique,
+    },
+    productionFact: {
+      create: productionFactCreate,
+    },
+    defectReason: {
+      findUnique: defectReasonFindUnique,
     },
     $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(tx)),
   } as unknown as NonNullable<Parameters<typeof acceptProductionOrderLine>[1]>['prisma'];
@@ -108,8 +163,10 @@ function buildMockPrisma(overrides: {
   return {
     prisma,
     lineUpdate,
+    productionFactCreate,
     notificationCreateMany,
     userFindMany,
+    defectReasonFindUnique,
   };
 }
 
@@ -313,6 +370,333 @@ describe('acceptProductionOrderLine', () => {
         writeTiming,
         requireShiftWindow,
       }),
+    ).rejects.toThrow('Вне рабочего времени');
+  });
+});
+
+describe('reportProductionFact', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('reports GP line with factCategory GP and creates fact', async () => {
+    const { checkAndCloseProductionOrder } = await import('@/lib/production-order-closing');
+    const line = makeLine({ status: 'ACCEPTED', productId: 'gp-1' });
+    const deps = buildMockPrisma({ line, product: gpProduct });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue({
+      ...baseSession,
+      user: { ...baseSession.user, roles: [{ role: { code: 'OPR' } }] },
+    });
+
+    const result = await reportProductionFact(
+      'line-1',
+      { quantity: 5, factCategory: 'GP' },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+    );
+
+    expect(result.factCategory).toBe('GP');
+    expect(deps.productionFactCreate).toHaveBeenCalled();
+    expect(deps.lineUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REPORTED' } }));
+    expect(writeAudit).toHaveBeenCalledTimes(2);
+    expect(writeTiming).toHaveBeenCalled();
+    expect(checkAndCloseProductionOrder).toHaveBeenCalledWith('po-1', expect.anything(), expect.anything());
+  });
+
+  it('emits EV-03 to S1C users', async () => {
+    const line = makeLine({ status: 'ACCEPTED', productId: 'gp-1' });
+    const deps = buildMockPrisma({ line, product: gpProduct });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await reportProductionFact(
+      'line-1',
+      { quantity: 5, factCategory: 'GP' },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+    );
+
+    expect(deps.notificationCreateMany).toHaveBeenCalled();
+    const data = deps.notificationCreateMany.mock.calls[0][0].data;
+    expect(data).toHaveLength(1);
+    expect(data[0].eventCode).toBe('EV_03');
+    expect(data[0].recipientId).toBe('s1c-user-1');
+    expect(data[0].deepLink).toBe('/production-orders/po-1');
+  });
+
+  it('reports MASS line always as MASS', async () => {
+    const line = makeLine({ status: 'ACCEPTED', productId: 'mass-1' });
+    const deps = buildMockPrisma({ line, product: baseProduct });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    const result = await reportProductionFact(
+      'line-1',
+      { quantity: 10, factCategory: 'MASS' },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+    );
+
+    expect(result.factCategory).toBe('MASS');
+  });
+
+  it('blocks MASS line with input PF', async () => {
+    const line = makeLine({ status: 'ACCEPTED', productId: 'mass-1' });
+    const deps = buildMockPrisma({ line, product: baseProduct });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      reportProductionFact(
+        'line-1',
+        { quantity: 10, factCategory: 'PF' },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+      ),
+    ).rejects.toThrow('Для массового продукта категория факта всегда MASS');
+  });
+
+  it('blocks GP line with factCategory MASS', async () => {
+    const line = makeLine({ status: 'ACCEPTED', productId: 'gp-1' });
+    const deps = buildMockPrisma({ line, product: gpProduct });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      reportProductionFact(
+        'line-1',
+        { quantity: 5, factCategory: 'MASS' },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+      ),
+    ).rejects.toThrow('Для готовой продукции разрешены категории GP или PF');
+  });
+
+  it('saves defect quantity and reason', async () => {
+    const line = makeLine({ status: 'ACCEPTED' });
+    const deps = buildMockPrisma({ line });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await reportProductionFact(
+      'line-1',
+      { quantity: 10, factCategory: 'MASS', defectQuantity: 1, defectReasonId: 'defect-1' },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+    );
+
+    expect(deps.productionFactCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ defectQuantity: expect.objectContaining({}), defectReasonId: 'defect-1' }),
+      }),
+    );
+  });
+
+  it('blocks defect without reason', async () => {
+    const line = makeLine({ status: 'ACCEPTED' });
+    const deps = buildMockPrisma({ line });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      reportProductionFact(
+        'line-1',
+        { quantity: 10, factCategory: 'MASS', defectQuantity: 1 },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+      ),
+    ).rejects.toThrow('Укажите причину брака');
+  });
+
+  it('blocks inactive defect reason', async () => {
+    const line = makeLine({ status: 'ACCEPTED' });
+    const inactiveReason: DefectReason = {
+      id: 'defect-2',
+      code: 'D-2',
+      name: 'Неактивная',
+      active: false,
+    } as DefectReason;
+    const deps = buildMockPrisma({ line, defectReason: inactiveReason });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      reportProductionFact(
+        'line-1',
+        { quantity: 10, factCategory: 'MASS', defectQuantity: 1, defectReasonId: 'defect-2' },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+      ),
+    ).rejects.toThrow('Причина брака не найдена или неактивна');
+  });
+
+  it('saves stops count and duration', async () => {
+    const line = makeLine({ status: 'ACCEPTED' });
+    const deps = buildMockPrisma({ line });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await reportProductionFact(
+      'line-1',
+      { quantity: 10, factCategory: 'MASS', stopsCount: 2, stopsDurationMinutes: 30 },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+    );
+
+    expect(deps.productionFactCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ stopsCount: 2, stopsDurationMinutes: 30 }),
+      }),
+    );
+  });
+
+  it('blocks stops count without duration', async () => {
+    const line = makeLine({ status: 'ACCEPTED' });
+    const deps = buildMockPrisma({ line });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      reportProductionFact(
+        'line-1',
+        { quantity: 10, factCategory: 'MASS', stopsCount: 2 },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+      ),
+    ).rejects.toThrow('Количество остановок и длительность должны быть заданы вместе');
+  });
+
+  it('blocks duration without stops count', async () => {
+    const line = makeLine({ status: 'ACCEPTED' });
+    const deps = buildMockPrisma({ line });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      reportProductionFact(
+        'line-1',
+        { quantity: 10, factCategory: 'MASS', stopsDurationMinutes: 30 },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+      ),
+    ).rejects.toThrow('Количество остановок и длительность должны быть заданы вместе');
+  });
+
+  it('blocks negative quantity', async () => {
+    const line = makeLine({ status: 'ACCEPTED' });
+    const deps = buildMockPrisma({ line });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      reportProductionFact(
+        'line-1',
+        { quantity: -1, factCategory: 'MASS' },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+      ),
+    ).rejects.toThrow('Значение не может быть отрицательным');
+  });
+
+  it('blocks reporting ASSIGNED line', async () => {
+    const line = makeLine({ status: 'ASSIGNED' });
+    const deps = buildMockPrisma({ line });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      reportProductionFact(
+        'line-1',
+        { quantity: 10, factCategory: 'MASS' },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+      ),
+    ).rejects.toThrow('Строка не готова к вводу итога');
+  });
+
+  it('blocks reporting REPORTED line', async () => {
+    const line = makeLine({ status: 'REPORTED' });
+    const deps = buildMockPrisma({ line });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      reportProductionFact(
+        'line-1',
+        { quantity: 10, factCategory: 'MASS' },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+      ),
+    ).rejects.toThrow('Строка не готова к вводу итога');
+  });
+
+  it('blocks reporting line of another operator', async () => {
+    const line = makeLine({ status: 'ACCEPTED', operatorId: 'emp-2' });
+    const deps = buildMockPrisma({ line });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      reportProductionFact(
+        'line-1',
+        { quantity: 10, factCategory: 'MASS' },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+      ),
+    ).rejects.toThrow('Внести итог может только Оператор, назначенный на этот РЦ');
+  });
+
+  it('blocks reporting when order is CANCELLED', async () => {
+    const order = makeOrder({ status: 'CANCELLED' });
+    const line = makeLine({ status: 'ACCEPTED' });
+    const deps = buildMockPrisma({ order, line });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await expect(
+      reportProductionFact(
+        'line-1',
+        { quantity: 10, factCategory: 'MASS' },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+      ),
+    ).rejects.toThrow('ПЗ не может принять итог в этом статусе');
+  });
+
+  it('blocks reporting without production_order:report permission', async () => {
+    const session = {
+      ...baseSession,
+      user: { ...baseSession.user, roles: [{ role: { code: 'S1C' } }] },
+    };
+    const line = makeLine({ status: 'ACCEPTED' });
+    const deps = buildMockPrisma({ line });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockResolvedValue(session);
+
+    await expect(
+      reportProductionFact(
+        'line-1',
+        { quantity: 10, factCategory: 'MASS' },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+      ),
+    ).rejects.toThrow('Forbidden: insufficient permissions');
+  });
+
+  it('blocks reporting outside shift window', async () => {
+    const line = makeLine({ status: 'ACCEPTED' });
+    const deps = buildMockPrisma({ line });
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requireShiftWindow = vi.fn().mockRejectedValue(new Error('Вне рабочего времени'));
+
+    await expect(
+      reportProductionFact(
+        'line-1',
+        { quantity: 10, factCategory: 'MASS' },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow },
+      ),
     ).rejects.toThrow('Вне рабочего времени');
   });
 });

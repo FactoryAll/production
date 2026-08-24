@@ -6,15 +6,14 @@ import ShiftExecutionPage from './_client-page';
 
 export default async function ShiftExecutionRootPage() {
   const session = await requireSession();
-  const userRoles = session.user.roles.map((ur) => ur.role.code);
   const employeeId = session.user.employeeId;
 
-  let lines: Awaited<ReturnType<typeof getOperatorLines>> = [];
-  if (employeeId) {
-    lines = await getOperatorLines(employeeId);
-  }
+  const [lines, defectReasons] = await Promise.all([
+    employeeId ? getOperatorLines(employeeId) : Promise.resolve([]),
+    getActiveDefectReasons(),
+  ]);
 
-  return <ShiftExecutionPage lines={lines} employeeId={employeeId} userRoles={userRoles} />;
+  return <ShiftExecutionPage lines={lines} employeeId={employeeId} defectReasons={defectReasons} />;
 }
 
 async function getOperatorLines(employeeId: string) {
@@ -40,5 +39,12 @@ async function getOperatorLines(employeeId: string) {
       { order: { createdAt: 'desc' } },
       { createdAt: 'asc' },
     ],
+  });
+}
+
+async function getActiveDefectReasons() {
+  return prisma.defectReason.findMany({
+    where: { active: true },
+    orderBy: { name: 'asc' },
   });
 }
