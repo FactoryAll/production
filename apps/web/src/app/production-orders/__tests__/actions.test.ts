@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Prisma, type WorkCenter, type Product, type Employee, type Shift } from '@prisma/client';
 const Decimal = Prisma.Decimal;
-import { createProductionOrder, createProductionOrderAction, confirmProductionOrder, updateProductionOrder, substituteOperator, cancelProductionOrder } from '../actions';
+import { createProductionOrder, createProductionOrderAction, confirmProductionOrder, updateProductionOrder, substituteOperator, cancelProductionOrder, correctProductionFact } from '../actions';
 
 vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
@@ -1162,7 +1162,7 @@ function buildSubstituteDeps(
 }
 
 function buildSubstitutableOrder(
-  status: 'CONFIRMED' | 'IN_PROGRESS',
+  status: 'DRAFT' | 'CONFIRMED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED',
   lines: MockOrderLine[],
 ): ReturnType<typeof buildConfirmableOrder> {
   return buildConfirmableOrder({ status, lines });
@@ -1568,6 +1568,266 @@ describe('cancelProductionOrder', () => {
     deps.requirePermission.mockRejectedValue(new Error('Forbidden'));
     await expect(
       cancelProductionOrder('po-1', { reason: 'Причина' }, {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+      }),
+    ).rejects.toThrow('Forbidden');
+  });
+});
+
+function buildMockProductionFact(
+  overrides: Partial<{
+    id: string;
+    lineId: string;
+    productId: string;
+    quantity: Prisma.Decimal;
+    defectQuantity: Prisma.Decimal;
+    defectReasonId: string | null;
+    stopsDurationMinutes: number;
+    postCompletionCorrection: boolean;
+    correctionReason: string | null;
+    line: ReturnType<typeof buildSubstitutableOrder>['lines'][number] & { order: ReturnType<typeof buildSubstitutableOrder> };
+  }> = {},
+): {
+  id: string;
+  lineId: string;
+  productId: string;
+  quantity: Prisma.Decimal;
+  defectQuantity: Prisma.Decimal;
+  defectReasonId: string | null;
+  stopsDurationMinutes: number;
+  comment: string | null;
+  recordedAt: Date;
+  createdById: string;
+  postCompletionCorrection: boolean;
+  correctionReason: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  line: ReturnType<typeof buildSubstitutableOrder>['lines'][number] & { order: ReturnType<typeof buildSubstitutableOrder> };
+} {
+  const order = buildSubstitutableOrder('COMPLETED', [
+    buildSubstitutableLine('REPORTED'),
+  ] as MockOrderLine[]);
+  const line = overrides.line ?? { ...order.lines[0], order };
+
+  return {
+    id: 'fact-1',
+    lineId: line.id,
+    productId: 'mass-1',
+    quantity: new Decimal(10),
+    defectQuantity: new Decimal(0),
+    defectReasonId: null,
+    stopsDurationMinutes: 0,
+    comment: null,
+    recordedAt: new Date(),
+    createdById: 'user-opr',
+    postCompletionCorrection: false,
+    correctionReason: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    line,
+    ...overrides,
+  };
+}
+
+function buildCorrectFactDeps(
+  fact: ReturnType<typeof buildMockProductionFact>,
+  userRoles: string[] = ['NP'],
+) {
+  const writeAudit = vi.fn();
+  const writeTiming = vi.fn();
+  const requirePermission = vi.fn().mockResolvedValue({
+    userId: 'user-1',
+    user: { roles: userRoles.map((code) => ({ role: { code } })) },
+  });
+
+  const factUpdate = vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+    Promise.resolve({ ...fact, ...data }),
+  );
+  const factFindUnique = vi.fn().mockResolvedValue(fact);
+
+  const tx = {
+    productionFact: {
+      update: factUpdate,
+      findUnique: factFindUnique,
+    },
+  };
+
+  const prisma = {
+    productionFact: {
+      findUnique: factFindUnique,
+    },
+    $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(tx)),
+  } as unknown as NonNullable<Parameters<typeof correctProductionFact>[2]>['prisma'];
+
+  return {
+    prisma,
+    requirePermission,
+    writeAudit,
+    writeTiming,
+    factUpdate,
+    tx,
+  };
+}
+
+describe('correctProductionFact', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('corrects fact for COMPLETED order and marks postCompletionCorrection', async () => {
+    const fact = buildMockProductionFact();
+    const deps = buildCorrectFactDeps(fact);
+    const result = await correctProductionFact('fact-1', {
+      quantity: 15,
+      correctionReason: 'Уточнение выпуска',
+    }, {
+      prisma: deps.prisma,
+      requirePermission: deps.requirePermission,
+      writeAudit: deps.writeAudit,
+      writeTiming: deps.writeTiming,
+    });
+
+    expect(result.quantity.toNumber()).toBe(15);
+    expect(result.postCompletionCorrection).toBe(true);
+    expect(result.correctionReason).toBe('Уточнение выпуска');
+    expect(deps.factUpdate).toHaveBeenCalled();
+    expect(deps.writeAudit).toHaveBeenCalled();
+    expect(deps.writeTiming).toHaveBeenCalled();
+  });
+
+  it('corrects fact with defectQuantity and defectReasonId', async () => {
+    const fact = buildMockProductionFact();
+    const deps = buildCorrectFactDeps(fact);
+    const result = await correctProductionFact('fact-1', {
+      quantity: 10,
+      defectQuantity: 2,
+      defectReasonId: 'reason-1',
+      correctionReason: 'Добавлен брак',
+    }, {
+      prisma: deps.prisma,
+      requirePermission: deps.requirePermission,
+      writeAudit: deps.writeAudit,
+      writeTiming: deps.writeTiming,
+    });
+
+    expect(result.defectQuantity.toNumber()).toBe(2);
+    expect(result.defectReasonId).toBe('reason-1');
+  });
+
+  it('corrects fact with stopsDurationMinutes', async () => {
+    const fact = buildMockProductionFact();
+    const deps = buildCorrectFactDeps(fact);
+    const result = await correctProductionFact('fact-1', {
+      quantity: 10,
+      stopsDurationMinutes: 45,
+      correctionReason: 'Учтены остановки',
+    }, {
+      prisma: deps.prisma,
+      requirePermission: deps.requirePermission,
+      writeAudit: deps.writeAudit,
+      writeTiming: deps.writeTiming,
+    });
+
+    expect(result.stopsDurationMinutes).toBe(45);
+  });
+
+  it('blocks correction for IN_PROGRESS order', async () => {
+    const line = buildSubstitutableLine('REPORTED');
+    const order = buildSubstitutableOrder('IN_PROGRESS', [line as MockOrderLine]);
+    const fact = buildMockProductionFact({ line: { ...line, order } });
+    const deps = buildCorrectFactDeps(fact);
+    await expect(
+      correctProductionFact('fact-1', {
+        quantity: 10,
+        correctionReason: 'Причина',
+      }, {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+      }),
+    ).rejects.toThrow('Корректировка факта возможна только после закрытия ПЗ');
+  });
+
+  it('blocks correction for DRAFT order', async () => {
+    const line = buildSubstitutableLine('REPORTED');
+    const order = buildSubstitutableOrder('DRAFT', [line as MockOrderLine]);
+    const fact = buildMockProductionFact({ line: { ...line, order } });
+    const deps = buildCorrectFactDeps(fact);
+    await expect(
+      correctProductionFact('fact-1', {
+        quantity: 10,
+        correctionReason: 'Причина',
+      }, {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+      }),
+    ).rejects.toThrow('Корректировка факта возможна только после закрытия ПЗ');
+  });
+
+  it('blocks correction with empty correctionReason', async () => {
+    const fact = buildMockProductionFact();
+    const deps = buildCorrectFactDeps(fact);
+    await expect(
+      correctProductionFact('fact-1', {
+        quantity: 10,
+        correctionReason: '   ',
+      }, {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+      }),
+    ).rejects.toThrow('Причина корректировки обязательна');
+  });
+
+  it('blocks correction with negative quantity', async () => {
+    const fact = buildMockProductionFact();
+    const deps = buildCorrectFactDeps(fact);
+    await expect(
+      correctProductionFact('fact-1', {
+        quantity: -1,
+        correctionReason: 'Причина',
+      }, {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+      }),
+    ).rejects.toThrow('Значение не может быть отрицательным');
+  });
+
+  it('blocks correction with defectQuantity > 0 and no defectReasonId', async () => {
+    const fact = buildMockProductionFact();
+    const deps = buildCorrectFactDeps(fact);
+    await expect(
+      correctProductionFact('fact-1', {
+        quantity: 10,
+        defectQuantity: 1,
+        correctionReason: 'Причина',
+      }, {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+      }),
+    ).rejects.toThrow('Укажите причину брака');
+  });
+
+  it('blocks correction without production_order:confirm permission', async () => {
+    const fact = buildMockProductionFact();
+    const deps = buildCorrectFactDeps(fact);
+    deps.requirePermission.mockRejectedValue(new Error('Forbidden'));
+    await expect(
+      correctProductionFact('fact-1', {
+        quantity: 10,
+        correctionReason: 'Причина',
+      }, {
         prisma: deps.prisma,
         requirePermission: deps.requirePermission,
         writeAudit: deps.writeAudit,

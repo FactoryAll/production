@@ -10,10 +10,13 @@ interface ProductionOrderPageProps {
 }
 
 export default async function ProductionOrderPage({ params }: ProductionOrderPageProps) {
-  const [order, session] = await Promise.all([getProductionOrderById(params.id), requireSession()]);
+  const [{ order, defectReasons }, session] = await Promise.all([
+    getProductionOrderById(params.id),
+    requireSession(),
+  ]);
   if (!order) {
     notFound();
   }
   const userRoles = session.user.roles.map((ur) => ur.role.code);
-  return <ProductionOrderCard order={order} userRoles={userRoles} />;
+  return <ProductionOrderCard order={order} defectReasons={defectReasons} userRoles={userRoles} />;
 }

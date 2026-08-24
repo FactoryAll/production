@@ -277,22 +277,24 @@ model ProductionOrderLineWorkers {
 // === M04: Shift execution / facts ===
 
 model ProductionFact {
-  id                   String           @id @default(uuid())
-  lineId               String
-  line                 ProductionOrderLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
-  productId            String
-  product              Product          @relation(fields: [productId], references: [id])
-  factCategory         FactCategory
-  quantity             Decimal          @db.Decimal(18, 4)
-  defectQuantity       Decimal          @default(0) @db.Decimal(18, 4)
-  defectReasonId       String?
-  defectReason         DefectReason?    @relation(fields: [defectReasonId], references: [id])
-  stopsDurationMinutes Int              @default(0)
-  comment              String?
-  recordedAt           DateTime
-  createdById          String
-  createdAt            DateTime         @default(now())
-  updatedAt            DateTime         @updatedAt
+  id                       String           @id @default(uuid())
+  lineId                   String
+  line                     ProductionOrderLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  productId                String
+  product                  Product          @relation(fields: [productId], references: [id])
+  factCategory             FactCategory
+  quantity                 Decimal          @db.Decimal(18, 4)
+  defectQuantity           Decimal          @default(0) @db.Decimal(18, 4)
+  defectReasonId           String?
+  defectReason             DefectReason?    @relation(fields: [defectReasonId], references: [id])
+  stopsDurationMinutes     Int              @default(0)
+  comment                  String?
+  recordedAt               DateTime
+  createdById              String
+  postCompletionCorrection Boolean          @default(false)
+  correctionReason         String?
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
 
   consumptions ProductionFactConsumption[]
 

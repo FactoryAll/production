@@ -7,7 +7,9 @@ import type {
   ProductionOrderLineStatus,
   ProductionOrderStatus,
   EventCode,
+  ProductionFact,
 } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { prisma, writeAudit, writeTiming } from '@prodtrack/db';
 import { requirePermission } from '@/lib/auth/access';
 import { getAttributeRole } from '@prodtrack/contracts';
@@ -41,6 +43,10 @@ export type CancelProductionOrderResult =
   | { success: true }
   | { success: false; error: string };
 
+export type CorrectProductionFactResult =
+  | { success: true }
+  | { success: false; error: string };
+
 
 export interface CreateProductionOrderDeps {
   prisma: typeof prisma;
@@ -51,7 +57,7 @@ export interface CreateProductionOrderDeps {
 
 export type PrismaLike = CreateProductionOrderDeps['prisma'];
 
-// TODO T-030: реализовать корректировку факта после закрытия (Р-18)
+// TODO T-031: реализовать подтверждение получения (EV-02)
 export async function createProductionOrder(
   input: { shiftId: string; lines: ProductionOrderLineInput[] },
   deps: CreateProductionOrderDeps = { prisma, writeAudit, writeTiming, requirePermission },
@@ -454,32 +460,6 @@ export async function updateProductionOrderAction(
   }
 }
 
-export async function getProductionOrderById(id: string) {
-  await requirePermission('production_order:read');
-
-  return prisma.productionOrder.findUnique({
-    where: { id },
-    include: {
-      shift: true,
-      createdBy: { select: { id: true, login: true } },
-      confirmedBy: { select: { id: true, login: true } },
-      cancelledBy: { select: { id: true, login: true } },
-      lines: {
-        include: {
-          workCenter: true,
-          product: true,
-          operator: true,
-          workerAssignments: {
-            include: {
-              employee: true,
-            },
-          },
-        },
-      },
-    },
-  });
-}
-
 const SUBSTITUTION_REASON_CODES = ['ILLNESS', 'NO_SHOW', 'LEFT_SHIFT', 'OTHER'] as const;
 type SubstitutionReasonCode = (typeof SUBSTITUTION_REASON_CODES)[number];
 
@@ -771,6 +751,240 @@ export async function cancelProductionOrderAction(
     const message = err instanceof Error ? err.message : 'Не удалось отменить ПЗ';
     return { success: false, error: message };
   }
+}
+
+const CORRECTABLE_STATUSES: ProductionOrderStatus[] = ['COMPLETED'];
+
+function parseNonNegativeDecimal(value: unknown): Prisma.Decimal {
+  const raw = value as Prisma.Decimal.Value;
+  if (raw instanceof Prisma.Decimal) {
+    if (raw.lessThan(0)) {
+      throw new Error('Значение не может быть отрицательным');
+    }
+    return raw;
+  }
+
+  const str = typeof raw === 'string' ? raw.trim() : String(raw);
+  if (!str) {
+    throw new Error('Значение не может быть отрицательным');
+  }
+
+  const normalized = str.replace(',', '.');
+  const num = Number(normalized);
+  if (!Number.isFinite(num) || num < 0) {
+    throw new Error('Значение не может быть отрицательным');
+  }
+
+  return new Prisma.Decimal(num);
+}
+
+function parseNonNegativeInteger(value: unknown): number {
+  if (value === undefined || value === null || value === '') return 0;
+  const num = Number(value);
+  if (Number.isNaN(num) || !Number.isInteger(num) || num < 0) {
+    throw new Error('Значение должно быть целым неотрицательным числом');
+  }
+  return num;
+}
+
+export async function correctProductionFact(
+  factId: string,
+  input: {
+    quantity: number;
+    defectQuantity?: number;
+    defectReasonId?: string;
+    stopsDurationMinutes?: number;
+    correctionReason: string;
+  },
+  deps: CreateProductionOrderDeps = { prisma, writeAudit, writeTiming, requirePermission },
+): Promise<ProductionFact> {
+  const session = await deps.requirePermission('production_order:confirm');
+  const userId = session.userId;
+  const roles = session.user.roles.map((ur) => ur.role.code);
+
+  const correctionReason = input.correctionReason.trim();
+  if (correctionReason.length === 0) {
+    throw new Error('Причина корректировки обязательна');
+  }
+
+  const quantity = parseNonNegativeDecimal(input.quantity);
+  const defectQuantity = parseNonNegativeDecimal(input.defectQuantity ?? 0);
+  const stopsDurationMinutes = parseNonNegativeInteger(input.stopsDurationMinutes ?? 0);
+
+  if (defectQuantity.greaterThan(0) && !input.defectReasonId) {
+    throw new Error('Укажите причину брака');
+  }
+
+  const fact = await deps.prisma.productionFact.findUnique({
+    where: { id: factId },
+    include: {
+      line: {
+        include: {
+          order: true,
+        },
+      },
+    },
+  });
+
+  if (!fact) {
+    throw new Error('Факт не найден');
+  }
+
+  if (!CORRECTABLE_STATUSES.includes(fact.line.order.status)) {
+    throw new Error('Корректировка факта возможна только после закрытия ПЗ');
+  }
+
+  const orderId = fact.line.order.id;
+  const lineId = fact.line.id;
+  const attributedRole = getAttributeRole(roles, 'production_order:confirm') ?? undefined;
+
+  const oldValues = {
+    quantity: fact.quantity.toString(),
+    defectQuantity: fact.defectQuantity.toString(),
+    defectReasonId: fact.defectReasonId,
+    stopsDurationMinutes: fact.stopsDurationMinutes,
+  };
+
+  const newValues = {
+    quantity: quantity.toString(),
+    defectQuantity: defectQuantity.toString(),
+    defectReasonId: input.defectReasonId ?? null,
+    stopsDurationMinutes,
+  };
+
+  const result = await deps.prisma.$transaction(async (tx) => {
+    const updated = await tx.productionFact.update({
+      where: { id: factId },
+      data: {
+        quantity,
+        defectQuantity,
+        defectReasonId: input.defectReasonId ?? null,
+        stopsDurationMinutes,
+        postCompletionCorrection: true,
+        correctionReason,
+        updatedAt: new Date(),
+      },
+    });
+
+    await deps.writeAudit(tx, {
+      action: 'UPDATE',
+      objectType: 'ProductionFact',
+      objectId: factId,
+      field: 'quantity,defectQuantity,defectReasonId,stopsDurationMinutes',
+      oldValue: JSON.stringify(oldValues),
+      newValue: JSON.stringify(newValues),
+      userId,
+      userRoles: roles,
+      permission: 'production_order:confirm',
+    });
+
+    await deps.writeAudit(tx, {
+      action: 'UPDATE',
+      objectType: 'ProductionFact',
+      objectId: factId,
+      field: 'postCompletionCorrection',
+      oldValue: 'false',
+      newValue: 'true',
+      userId,
+      userRoles: roles,
+      permission: 'production_order:confirm',
+    });
+
+    await deps.writeAudit(tx, {
+      action: 'UPDATE',
+      objectType: 'ProductionFact',
+      objectId: factId,
+      field: 'correctionReason',
+      oldValue: undefined,
+      newValue: correctionReason,
+      userId,
+      userRoles: roles,
+      permission: 'production_order:confirm',
+    });
+
+    await deps.writeTiming(tx, {
+      documentType: 'PRODUCTION_ORDER',
+      documentId: orderId,
+      entityType: 'LINE',
+      entityId: lineId,
+      fromStatus: 'REPORTED',
+      toStatus: 'REPORTED',
+      initiatorRole: attributedRole,
+      initiatorId: userId,
+    });
+
+    return updated;
+  });
+
+  revalidatePath('/production-orders');
+  revalidatePath('/production-orders/' + orderId);
+  return result;
+}
+
+export async function correctProductionFactAction(
+  factId: string,
+  formData: FormData,
+): Promise<CorrectProductionFactResult> {
+  try {
+    const quantity = Number(formData.get('quantity'));
+    const defectQuantityRaw = formData.get('defectQuantity');
+    const defectQuantity = defectQuantityRaw ? Number(defectQuantityRaw) : undefined;
+    const defectReasonId = formData.get('defectReasonId') as string | undefined;
+    const stopsDurationMinutesRaw = formData.get('stopsDurationMinutes');
+    const stopsDurationMinutes = stopsDurationMinutesRaw ? Number(stopsDurationMinutesRaw) : undefined;
+    const correctionReason = formData.get('correctionReason') as string;
+
+    await correctProductionFact(factId, {
+      quantity,
+      defectQuantity,
+      defectReasonId: defectReasonId || undefined,
+      stopsDurationMinutes,
+      correctionReason,
+    });
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Не удалось скорректировать факт';
+    return { success: false, error: message };
+  }
+}
+
+export async function getProductionOrderById(id: string) {
+  await requirePermission('production_order:read');
+
+  const [order, defectReasons] = await Promise.all([
+    prisma.productionOrder.findUnique({
+      where: { id },
+      include: {
+        shift: true,
+        createdBy: { select: { id: true, login: true } },
+        confirmedBy: { select: { id: true, login: true } },
+        cancelledBy: { select: { id: true, login: true } },
+        lines: {
+          include: {
+            workCenter: true,
+            product: true,
+            operator: true,
+            facts: {
+              include: {
+                defectReason: true,
+              },
+            },
+            workerAssignments: {
+              include: {
+                employee: true,
+              },
+            },
+          },
+        },
+      },
+    }),
+    prisma.defectReason.findMany({
+      where: { active: true },
+      orderBy: { code: 'asc' },
+    }),
+  ]);
+
+  return { order, defectReasons };
 }
 
 export async function getProductionOrders() {
