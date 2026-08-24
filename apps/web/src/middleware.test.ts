@@ -113,6 +113,19 @@ describe('middleware', () => {
     expect(response.status).toBe(200);
   });
 
+  it('allows /shift-reports for NP with production_order:read', async () => {
+    mockSession('NP');
+    const response = await middleware(buildRequest('/shift-reports/po-1', 'session=valid-token'));
+    expect(response.status).toBe(200);
+  });
+
+  it('redirects unauthenticated user from /shift-reports to /login', async () => {
+    (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    const response = await middleware(buildRequest('/shift-reports/po-1'));
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toBe('http://localhost/login');
+  });
+
   it('redirects unauthenticated user from /stock to /login', async () => {
     (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
     const response = await middleware(buildRequest('/stock'));

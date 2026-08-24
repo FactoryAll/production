@@ -66,6 +66,9 @@ function getRequiredPermissions(pathname: string, method: string): PermissionCod
   if (pathname === '/stock' || pathname.startsWith('/stock/')) {
     return ['stock:read'];
   }
+  if (pathname === '/shift-reports' || pathname.startsWith('/shift-reports/')) {
+    return ['dashboard:read', 'production_order:read', 'production_order:read_own'];
+  }
   return null;
 }
 

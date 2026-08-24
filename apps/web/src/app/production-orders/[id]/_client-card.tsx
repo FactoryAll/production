@@ -104,6 +104,7 @@ export default function ProductionOrderCard({ order, defectReasons, userRoles }:
     editableStatuses.includes(order.status) && !hasReportedLine && hasPermission(userRoles, 'production_order:update');
   const canSubstitute = hasPermission(userRoles, 'production_order:confirm') && !isDraft && !isCompleted && !isCancelled;
   const canCorrectFact = isCompleted && hasPermission(userRoles, 'production_order:confirm');
+  const canViewShiftReport = isCompleted && hasPermission(userRoles, 'production_order:read');
   const canCancel =
     (order.status === 'DRAFT' || order.status === 'CONFIRMED') &&
     !hasReportedLine &&
@@ -263,6 +264,13 @@ export default function ProductionOrderCard({ order, defectReasons, userRoles }:
             <Button variant="cta" onClick={() => setShowConfirmDialog(true)} disabled={isPending}>
               Подтвердить ПЗ
             </Button>
+          )}
+          {canViewShiftReport && (
+            <Link href={`/shift-reports/${order.id}`}>
+              <Button variant="secondary" disabled={isPending}>
+                Отчёт за смену
+              </Button>
+            </Link>
           )}
           {canCancel && (
             <Button variant="danger" onClick={() => {
