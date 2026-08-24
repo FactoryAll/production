@@ -28,7 +28,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ARG VERSION=dev
 ENV VERSION=${VERSION}
 RUN pnpm --filter @prodtrack/db db:generate
-RUN echo "BUILD_VERSION=$VERSION" && node -e "console.log('NODE_VERSION_CHECK=', process.env.VERSION)" && pnpm build
+RUN printenv | grep VERSION && node -e "console.log(Object.keys(process.env).filter(k=>k.includes('VERSION')).map(k=>k+'='+process.env[k]).join(' '))" && pnpm build
 
 FROM base AS runner
 WORKDIR /app
