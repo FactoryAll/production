@@ -37,9 +37,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=builder /app/apps/web/.next/standalone ./
 COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder /app/packages/db ./packages/db
-COPY --from=builder /app/node_modules ./node_modules
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
-RUN npm install -g pnpm@11.8.0 && pnpm install --frozen-lockfile --prod
+COPY --from=builder /app/node_modules/.pnpm/@prisma+client* ./node_modules/.pnpm/
+RUN npm install -g prisma@5.22.0
 EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
