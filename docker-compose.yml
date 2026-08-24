@@ -7,8 +7,6 @@ services:
       dockerfile: ./apps/web/Dockerfile
       args:
         VERSION: v1.0.0
-    environment:
-      - VERSION=v1.0.0
     container_name: prodtrack_web
     restart: unless-stopped
     ports:
@@ -47,5 +45,5 @@ volumes:
     driver: local
 
 networks:
-  prodtrack_net:
+  prodtrack_prodtrack_net:
     driver: bridge
