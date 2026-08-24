@@ -1,5 +1,4 @@
 /** @type {import('next').NextConfig} */
-console.log('NEXT_CONFIG_VERSION=', process.env.VERSION);
 const nextConfig = {
   reactStrictMode: true,
   output: 'standalone',
