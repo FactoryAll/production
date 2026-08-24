@@ -10,6 +10,7 @@ import type {
 } from '@prisma/client';
 import { prisma, writeAudit, writeTiming } from '@prodtrack/db';
 import { requirePermission } from '@/lib/auth/access';
+import { getAttributeRole } from '@prodtrack/contracts';
 import {
   validateProductionOrder,
   parsePositiveDecimal,
@@ -33,6 +34,10 @@ export type UpdateProductionOrderResult =
   | { success: false; error: string };
 
 export type SubstituteOperatorResult =
+  | { success: true }
+  | { success: false; error: string };
+
+export type CancelProductionOrderResult =
   | { success: true }
   | { success: false; error: string };
 
@@ -458,6 +463,7 @@ export async function getProductionOrderById(id: string) {
       shift: true,
       createdBy: { select: { id: true, login: true } },
       confirmedBy: { select: { id: true, login: true } },
+      cancelledBy: { select: { id: true, login: true } },
       lines: {
         include: {
           workCenter: true,
@@ -630,6 +636,139 @@ export async function substituteOperatorAction(
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Не удалось внести итог за Оператора';
+    return { success: false, error: message };
+  }
+}
+
+const CANCELLABLE_STATUSES: ProductionOrderStatus[] = ['DRAFT', 'CONFIRMED'];
+
+export async function cancelProductionOrder(
+  orderId: string,
+  input: { reason: string },
+  deps: CreateProductionOrderDeps = { prisma, writeAudit, writeTiming, requirePermission },
+): Promise<ProductionOrder & { lines: ProductionOrderLine[] }> {
+  const session = await deps.requirePermission('production_order:confirm');
+  const userId = session.userId;
+  const roles = session.user.roles.map((ur) => ur.role.code);
+
+  const reason = input.reason.trim();
+  if (reason.length === 0) {
+    throw new Error('Укажите причину отмены');
+  }
+
+  const order = await deps.prisma.productionOrder.findUnique({
+    where: { id: orderId },
+    include: {
+      shift: true,
+      lines: {
+        include: {
+          operator: true,
+        },
+      },
+    },
+  });
+
+  if (!order) {
+    throw new Error('ПЗ не найдено');
+  }
+
+  if (!CANCELLABLE_STATUSES.includes(order.status)) {
+    throw new Error('ПЗ нельзя отменить в этом статусе');
+  }
+
+  const hasReportedLine = order.lines.some((line) => line.status === 'REPORTED');
+  if (hasReportedLine) {
+    throw new Error('Отмена невозможна: есть строка в статусе REPORTED');
+  }
+
+  const cancelledAt = new Date();
+  const uniqueOperatorIds = [
+    ...new Set(order.lines.map((line) => line.operatorId).filter((id): id is string => Boolean(id))),
+  ];
+
+  const attributedRole = getAttributeRole(roles, 'production_order:confirm') ?? undefined;
+
+  const result = await deps.prisma.$transaction(async (tx) => {
+    const updated = await tx.productionOrder.update({
+      where: { id: orderId },
+      data: {
+        status: 'CANCELLED',
+        cancelledAt,
+        cancelledByUserId: userId,
+        cancellationReason: reason,
+      },
+      include: { lines: true },
+    });
+
+    await deps.writeAudit(tx, {
+      action: 'CANCEL',
+      objectType: 'ProductionOrder',
+      objectId: order.id,
+      field: 'status',
+      oldValue: order.status,
+      newValue: 'CANCELLED',
+      userId,
+      userRoles: roles,
+      permission: 'production_order:confirm',
+    });
+
+    await deps.writeAudit(tx, {
+      action: 'CANCEL',
+      objectType: 'ProductionOrder',
+      objectId: order.id,
+      field: 'cancellationReason',
+      oldValue: undefined,
+      newValue: reason,
+      userId,
+      userRoles: roles,
+      permission: 'production_order:confirm',
+    });
+
+    await deps.writeTiming(tx, {
+      documentType: 'PRODUCTION_ORDER',
+      documentId: order.id,
+      entityType: 'DOCUMENT',
+      entityId: order.id,
+      fromStatus: order.status,
+      toStatus: 'CANCELLED',
+      initiatorRole: attributedRole,
+      initiatorId: userId,
+    });
+
+    if (uniqueOperatorIds.length > 0) {
+      await tx.notification.createMany({
+        data: uniqueOperatorIds.map((recipientId) => ({
+          eventCode: 'EV_09' as EventCode,
+          recipientId,
+          title: 'Производственное задание отменено',
+          body: JSON.stringify({
+            orderId: order.id,
+            reason,
+            cancelledAt,
+          }),
+          deepLink: '/production-orders/' + order.id,
+        })),
+      });
+    }
+
+    return updated;
+  });
+
+  revalidatePath('/production-orders');
+  revalidatePath('/production-orders/' + orderId);
+  return result;
+}
+
+export async function cancelProductionOrderAction(
+  orderId: string,
+  formData: FormData,
+): Promise<CancelProductionOrderResult> {
+  try {
+    const reason = formData.get('reason') as string;
+    await cancelProductionOrder(orderId, { reason });
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Не удалось отменить ПЗ';
     return { success: false, error: message };
   }
 }

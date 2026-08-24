@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Prisma, type WorkCenter, type Product, type Employee, type Shift } from '@prisma/client';
 const Decimal = Prisma.Decimal;
-import { createProductionOrder, createProductionOrderAction, confirmProductionOrder, updateProductionOrder, substituteOperator } from '../actions';
+import { createProductionOrder, createProductionOrderAction, confirmProductionOrder, updateProductionOrder, substituteOperator, cancelProductionOrder } from '../actions';
 
 vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
@@ -17,6 +17,9 @@ const mockOrder = {
   completedAt: null as Date | null,
   confirmedAt: null as Date | null,
   confirmedByUserId: null as string | null,
+  cancelledAt: null as Date | null,
+  cancelledByUserId: null as string | null,
+  cancellationReason: null as string | null,
   lines: [
     {
       id: 'line-1',
@@ -137,12 +140,15 @@ function buildMockPrisma(overrides: {
       createMany: vi.fn().mockResolvedValue(undefined),
     },
     $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => {
-      const updateSpy = vi.fn().mockImplementation((args: { data: { status?: string } }) => {
+      const updateSpy = vi.fn().mockImplementation((args: { data: { status?: string; cancelledAt?: Date; cancelledByUserId?: string; cancellationReason?: string } }) => {
         return Promise.resolve({
           ...resolvedOrder,
           status: args.data.status ?? resolvedOrder.status,
           confirmedAt: args.data.status === 'CONFIRMED' ? new Date() : resolvedOrder.confirmedAt,
           confirmedByUserId: args.data.status === 'CONFIRMED' ? 'user-1' : resolvedOrder.confirmedByUserId,
+          cancelledAt: args.data.cancelledAt ?? resolvedOrder.cancelledAt,
+          cancelledByUserId: args.data.cancelledByUserId ?? resolvedOrder.cancelledByUserId,
+          cancellationReason: args.data.cancellationReason ?? resolvedOrder.cancellationReason,
         });
       });
       const lineUpdateSpy = vi.fn().mockResolvedValue(undefined);
@@ -1330,6 +1336,238 @@ describe('substituteOperator', () => {
     deps.requirePermission.mockRejectedValue(new Error('Forbidden'));
     await expect(
       substituteOperator('line-1', { reasonCode: 'ILLNESS', comment: 'Болезнь' }, {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+      }),
+    ).rejects.toThrow('Forbidden');
+  });
+});
+
+function buildCancellableOrder(
+  status: 'DRAFT' | 'CONFIRMED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED',
+  lineStatuses: ('ASSIGNED' | 'ACCEPTED' | 'REPORTED')[],
+  lineOperatorId: string = 'emp-1',
+): ReturnType<typeof buildConfirmableOrder> {
+  const lines = lineStatuses.map((status, index) => ({
+    id: `line-${index + 1}`,
+    orderId: 'po-1',
+    workCenterId: index === 0 ? 'wc-01' : `wc-0${index + 3}`,
+    productId: index === 0 ? 'mass-1' : 'gp-1',
+    plannedQuantity: new Decimal(10),
+    operatorId: lineOperatorId,
+    status,
+    comment: null,
+    substitutionReasonId: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    operator: {
+      id: lineOperatorId,
+      tabNumber: '001',
+      fullName: 'Иванов И.И.',
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as Employee,
+  } as MockOrderLine));
+
+  return buildConfirmableOrder({ status, lines });
+}
+
+function buildCancelDeps(
+  order: ReturnType<typeof buildConfirmableOrder>,
+  userRoles: string[] = ['NP'],
+) {
+  const writeAudit = vi.fn();
+  const writeTiming = vi.fn();
+  const requirePermission = vi.fn().mockResolvedValue({
+    userId: 'user-1',
+    user: { roles: userRoles.map((code) => ({ role: { code } })) },
+  });
+
+  const orderUpdate = vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+    Promise.resolve({ ...order, ...data }),
+  );
+  const orderFindUnique = vi.fn().mockResolvedValue(order);
+  const notificationCreateMany = vi.fn().mockResolvedValue(undefined);
+
+  const tx = {
+    productionOrder: {
+      update: orderUpdate,
+      findUnique: orderFindUnique,
+    },
+    notification: {
+      createMany: notificationCreateMany,
+    },
+  };
+
+  const prisma = {
+    productionOrder: {
+      findUnique: orderFindUnique,
+    },
+    $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(tx)),
+  } as unknown as NonNullable<Parameters<typeof cancelProductionOrder>[2]>['prisma'];
+
+  return {
+    prisma,
+    requirePermission,
+    writeAudit,
+    writeTiming,
+    orderUpdate,
+    notificationCreateMany,
+    tx,
+  };
+}
+
+describe('cancelProductionOrder', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('cancels DRAFT order and records metadata', async () => {
+    const order = buildCancellableOrder('DRAFT', ['ASSIGNED']);
+    const deps = buildCancelDeps(order);
+    const result = await cancelProductionOrder('po-1', { reason: 'Брак сырья' }, {
+      prisma: deps.prisma,
+      requirePermission: deps.requirePermission,
+      writeAudit: deps.writeAudit,
+      writeTiming: deps.writeTiming,
+    });
+
+    expect(result.status).toBe('CANCELLED');
+    expect(result.cancelledAt).toBeInstanceOf(Date);
+    expect(result.cancelledByUserId).toBe('user-1');
+    expect(result.cancellationReason).toBe('Брак сырья');
+    expect(deps.orderUpdate).toHaveBeenCalled();
+    expect(deps.writeAudit).toHaveBeenCalledTimes(2);
+    expect(deps.writeTiming).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels CONFIRMED order without REPORTED lines', async () => {
+    const order = buildCancellableOrder('CONFIRMED', ['ASSIGNED', 'ACCEPTED']);
+    const deps = buildCancelDeps(order);
+    const result = await cancelProductionOrder('po-1', { reason: 'Отсутствие материалов' }, {
+      prisma: deps.prisma,
+      requirePermission: deps.requirePermission,
+      writeAudit: deps.writeAudit,
+      writeTiming: deps.writeTiming,
+    });
+
+    expect(result.status).toBe('CANCELLED');
+    expect(deps.writeTiming).toHaveBeenCalled();
+    const timingCall = deps.writeTiming.mock.calls[0][1];
+    expect(timingCall.fromStatus).toBe('CONFIRMED');
+    expect(timingCall.toStatus).toBe('CANCELLED');
+  });
+
+  it('emits EV_09 with correct payload and recipients', async () => {
+    const order = buildCancellableOrder('CONFIRMED', ['ASSIGNED', 'ASSIGNED'], 'emp-1');
+    const deps = buildCancelDeps(order);
+    await cancelProductionOrder('po-1', { reason: 'Ремонт РЦ' }, {
+      prisma: deps.prisma,
+      requirePermission: deps.requirePermission,
+      writeAudit: deps.writeAudit,
+      writeTiming: deps.writeTiming,
+    });
+
+    expect(deps.notificationCreateMany).toHaveBeenCalled();
+    const data = deps.notificationCreateMany.mock.calls[0][0].data;
+    expect(data).toHaveLength(1);
+    expect(data[0].eventCode).toBe('EV_09');
+    expect(data[0].recipientId).toBe('emp-1');
+    expect(data[0].deepLink).toBe('/production-orders/po-1');
+    const payload = JSON.parse(data[0].body);
+    expect(payload).toMatchObject({ orderId: 'po-1', reason: 'Ремонт РЦ' });
+    expect(payload.cancelledAt).toBeDefined();
+  });
+
+  it('deduplicates operator recipients for EV_09', async () => {
+    const order = buildCancellableOrder('CONFIRMED', ['ASSIGNED', 'ASSIGNED'], 'emp-1');
+    const deps = buildCancelDeps(order);
+    await cancelProductionOrder('po-1', { reason: 'План изменился' }, {
+      prisma: deps.prisma,
+      requirePermission: deps.requirePermission,
+      writeAudit: deps.writeAudit,
+      writeTiming: deps.writeTiming,
+    });
+
+    const data = deps.notificationCreateMany.mock.calls[0][0].data;
+    expect(data).toHaveLength(1);
+    expect(data[0].recipientId).toBe('emp-1');
+  });
+
+  it('blocks cancel of IN_PROGRESS order', async () => {
+    const order = buildCancellableOrder('IN_PROGRESS', ['ACCEPTED']);
+    const deps = buildCancelDeps(order);
+    await expect(
+      cancelProductionOrder('po-1', { reason: 'Причина' }, {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+      }),
+    ).rejects.toThrow('ПЗ нельзя отменить в этом статусе');
+  });
+
+  it('blocks cancel of COMPLETED order', async () => {
+    const order = buildCancellableOrder('COMPLETED', ['REPORTED']);
+    const deps = buildCancelDeps(order);
+    await expect(
+      cancelProductionOrder('po-1', { reason: 'Причина' }, {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+      }),
+    ).rejects.toThrow('ПЗ нельзя отменить в этом статусе');
+  });
+
+  it('blocks cancel of CANCELLED order', async () => {
+    const order = buildCancellableOrder('CANCELLED', ['ASSIGNED']);
+    const deps = buildCancelDeps(order);
+    await expect(
+      cancelProductionOrder('po-1', { reason: 'Причина' }, {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+      }),
+    ).rejects.toThrow('ПЗ нельзя отменить в этом статусе');
+  });
+
+  it('blocks cancel when any line is REPORTED (Р-12)', async () => {
+    const order = buildCancellableOrder('CONFIRMED', ['ASSIGNED', 'REPORTED']);
+    const deps = buildCancelDeps(order);
+    await expect(
+      cancelProductionOrder('po-1', { reason: 'Причина' }, {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+      }),
+    ).rejects.toThrow('Отмена невозможна: есть строка в статусе REPORTED');
+  });
+
+  it('blocks cancel with empty reason', async () => {
+    const order = buildCancellableOrder('DRAFT', ['ASSIGNED']);
+    const deps = buildCancelDeps(order);
+    await expect(
+      cancelProductionOrder('po-1', { reason: '   ' }, {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+      }),
+    ).rejects.toThrow('Укажите причину отмены');
+  });
+
+  it('blocks cancel without production_order:confirm permission', async () => {
+    const order = buildCancellableOrder('DRAFT', ['ASSIGNED']);
+    const deps = buildCancelDeps(order);
+    deps.requirePermission.mockRejectedValue(new Error('Forbidden'));
+    await expect(
+      cancelProductionOrder('po-1', { reason: 'Причина' }, {
         prisma: deps.prisma,
         requirePermission: deps.requirePermission,
         writeAudit: deps.writeAudit,

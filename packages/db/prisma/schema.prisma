@@ -181,6 +181,7 @@ model User {
   sessions      Session[]
   createdOrders   ProductionOrder[] @relation("CreatedOrders")
   confirmedOrders ProductionOrder[] @relation("ConfirmedOrders")
+  cancelledOrders ProductionOrder[] @relation("CancelledOrders")
   createdTransfers GoodsTransfer[]
   auditRecords    AuditRecord[]
   notifications   Notification[]
@@ -226,10 +227,14 @@ model ProductionOrder {
   createdBy         User                  @relation(fields: [createdById], references: [id], name: "CreatedOrders")
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
-  completedAt       DateTime?
-  confirmedAt       DateTime?
-  confirmedByUserId String?
-  confirmedBy       User?                 @relation(fields: [confirmedByUserId], references: [id], name: "ConfirmedOrders")
+  completedAt         DateTime?
+  confirmedAt         DateTime?
+  confirmedByUserId   String?
+  confirmedBy         User?                 @relation(fields: [confirmedByUserId], references: [id], name: "ConfirmedOrders")
+  cancelledAt         DateTime?
+  cancelledByUserId   String?
+  cancelledBy         User?                 @relation(fields: [cancelledByUserId], references: [id], name: "CancelledOrders")
+  cancellationReason  String?
 
   lines ProductionOrderLine[]
 
