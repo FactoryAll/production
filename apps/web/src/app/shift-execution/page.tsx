@@ -42,6 +42,11 @@ async function getOperatorLines(employeeId: string) {
       },
       workCenter: true,
       product: true,
+      facts: {
+        include: {
+          consumptions: true,
+        },
+      },
     },
     orderBy: [
       { order: { createdAt: 'desc' } },

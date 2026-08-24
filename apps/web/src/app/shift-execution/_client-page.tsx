@@ -3,8 +3,23 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Card, Dialog, Input, Select } from '@prodtrack/ui';
-import { acceptProductionOrderLineAction, reportProductionFactAction, type ReportFactResult } from './actions';
-import type { ProductionOrderLine, ProductionOrder, Shift, WorkCenter, Product, DefectReason } from '@prisma/client';
+import {
+  acceptProductionOrderLineAction,
+  reportProductionFactAction,
+  correctFactByOperatorAction,
+  type ReportFactResult,
+  type CorrectFactResult,
+} from './actions';
+import type {
+  ProductionOrderLine,
+  ProductionOrder,
+  Shift,
+  WorkCenter,
+  Product,
+  DefectReason,
+  ProductionFact,
+  FactConsumption,
+} from '@prisma/client';
 
 interface ShiftExecutionPageProps {
   lines: Array<
@@ -12,6 +27,7 @@ interface ShiftExecutionPageProps {
       order: ProductionOrder & { shift: Shift };
       workCenter: WorkCenter;
       product: Product;
+      facts: Array<ProductionFact & { consumptions: FactConsumption[] }>;
     }
   >;
   defectReasons: DefectReason[];
@@ -31,7 +47,7 @@ const STATUS_BADGE_CLASS: Record<string, string> = {
   REPORTED: 'bg-green-100 text-graphite',
 };
 
-type DialogMode = 'accept' | 'report' | null;
+type DialogMode = 'accept' | 'report' | 'correct' | null;
 
 interface ConsumptionRow {
   productId: string;
@@ -99,6 +115,30 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
     setError(null);
     setFieldErrors({});
     setBalances({});
+    setWarnings(null);
+  }
+
+  function openCorrectDialog(line: ShiftExecutionPageProps['lines'][number]) {
+    const fact = line.facts[0];
+    setDialogState({ line, mode: 'correct' });
+    setForm({
+      quantity: fact ? String(fact.quantity) : '',
+      factCategory: fact ? fact.factCategory : line.product.category === 'MASS' ? 'MASS' : '',
+      defectQuantity: fact ? String(fact.defectQuantity) : '',
+      defectReasonId: fact?.defectReasonId ?? '',
+      stopsCount: fact ? String(fact.stopsCount) : '',
+      stopsDurationMinutes: fact ? String(fact.stopsDurationMinutes) : '',
+      consumption:
+        fact?.consumptions.map((c) => ({
+          productId: c.productId,
+          quantity: c.quantity.toString(),
+        })) ?? [],
+    });
+    if (fact?.consumptions) {
+      fact.consumptions.forEach((c) => void fetchBalance(c.productId));
+    }
+    setError(null);
+    setFieldErrors({});
     setWarnings(null);
   }
 
@@ -237,6 +277,41 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
     });
   }
 
+  function handleCorrect() {
+    if (!dialogState) return;
+    if (!validateReportForm()) return;
+    startTransition(async () => {
+      const formData = new FormData();
+      formData.set('quantity', form.quantity);
+      formData.set('factCategory', form.factCategory);
+      if (form.defectQuantity) formData.set('defectQuantity', form.defectQuantity);
+      if (form.defectReasonId) formData.set('defectReasonId', form.defectReasonId);
+      if (form.stopsCount) formData.set('stopsCount', form.stopsCount);
+      if (form.stopsDurationMinutes) formData.set('stopsDurationMinutes', form.stopsDurationMinutes);
+      if (form.consumption.length > 0) {
+        formData.set(
+          'consumption',
+          JSON.stringify(
+            form.consumption
+              .filter((row) => row.productId && row.quantity)
+              .map((row) => ({ productId: row.productId, quantity: Number(row.quantity) })),
+          ),
+        );
+      }
+
+      const result: CorrectFactResult = await correctFactByOperatorAction(dialogState.line.id, formData);
+      if (result.success) {
+        closeDialog();
+        if (result.warnings && result.warnings.length > 0) {
+          setWarnings(result.warnings);
+        }
+        router.refresh();
+      } else {
+        setError(result.error ?? 'Не удалось скорректировать факт');
+      }
+    });
+  }
+
   if (!employeeId) {
     return (
       <div className="space-y-4 p-6">
@@ -306,6 +381,16 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
                   Внести итог
                 </Button>
               )}
+              {line.status === 'REPORTED' && line.order.status !== 'COMPLETED' && (
+                <Button
+                  variant="secondary"
+                  disabled={isPending}
+                  onClick={() => openCorrectDialog(line)}
+                  className="w-full"
+                >
+                  Корректировать факт
+                </Button>
+              )}
             </Card>
           ))}
         </div>
@@ -341,9 +426,9 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
       </Dialog>
 
       <Dialog
-        open={dialogState?.mode === 'report'}
+        open={dialogState?.mode === 'report' || dialogState?.mode === 'correct'}
         onClose={closeDialog}
-        title="Внести итог смены"
+        title={dialogState?.mode === 'correct' ? 'Корректировать факт' : 'Внести итог смены'}
       >
         <div className="space-y-4">
           <p className="text-graphite">
@@ -493,9 +578,15 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
             <Button variant="secondary" onClick={closeDialog} disabled={isPending}>
               Отмена
             </Button>
-            <Button variant="cta" onClick={handleReport} disabled={isPending}>
-              {isPending ? 'Сохранение...' : 'Внести итог'}
-            </Button>
+            {dialogState?.mode === 'correct' ? (
+              <Button variant="cta" onClick={handleCorrect} disabled={isPending}>
+                {isPending ? 'Сохранение...' : 'Сохранить корректировку'}
+              </Button>
+            ) : (
+              <Button variant="cta" onClick={handleReport} disabled={isPending}>
+                {isPending ? 'Сохранение...' : 'Внести итог'}
+              </Button>
+            )}
           </div>
         </div>
       </Dialog>

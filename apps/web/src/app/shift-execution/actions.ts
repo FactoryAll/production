@@ -19,6 +19,10 @@ export type ReportFactResult =
   | { success: true; warnings?: string[] }
   | { success: false; error: string };
 
+export type CorrectFactResult =
+  | { success: true; warnings?: string[] }
+  | { success: false; error: string };
+
 export interface AcceptLineDeps {
   prisma: typeof prisma;
   writeAudit: typeof writeAudit;
@@ -33,6 +37,8 @@ export interface ReportFactDeps {
   requireShiftWindow: typeof requireShiftWindow;
   getAvailableBalance: typeof getAvailableBalance;
 }
+
+export interface CorrectFactDeps extends ReportFactDeps {}
 
 export type FactCategoryInput = 'MASS' | 'GP' | 'PF';
 
@@ -51,6 +57,8 @@ export interface ReportFactInput {
   consumption?: ConsumptionInput[];
 }
 
+export interface CorrectFactInput extends ReportFactInput {}
+
 function assertStatusTransitionAllowed(
   line: ProductionOrderLine & { order: { id: string; status: string } },
   userEmployeeId: string | null,
@@ -65,6 +73,27 @@ function assertStatusTransitionAllowed(
 
   if (line.order.status !== 'CONFIRMED' && line.order.status !== 'IN_PROGRESS') {
     throw new Error('ПЗ не может принять итог в этом статусе');
+  }
+}
+
+function assertOperatorCorrectionAllowed(
+  line: ProductionOrderLine & { order: { id: string; status: string } },
+  userEmployeeId: string | null,
+) {
+  if (line.operatorId !== userEmployeeId) {
+    throw new Error('Корректировать факт может только Оператор, назначенный на этот РЦ');
+  }
+
+  if (line.status !== 'REPORTED') {
+    throw new Error('Факт ещё не внесён — используйте ввод факта');
+  }
+
+  if (line.order.status === 'COMPLETED') {
+    throw new Error('После закрытия корректировка доступна только начальнику производства');
+  }
+
+  if (line.order.status !== 'CONFIRMED' && line.order.status !== 'IN_PROGRESS') {
+    throw new Error('ПЗ отменено');
   }
 }
 
@@ -133,6 +162,72 @@ function parseConsumptionInput(raw: unknown): ConsumptionInput[] {
     }
     return { productId, quantity };
   });
+}
+
+async function validateReportLikeInput(
+  input: ReportFactInput,
+  deps: { prisma: typeof prisma; getAvailableBalance: typeof getAvailableBalance },
+  line: ProductionOrderLine & { product: { category: ProductCategory }; workCenter: { producesMass: boolean } },
+): Promise<{ factCategory: FactCategoryInput; quantity: Prisma.Decimal; defectQuantity: Prisma.Decimal; stopsCount: number; stopsDurationMinutes: number; consumption: ConsumptionInput[]; warnings: string[] }> {
+  const quantity = parseNonNegativeDecimal(input.quantity);
+  const defectQuantity = parseNonNegativeDecimal(input.defectQuantity);
+  const stopsCount = parseNonNegativeInteger(input.stopsCount);
+  const stopsDurationMinutes = parseNonNegativeInteger(input.stopsDurationMinutes);
+
+  if (defectQuantity.greaterThan(0) && !input.defectReasonId) {
+    throw new Error('Укажите причину брака');
+  }
+
+  if ((stopsCount > 0) !== (stopsDurationMinutes > 0)) {
+    throw new Error('Количество остановок и длительность должны быть заданы вместе');
+  }
+
+  const factCategory = resolveFactCategory(line.product.category, parseFactCategory(input.factCategory));
+  const consumption = parseConsumptionInput(input.consumption);
+
+  if (line.workCenter.producesMass && consumption.length > 0) {
+    throw new Error('Потребление указывается только на ГП/ПФ-РЦ');
+  }
+
+  const seenProducts = new Set<string>();
+  for (const item of consumption) {
+    if (seenProducts.has(item.productId)) {
+      throw new Error('Продукт в потреблении не может повторяться');
+    }
+    seenProducts.add(item.productId);
+
+    const product = await deps.prisma.product.findUnique({
+      where: { id: item.productId },
+    });
+    if (!product) {
+      throw new Error('Продукт не найден');
+    }
+    if (!product.active) {
+      throw new Error('Продукт неактивен');
+    }
+  }
+
+  if (defectQuantity.greaterThan(0) && input.defectReasonId) {
+    const reason = await deps.prisma.defectReason.findUnique({
+      where: { id: input.defectReasonId },
+    });
+    if (!reason || !reason.active) {
+      throw new Error('Причина брака не найдена или неактивна');
+    }
+  }
+
+  const warnings: string[] = [];
+  for (const item of consumption) {
+    const balance = await deps.getAvailableBalance(item.productId, deps.prisma as unknown as TxClient);
+    const diff = new Prisma.Decimal(item.quantity).minus(balance.available);
+    if (diff.greaterThan(0)) {
+      warnings.push(
+        `Потребление ${item.productId} превышает остаток на ${diff.toFixed(2)} ${balance.unit}; записано с предупреждением`,
+      );
+    }
+  }
+
+  return { factCategory, quantity, defectQuantity, stopsCount, stopsDurationMinutes, consumption, warnings };
 }
 
 export async function acceptProductionOrderLine(
@@ -288,57 +383,11 @@ export async function reportProductionFact(
     session.user.employeeId,
   );
 
-  const quantity = parseNonNegativeDecimal(input.quantity);
-  const defectQuantity = parseNonNegativeDecimal(input.defectQuantity);
-  const stopsCount = parseNonNegativeInteger(input.stopsCount);
-  const stopsDurationMinutes = parseNonNegativeInteger(input.stopsDurationMinutes);
-
-  if (defectQuantity.greaterThan(0) && !input.defectReasonId) {
-    throw new Error('Укажите причину брака');
-  }
-
-  if ((stopsCount > 0) !== (stopsDurationMinutes > 0)) {
-    throw new Error('Количество остановок и длительность должны быть заданы вместе');
-  }
-
-  const factCategory = resolveFactCategory(line.product.category, parseFactCategory(input.factCategory));
-  const consumption = parseConsumptionInput(input.consumption);
-
-  if (line.workCenter.producesMass && consumption.length > 0) {
-    throw new Error('Потребление указывается только на ГП/ПФ-РЦ');
-  }
-
-  const seenProducts = new Set<string>();
-  for (const item of consumption) {
-    if (seenProducts.has(item.productId)) {
-      throw new Error('Продукт в потреблении не может повторяться');
-    }
-    seenProducts.add(item.productId);
-
-    const product = await deps.prisma.product.findUnique({
-      where: { id: item.productId },
-    });
-    if (!product) {
-      throw new Error('Продукт не найден');
-    }
-    if (!product.active) {
-      throw new Error('Продукт неактивен');
-    }
-  }
-
-  if (defectQuantity.greaterThan(0) && input.defectReasonId) {
-    const reason = await deps.prisma.defectReason.findUnique({
-      where: { id: input.defectReasonId },
-    });
-    if (!reason || !reason.active) {
-      throw new Error('Причина брака не найдена или неактивна');
-    }
-  }
+  const { factCategory, quantity, defectQuantity, stopsCount, stopsDurationMinutes, consumption, warnings } =
+    await validateReportLikeInput(input, deps, line as unknown as ProductionOrderLine & { product: { category: ProductCategory }; workCenter: { producesMass: boolean } });
 
   const attributedRole = getAttributeRole(userRoles, 'production_order:report') ?? undefined;
   const now = new Date();
-
-  const warnings: string[] = [];
 
   const result = await deps.prisma.$transaction(async (tx) => {
     const fact = await tx.productionFact.create({
@@ -415,16 +464,6 @@ export async function reportProductionFact(
       initiatorRole: attributedRole,
       initiatorId: session.userId,
     });
-
-    for (const item of consumption) {
-      const balance = await deps.getAvailableBalance(item.productId, tx as unknown as TxClient);
-      const diff = new Prisma.Decimal(item.quantity).minus(balance.available);
-      if (diff.greaterThan(0)) {
-        warnings.push(
-          `Потребление ${item.productId} превышает остаток на ${diff.toFixed(2)} ${balance.unit}; записано с предупреждением`,
-        );
-      }
-    }
 
     const s1cUsers = await tx.user.findMany({
       where: {
@@ -508,5 +547,162 @@ export async function getAvailableBalanceAction(productId: string): Promise<Bala
   }
 }
 
-// TODO T-034: реализовать корректировку факта Оператором
+export async function correctFactByOperator(
+  lineId: string,
+  input: CorrectFactInput,
+  deps: CorrectFactDeps = {
+    prisma,
+    writeAudit,
+    writeTiming,
+    requireShiftWindow,
+    getAvailableBalance,
+  },
+): Promise<{ fact: ProductionFact; warnings: string[] }> {
+  const session = await deps.requireShiftWindow();
+  const userRoles = session.user.roles.map((ur) => ur.role.code);
+
+  if (!hasPermission(userRoles, 'production_order:report')) {
+    throw new Error('Forbidden: insufficient permissions');
+  }
+
+  const line = await deps.prisma.productionOrderLine.findUnique({
+    where: { id: lineId },
+    include: {
+      operator: true,
+      order: true,
+      product: true,
+      workCenter: true,
+      facts: {
+        take: 1,
+        include: {
+          consumptions: true,
+        },
+      },
+    },
+  });
+
+  if (!line) {
+    throw new Error('Строка ПЗ не найдена');
+  }
+
+  assertOperatorCorrectionAllowed(
+    line as unknown as ProductionOrderLine & { order: { id: string; status: string } },
+    session.user.employeeId,
+  );
+
+  const existingFact = line.facts[0];
+  if (!existingFact) {
+    throw new Error('Факт ещё не внесён — используйте ввод факта');
+  }
+
+  const { factCategory, quantity, defectQuantity, stopsCount, stopsDurationMinutes, consumption, warnings } =
+    await validateReportLikeInput(input, deps, line as unknown as ProductionOrderLine & { product: { category: ProductCategory }; workCenter: { producesMass: boolean } });
+
+  const attributedRole = getAttributeRole(userRoles, 'production_order:report') ?? undefined;
+  const now = new Date();
+
+  const oldValue = JSON.stringify({
+    factCategory: existingFact.factCategory,
+    quantity: existingFact.quantity.toString(),
+    defectQuantity: existingFact.defectQuantity.toString(),
+    defectReasonId: existingFact.defectReasonId,
+    stopsCount: existingFact.stopsCount,
+    stopsDurationMinutes: existingFact.stopsDurationMinutes,
+    consumption: existingFact.consumptions.map((c) => ({
+      productId: c.productId,
+      quantity: c.quantity.toString(),
+    })),
+  });
+
+  const result = await deps.prisma.$transaction(async (tx) => {
+    const fact = await tx.productionFact.update({
+      where: { id: existingFact.id },
+      data: {
+        factCategory,
+        quantity,
+        defectQuantity,
+        defectReasonId: input.defectReasonId ?? null,
+        stopsCount,
+        stopsDurationMinutes,
+        recordedAt: now,
+        postCompletionCorrection: false,
+      },
+    });
+
+    await tx.factConsumption.deleteMany({
+      where: { productionFactId: existingFact.id },
+    });
+
+    if (consumption.length > 0) {
+      await tx.factConsumption.createMany({
+        data: consumption.map((item) => ({
+          productionFactId: existingFact.id,
+          productId: item.productId,
+          quantity: new Prisma.Decimal(item.quantity),
+        })),
+      });
+    }
+
+    const newValue = JSON.stringify({
+      factCategory,
+      quantity: quantity.toString(),
+      defectQuantity: defectQuantity.toString(),
+      defectReasonId: input.defectReasonId ?? null,
+      stopsCount,
+      stopsDurationMinutes,
+      consumption,
+    });
+
+    await deps.writeAudit(tx, {
+      action: 'UPDATE',
+      objectType: 'ProductionFact',
+      objectId: existingFact.id,
+      field: 'fact',
+      oldValue,
+      newValue,
+      userId: session.userId,
+      userRoles,
+      permission: 'production_order:report',
+    });
+
+    await deps.writeTiming(tx, {
+      documentType: 'PRODUCTION_ORDER',
+      documentId: line.order.id,
+      entityType: 'LINE',
+      entityId: lineId,
+      fromStatus: 'REPORTED',
+      toStatus: 'REPORTED',
+      initiatorRole: attributedRole,
+      initiatorId: session.userId,
+    });
+
+    return fact;
+  });
+
+  revalidatePath('/shift-execution');
+  revalidatePath('/production-orders/' + line.order.id);
+  return { fact: result, warnings };
+}
+
+export async function correctFactByOperatorAction(lineId: string, formData: FormData): Promise<CorrectFactResult> {
+  try {
+    const rawConsumption = formData.get('consumption')?.toString();
+    const input: CorrectFactInput = {
+      quantity: Number(formData.get('quantity')),
+      factCategory: parseFactCategory(formData.get('factCategory')),
+      defectQuantity: formData.get('defectQuantity') ? Number(formData.get('defectQuantity')) : undefined,
+      defectReasonId: formData.get('defectReasonId')?.toString() || undefined,
+      stopsCount: formData.get('stopsCount') ? Number(formData.get('stopsCount')) : undefined,
+      stopsDurationMinutes: formData.get('stopsDurationMinutes') ? Number(formData.get('stopsDurationMinutes')) : undefined,
+      consumption: rawConsumption ? JSON.parse(rawConsumption) : undefined,
+    };
+
+    const { warnings } = await correctFactByOperator(lineId, input);
+    return { success: true, warnings };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Не удалось скорректировать факт';
+    return { success: false, error: message };
+  }
+}
+
 // TODO T-035: заменить getAvailableBalance на баланс-сервис поверх StockMovement
