@@ -32,6 +32,7 @@ Thumbs.db
 
 # Testing
 coverage/
+test-results/
 
 # Misc
 *.tsbuildinfo

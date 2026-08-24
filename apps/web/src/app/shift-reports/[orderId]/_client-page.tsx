@@ -24,6 +24,7 @@ import {
 import { Card } from '@prodtrack/ui';
 import { formatDuration } from '@/lib/format';
 import type { SerializableShiftReportData } from './page';
+// TODO T-064: render own-only notice when data.canReadAll is false
 
 // TODO T-060: include this screen in Phase 2 release checklist and manual QA.
 
@@ -38,9 +39,9 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 const CATEGORY_COLORS = {
-  MASS: '#374151', // graphite
-  PF: '#1e40af', // deep-industry-blue
-  GP: '#f59e0b', // signal-amber
+  MASS: 'var(--color-graphite)',
+  PF: 'var(--color-deep-industry-blue)',
+  GP: 'var(--color-signal-amber)',
 };
 
 export default function ShiftReportClientPage({ data }: ShiftReportClientPageProps) {
@@ -98,7 +99,7 @@ export default function ShiftReportClientPage({ data }: ShiftReportClientPagePro
 
   return (
     <div className="space-y-6">
-      <Card className="rounded-xl border border-mist-metal bg-white p-6">
+      <Card className="rounded-xl border border-mist-metal bg-graphite-surface p-6">
         <div className="grid gap-4 md:grid-cols-3">
           <div>
             <p className="text-sm text-neutral-500">Производственное задание</p>
@@ -120,16 +121,16 @@ export default function ShiftReportClientPage({ data }: ShiftReportClientPagePro
       </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="rounded-xl border border-mist-metal bg-white p-6">
+        <Card className="rounded-xl border border-mist-metal bg-graphite-surface p-6">
           <h2 className="mb-4 font-sans text-lg font-semibold text-graphite">
             План/факт по РЦ
           </h2>
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={planVsFact}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="workCenterCode" tick={{ fill: '#4b5563' }} />
-                <YAxis tick={{ fill: '#4b5563' }} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-mist-metal)" />
+                <XAxis dataKey="workCenterCode" tick={{ fill: "var(--color-graphite)" }} />
+                <YAxis tick={{ fill: "var(--color-graphite)" }} />
                 <Tooltip
                   formatter={(value, name, props) => {
                     const item = props?.payload as (typeof planVsFact)[number];
@@ -145,14 +146,14 @@ export default function ShiftReportClientPage({ data }: ShiftReportClientPagePro
                   labelFormatter={(label) => `РЦ ${label}`}
                 />
                 <Legend />
-                <Bar dataKey="planned" name="План" fill="#1e40af" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="actual" name="Факт" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="planned" name="План" fill="var(--color-deep-industry-blue)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="actual" name="Факт" fill="var(--color-signal-amber)" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </Card>
 
-        <Card className="rounded-xl border border-mist-metal bg-white p-6">
+        <Card className="rounded-xl border border-mist-metal bg-graphite-surface p-6">
           <h2 className="mb-4 font-sans text-lg font-semibold text-graphite">
             Структура выпуска
           </h2>
@@ -195,7 +196,7 @@ export default function ShiftReportClientPage({ data }: ShiftReportClientPagePro
           </div>
         </Card>
 
-        <Card className="rounded-xl border border-mist-metal bg-white p-6">
+        <Card className="rounded-xl border border-mist-metal bg-graphite-surface p-6">
           <h2 className="mb-4 font-sans text-lg font-semibold text-graphite">
             Брак по причинам
           </h2>
@@ -206,19 +207,19 @@ export default function ShiftReportClientPage({ data }: ShiftReportClientPagePro
                 layout="vertical"
                 margin={{ left: 32 }}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis type="number" tick={{ fill: '#4b5563' }} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-mist-metal)" />
+                <XAxis type="number" tick={{ fill: "var(--color-graphite)" }} />
                 <YAxis
                   type="category"
                   dataKey="reasonName"
-                  tick={{ fill: '#4b5563', fontSize: 12 }}
+                  tick={{ fill: "var(--color-graphite)", fontSize: 12 }}
                   width={120}
                 />
                 <Tooltip formatter={(value) => [value, 'Количество брака']} />
                 <Bar
                   dataKey="quantity"
                   name="Брак"
-                  fill="#ef4444"
+                  fill="var(--color-alert)"
                   radius={[0, 4, 4, 0]}
                 />
               </BarChart>
@@ -226,7 +227,7 @@ export default function ShiftReportClientPage({ data }: ShiftReportClientPagePro
           </div>
         </Card>
 
-        <Card className="rounded-xl border border-mist-metal bg-white p-6">
+        <Card className="rounded-xl border border-mist-metal bg-graphite-surface p-6">
           <h2 className="mb-4 font-sans text-lg font-semibold text-graphite">
             Остановки по длительности
           </h2>
@@ -236,9 +237,9 @@ export default function ShiftReportClientPage({ data }: ShiftReportClientPagePro
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={stopsByDuration}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="durationRange" tick={{ fill: '#4b5563' }} />
-                <YAxis tick={{ fill: '#4b5563' }} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-mist-metal)" />
+                <XAxis dataKey="durationRange" tick={{ fill: "var(--color-graphite)" }} />
+                <YAxis tick={{ fill: "var(--color-graphite)" }} />
                 <Tooltip
                   formatter={(value, name, props) => {
                     const item = props?.payload as (typeof stopsByDuration)[number];
@@ -251,7 +252,7 @@ export default function ShiftReportClientPage({ data }: ShiftReportClientPagePro
                 <Bar
                   dataKey="count"
                   name="Количество"
-                  fill="#374151"
+                  fill="var(--color-graphite)"
                   radius={[4, 4, 0, 0]}
                 />
               </BarChart>
@@ -260,7 +261,7 @@ export default function ShiftReportClientPage({ data }: ShiftReportClientPagePro
         </Card>
       </div>
 
-      <Card className="rounded-xl border border-mist-metal bg-white p-6">
+      <Card className="rounded-xl border border-mist-metal bg-graphite-surface p-6">
         <h2 className="mb-4 font-sans text-lg font-semibold text-graphite">
           Потребление материалов
         </h2>

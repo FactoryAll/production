@@ -201,13 +201,13 @@ export async function buildShiftSummary(
     throw new Error('ПЗ не найдено');
   }
 
-  await (client as PrismaClient).$transaction(async (tx) => {
-    const existingSummaries = await tx.shiftSummary.findMany({
-      where: { productionOrderId: orderId },
-      select: { id: true, workCenterId: true, completed: true },
-    });
-    const existingByWorkCenter = new Map(existingSummaries.map((s) => [s.workCenterId, s]));
+  const existingSummaries = await client.shiftSummary.findMany({
+    where: { productionOrderId: orderId },
+    select: { id: true, workCenterId: true, completed: true },
+  });
+  const existingByWorkCenter = new Map(existingSummaries.map((s) => [s.workCenterId, s]));
 
+  const work = async (tx: TxClient) => {
     for (const line of order.lines) {
       const facts = line.facts.map((f) => ({
         factCategory: f.factCategory,
@@ -249,7 +249,13 @@ export async function buildShiftSummary(
       fromStatus: 'IN_PROGRESS',
       toStatus: 'COMPLETED',
     });
-  });
+  };
+
+  if ('$transaction' in client) {
+    await (client as PrismaClient).$transaction(work);
+  } else {
+    await work(client);
+  }
 }
 
 /**
@@ -312,20 +318,18 @@ export async function updateShiftSummary(
   const completed = existingSummary ? existingSummary.completed || orderCompleted : orderCompleted;
   const completedAt = completed ? existingSummary?.completedAt ?? new Date() : null;
 
-  await (client as PrismaClient).$transaction(async (tx) => {
-    await upsertShiftSummary(
-      tx,
-      {
-        productionOrderId: line.orderId,
-        shiftId: line.order.shiftId,
-        workCenterId: line.workCenterId,
-      },
-      { plannedQuantity: line.plannedQuantity, productId: line.productId },
-      facts,
-      consumptions,
-      completed,
-      completedAt,
-      existingSummary,
-    );
-  });
+  await upsertShiftSummary(
+    client,
+    {
+      productionOrderId: line.orderId,
+      shiftId: line.order.shiftId,
+      workCenterId: line.workCenterId,
+    },
+    { plannedQuantity: line.plannedQuantity, productId: line.productId },
+    facts,
+    consumptions,
+    completed,
+    completedAt,
+    existingSummary,
+  );
 }

@@ -1,11 +1,12 @@
 @layer base {
   :root {
     /* FactoryAll brand colors */
-    --color-graphite: #2c2c2c;
-    --color-deep-industry-blue: #004e89;
-    --color-signal-amber: #f2a900;
-    --color-graphite-surface: #f5f5f5;
-    --color-mist-metal: #d1d5db;
+    --color-graphite: #1f2733;
+    --color-deep-industry-blue: #163a70;
+    --color-signal-amber: #c88a2b;
+    --color-graphite-surface: #f3f6f9;
+    --color-mist-metal: #cbd3dd;
+    --color-alert: #ef4444;
 
     /* Neutral scale */
     --color-neutral-50: #fafafa;

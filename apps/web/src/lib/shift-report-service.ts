@@ -106,16 +106,31 @@ const DURATION_RANGES = [
 export async function getShiftReportData(
   orderId: string,
   prisma: PrismaClient,
+  userRoles?: string[],
+  employeeId?: string | null,
 ): Promise<ShiftReportData> {
   const order = await loadProductionOrder(orderId, prisma);
   if (!order) {
     throw new Error('Производственное задание не найдено');
   }
 
-  const summaries = await loadShiftSummaries(orderId, prisma);
-  const summariesByWorkCenter = new Map(summaries.map((s) => [s.workCenterId, s]));
+  const canReadAll = !userRoles || userRoles.includes('production_order:read');
+  const canReadOwn = userRoles && userRoles.includes('production_order:read_own');
+  const restrictToOwn = !canReadAll && canReadOwn;
 
-  const planVsFact = order.lines.map((line) => {
+  const operatorWorkCenterIds = new Set(order.lines.filter((l) => l.operatorId === employeeId).map((l) => l.workCenterId));
+
+  const summaries = await loadShiftSummaries(orderId, prisma);
+  const visibleSummaries = restrictToOwn
+    ? summaries.filter((s) => operatorWorkCenterIds.has(s.workCenterId))
+    : summaries;
+  const summariesByWorkCenter = new Map(visibleSummaries.map((s) => [s.workCenterId, s]));
+
+  const visibleLines = restrictToOwn
+    ? order.lines.filter((line) => operatorWorkCenterIds.has(line.workCenterId))
+    : order.lines;
+
+  const planVsFact = visibleLines.map((line) => {
     const summary = summariesByWorkCenter.get(line.workCenterId);
     const actual = summary
       ? toNumber(summary.massOutput) +
@@ -133,20 +148,20 @@ export async function getShiftReportData(
   const outputStructure: ShiftReportData['outputStructure'] = [
     {
       category: 'MASS' as const,
-      quantity: sumDecimal(summaries.map((s) => s.massOutput)),
+      quantity: sumDecimal(visibleSummaries.map((s) => s.massOutput)),
     },
     {
       category: 'PF' as const,
-      quantity: sumDecimal(summaries.map((s) => s.pfOutput)),
+      quantity: sumDecimal(visibleSummaries.map((s) => s.pfOutput)),
     },
     {
       category: 'GP' as const,
-      quantity: sumDecimal(summaries.map((s) => s.gpOutput)),
+      quantity: sumDecimal(visibleSummaries.map((s) => s.gpOutput)),
     },
   ].filter((item) => item.quantity > 0);
 
   const defectMap = new Map<string, number>();
-  for (const line of order.lines) {
+  for (const line of visibleLines) {
     for (const fact of line.facts) {
       if (toNumber(fact.defectQuantity) > 0 && fact.defectReason) {
         const reasonName = fact.defectReason.name;
@@ -164,7 +179,7 @@ export async function getShiftReportData(
   const stopsByDuration = DURATION_RANGES.map((range) => {
     let count = 0;
     let totalMinutes = 0;
-    for (const line of order.lines) {
+    for (const line of visibleLines) {
       for (const fact of line.facts) {
         const duration = fact.stopsDurationMinutes;
         if (duration > 0 && duration >= range.min && duration < range.max) {
@@ -184,7 +199,7 @@ export async function getShiftReportData(
     string,
     { productName: string; quantity: number; unit: string }
   >();
-  for (const summary of summaries) {
+  for (const summary of visibleSummaries) {
     for (const c of summary.consumption) {
       const existing = consumptionMap.get(c.productId);
       if (existing) {
@@ -204,7 +219,7 @@ export async function getShiftReportData(
 
   return {
     order,
-    summaries,
+    summaries: visibleSummaries,
     planVsFact,
     outputStructure,
     defectsByReason,
