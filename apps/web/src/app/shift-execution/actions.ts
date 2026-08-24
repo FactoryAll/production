@@ -16,6 +16,7 @@ import {
   consumptionProductCategoryToStockCategory,
   factCategoryToStockCategory,
 } from '@/lib/stock-service';
+import { updateShiftSummary } from '@/lib/shift-summary-service';
 
 export type AcceptLineResult =
   | { success: true }
@@ -43,6 +44,7 @@ export interface ReportFactDeps {
   requireShiftWindow: typeof requireShiftWindow;
   getAvailableBalance: typeof getAvailableBalance;
   applyStockMovements: typeof applyStockMovements;
+  updateShiftSummary: typeof updateShiftSummary;
 }
 
 export interface CorrectFactDeps extends ReportFactDeps {}
@@ -363,6 +365,7 @@ export async function reportProductionFact(
     requireShiftWindow,
     getAvailableBalance,
     applyStockMovements,
+    updateShiftSummary,
   },
 ): Promise<{ fact: ProductionFact; warnings: string[] }> {
   const session = await deps.requireShiftWindow();
@@ -460,6 +463,7 @@ export async function reportProductionFact(
     });
 
     await deps.applyStockMovements(tx, movements);
+    await deps.updateShiftSummary(lineId, tx);
 
     const updatedLine = await tx.productionOrderLine.update({
       where: { id: lineId },
@@ -600,6 +604,7 @@ export async function correctFactByOperator(
     requireShiftWindow,
     getAvailableBalance,
     applyStockMovements,
+    updateShiftSummary,
   },
 ): Promise<{ fact: ProductionFact; warnings: string[] }> {
   const session = await deps.requireShiftWindow();
@@ -774,6 +779,7 @@ export async function correctFactByOperator(
       }));
 
     await deps.applyStockMovements(tx, correctionMovements);
+    await deps.updateShiftSummary(lineId, tx);
 
     const newValue = JSON.stringify({
       factCategory,
