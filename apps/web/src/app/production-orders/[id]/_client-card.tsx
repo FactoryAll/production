@@ -16,13 +16,14 @@ import type {
   User,
   ProductionOrderLineWorkers,
 } from '@prisma/client';
-import { confirmProductionOrderAction, substituteOperatorAction } from '../actions';
+import { confirmProductionOrderAction, substituteOperatorAction, cancelProductionOrderAction } from '../actions';
 
 interface ProductionOrderCardProps {
   order: ProductionOrder & {
     shift: Shift;
     createdBy: Pick<User, 'id' | 'login'>;
     confirmedBy: Pick<User, 'id' | 'login'> | null;
+    cancelledBy: Pick<User, 'id' | 'login'> | null;
     lines: Array<
       ProductionOrderLine & {
         workCenter: WorkCenter;
@@ -72,6 +73,9 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const [showSubstituteDialog, setShowSubstituteDialog] = useState(false);
   const [substituteLineId, setSubstituteLineId] = useState<string | null>(null);
   const [substituteReason, setSubstituteReason] = useState('');
@@ -83,9 +87,14 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
   const hasReportedLine = order.lines.some((line) => line.status === 'REPORTED');
   const isCompleted = order.status === 'COMPLETED';
   const isInProgress = order.status === 'IN_PROGRESS';
+  const isCancelled = order.status === 'CANCELLED';
   const canEdit =
     editableStatuses.includes(order.status) && !hasReportedLine && hasPermission(userRoles, 'production_order:update');
-  const canSubstitute = hasPermission(userRoles, 'production_order:confirm') && !isDraft && !isCompleted;
+  const canSubstitute = hasPermission(userRoles, 'production_order:confirm') && !isDraft && !isCompleted && !isCancelled;
+  const canCancel =
+    (order.status === 'DRAFT' || order.status === 'CONFIRMED') &&
+    !hasReportedLine &&
+    hasPermission(userRoles, 'production_order:confirm');
   const reportedCount = order.lines.filter((line) => line.status === 'REPORTED').length;
   const totalCount = order.lines.length;
 
@@ -95,6 +104,29 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
       setShowConfirmDialog(false);
       if (result.success) {
         router.refresh();
+      }
+    });
+  }
+
+  function handleCancelSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setCancelError(null);
+    const trimmedReason = cancelReason.trim();
+    if (trimmedReason.length === 0) {
+      setCancelError('Укажите причину отмены');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set('reason', trimmedReason);
+
+    startTransition(async () => {
+      const result = await cancelProductionOrderAction(order.id, formData);
+      if (result.success) {
+        setShowCancelDialog(false);
+        router.push('/production-orders');
+      } else {
+        setCancelError(result.error ?? 'Не удалось отменить ПЗ');
       }
     });
   }
@@ -159,6 +191,15 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
               Подтвердить ПЗ
             </Button>
           )}
+          {canCancel && (
+            <Button variant="danger" onClick={() => {
+              setCancelReason('');
+              setCancelError(null);
+              setShowCancelDialog(true);
+            }} disabled={isPending}>
+              Отменить ПЗ
+            </Button>
+          )}
         </div>
       </div>
 
@@ -198,6 +239,22 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
             <span className="text-sm text-neutral-500">Завершено</span>
             <p className="text-graphite">{formatDate(order.completedAt)}</p>
           </div>
+        )}
+        {isCancelled && (
+          <>
+            <div>
+              <span className="text-sm text-neutral-500">Отменено</span>
+              <p className="text-graphite">{formatDate(order.cancelledAt)}</p>
+            </div>
+            <div>
+              <span className="text-sm text-neutral-500">Отменил</span>
+              <p className="text-graphite">{order.cancelledBy ? order.cancelledBy.login : '—'}</p>
+            </div>
+            <div className="sm:col-span-2">
+              <span className="text-sm text-neutral-500">Причина отмены</span>
+              <p className="text-graphite">{order.cancellationReason ?? '—'}</p>
+            </div>
+          </>
         )}
       </Card>
 
@@ -266,6 +323,40 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
             {isPending ? 'Подтверждение...' : 'Подтвердить'}
           </Button>
         </div>
+      </Dialog>
+
+      <Dialog open={showCancelDialog} onClose={() => setShowCancelDialog(false)} title="Отменить ПЗ?">
+        <form onSubmit={handleCancelSubmit} className="space-y-4">
+          <p className="text-graphite">
+            ПЗ будет отменено. Операторы получат уведомление. Отменённое ПЗ нельзя восстановить.
+          </p>
+          <div className="space-y-2">
+            <Label htmlFor="cancel-reason">Причина отмены</Label>
+            <textarea
+              id="cancel-reason"
+              value={cancelReason}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setCancelReason(e.target.value)}
+              placeholder="Укажите причину отмены"
+              required
+              rows={3}
+              className="flex min-h-[80px] w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
+            />
+          </div>
+          {cancelError && <p className="text-sm text-signal-amber">{cancelError}</p>}
+          <div className="mt-6 flex justify-end gap-3">
+            <Button
+              variant="secondary"
+              type="button"
+              onClick={() => setShowCancelDialog(false)}
+              disabled={isPending}
+            >
+              Не отменять
+            </Button>
+            <Button variant="danger" type="submit" disabled={isPending}>
+              {isPending ? 'Отмена...' : 'Отменить ПЗ'}
+            </Button>
+          </div>
+        </form>
       </Dialog>
 
       <Dialog

@@ -21,7 +21,9 @@ export default async function ProductionOrderEditPage({ params }: ProductionOrde
   }
 
   const editableStatuses: ProductionOrderStatus[] = ['DRAFT', 'CONFIRMED', 'IN_PROGRESS'];
-  const canEdit = editableStatuses.includes(order.status) && !order.lines.some((line) => line.status === 'REPORTED');
+  const canEdit =
+    editableStatuses.includes(order.status) &&
+    !order.lines.some((line) => line.status === 'REPORTED');
   if (!canEdit) {
     notFound();
   }
