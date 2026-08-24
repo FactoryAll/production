@@ -5,6 +5,8 @@ import {
   getAvailableBalance,
   getStockBalance,
   buildProductionFactMovements,
+  buildTransferIssueMovements,
+  buildTransferReturnMovements,
 } from '../stock-service';
 
 const Decimal = Prisma.Decimal;
@@ -264,5 +266,168 @@ describe('buildProductionFactMovements', () => {
 
     expect(movements).toHaveLength(2);
     expect(movements[1]).toMatchObject({ type: 'CONSUMPTION', stockCategory: 'PF', quantity: 8 });
+  });
+});
+
+const productionWarehouseId = 'wh-prod';
+const gpProduct = { id: 'gp-1', category: 'GP' as const, active: true };
+const gpProduct2 = { id: 'gp-2', category: 'GP' as const, active: true };
+const massProduct = { id: 'mass-1', category: 'MASS' as const, active: true };
+const inactiveGpProduct = { id: 'gp-inactive', category: 'GP' as const, active: false };
+
+describe('buildTransferIssueMovements', () => {
+  it('builds ISSUE movements for GP lines', () => {
+    const movements = buildTransferIssueMovements(productionWarehouseId, [
+      { productId: 'gp-1', quantity: 100, sourceId: 'tr-1' },
+      { productId: 'gp-2', quantity: 50, sourceId: 'tr-1' },
+    ], [gpProduct, gpProduct2]);
+
+    expect(movements).toHaveLength(2);
+    expect(movements[0]).toMatchObject({
+      warehouseId: productionWarehouseId,
+      productId: 'gp-1',
+      stockCategory: 'GP',
+      type: 'ISSUE',
+      quantity: 100,
+      sourceType: 'GOODS_TRANSFER',
+      sourceId: 'tr-1',
+    });
+    expect(movements[1]).toMatchObject({
+      warehouseId: productionWarehouseId,
+      productId: 'gp-2',
+      stockCategory: 'GP',
+      type: 'ISSUE',
+      quantity: 50,
+      sourceType: 'GOODS_TRANSFER',
+      sourceId: 'tr-1',
+    });
+  });
+
+  it('throws when a line is not GP', () => {
+    expect(() =>
+      buildTransferIssueMovements(productionWarehouseId, [
+        { productId: 'mass-1', quantity: 10, sourceId: 'tr-1' },
+      ], [massProduct]),
+    ).toThrow('Перемещения возможны только для ГП');
+  });
+
+  it('throws when quantity is zero or negative', () => {
+    expect(() =>
+      buildTransferIssueMovements(productionWarehouseId, [
+        { productId: 'gp-1', quantity: 0, sourceId: 'tr-1' },
+      ], [gpProduct]),
+    ).toThrow('Количество должно быть больше 0');
+
+    expect(() =>
+      buildTransferIssueMovements(productionWarehouseId, [
+        { productId: 'gp-1', quantity: -5, sourceId: 'tr-1' },
+      ], [gpProduct]),
+    ).toThrow('Количество должно быть больше 0');
+  });
+
+  it('throws on duplicate productId', () => {
+    expect(() =>
+      buildTransferIssueMovements(productionWarehouseId, [
+        { productId: 'gp-1', quantity: 10, sourceId: 'tr-1' },
+        { productId: 'gp-1', quantity: 20, sourceId: 'tr-1' },
+      ], [gpProduct]),
+    ).toThrow('Продукт в перемещении не может повторяться');
+  });
+
+  it('throws when product is not found', () => {
+    expect(() =>
+      buildTransferIssueMovements(productionWarehouseId, [
+        { productId: 'unknown', quantity: 10, sourceId: 'tr-1' },
+      ], []),
+    ).toThrow('Продукт не найден');
+  });
+
+  it('throws when product is inactive', () => {
+    expect(() =>
+      buildTransferIssueMovements(productionWarehouseId, [
+        { productId: 'gp-inactive', quantity: 10, sourceId: 'tr-1' },
+      ], [inactiveGpProduct]),
+    ).toThrow('Продукт неактивен');
+  });
+
+  it('throws when lines are empty', () => {
+    expect(() => buildTransferIssueMovements(productionWarehouseId, [], [])).toThrow(
+      'Перемещение не содержит строк',
+    );
+  });
+
+  it('ISSUE applied via applyStockMovements decreases GP balance', async () => {
+    const { tx, getBalances } = buildMockTx();
+    await applyStockMovements(tx, [
+      { warehouseId: productionWarehouseId, productId: 'gp-1', stockCategory: 'GP', type: 'RECEIPT', quantity: new Decimal(100), sourceType: 'PRODUCTION_FACT', sourceId: 'fact-1' },
+    ]);
+
+    const issueMovements = buildTransferIssueMovements(productionWarehouseId, [
+      { productId: 'gp-1', quantity: 30, sourceId: 'tr-1' },
+    ], [gpProduct]);
+
+    await applyStockMovements(tx, issueMovements);
+    expect(getBalances().get('wh-prod:gp-1:GP')?.quantity.toNumber()).toBe(70);
+  });
+});
+
+describe('buildTransferReturnMovements', () => {
+  it('builds RETURN movements for GP lines', () => {
+    const movements = buildTransferReturnMovements(productionWarehouseId, [
+      { productId: 'gp-1', quantity: 100, sourceId: 'tr-1' },
+    ], [gpProduct]);
+
+    expect(movements).toHaveLength(1);
+    expect(movements[0]).toMatchObject({
+      warehouseId: productionWarehouseId,
+      productId: 'gp-1',
+      stockCategory: 'GP',
+      type: 'RETURN',
+      quantity: 100,
+      sourceType: 'TRANSFER_CANCEL',
+      sourceId: 'tr-1',
+    });
+  });
+
+  it('throws when a line is not GP', () => {
+    expect(() =>
+      buildTransferReturnMovements(productionWarehouseId, [
+        { productId: 'mass-1', quantity: 10, sourceId: 'tr-1' },
+      ], [massProduct]),
+    ).toThrow('Перемещения возможны только для ГП');
+  });
+
+  it('full cycle ISSUE then RETURN restores balance', async () => {
+    const { tx, getBalances } = buildMockTx();
+
+    // Initial GP receipt 100
+    await applyStockMovements(tx, [
+      { warehouseId: productionWarehouseId, productId: 'gp-1', stockCategory: 'GP', type: 'RECEIPT', quantity: new Decimal(100), sourceType: 'PRODUCTION_FACT', sourceId: 'fact-1' },
+    ]);
+
+    // Issue 100
+    const issueMovements = buildTransferIssueMovements(productionWarehouseId, [
+      { productId: 'gp-1', quantity: 100, sourceId: 'tr-1' },
+    ], [gpProduct]);
+    await applyStockMovements(tx, issueMovements);
+    expect(getBalances().get('wh-prod:gp-1:GP')?.quantity.toNumber()).toBe(0);
+
+    // Return 100
+    const returnMovements = buildTransferReturnMovements(productionWarehouseId, [
+      { productId: 'gp-1', quantity: 100, sourceId: 'tr-1' },
+    ], [gpProduct]);
+    await applyStockMovements(tx, returnMovements);
+    expect(getBalances().get('wh-prod:gp-1:GP')?.quantity.toNumber()).toBe(100);
+  });
+
+  it('RETURN applied via applyStockMovements increases GP balance', async () => {
+    const { tx, getBalances } = buildMockTx();
+
+    const returnMovements = buildTransferReturnMovements(productionWarehouseId, [
+      { productId: 'gp-1', quantity: 40, sourceId: 'tr-2' },
+    ], [gpProduct]);
+
+    await applyStockMovements(tx, returnMovements);
+    expect(getBalances().get('wh-prod:gp-1:GP')?.quantity.toNumber()).toBe(40);
   });
 });
