@@ -45,5 +45,5 @@ volumes:
     driver: local
 
 networks:
-  prodtrack_prodtrack_net:
+  prodtrack_net:
     driver: bridge
