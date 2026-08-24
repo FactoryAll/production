@@ -15,8 +15,10 @@ import type {
   Employee,
   User,
   ProductionOrderLineWorkers,
+  ProductionFact,
+  DefectReason,
 } from '@prisma/client';
-import { confirmProductionOrderAction, substituteOperatorAction, cancelProductionOrderAction } from '../actions';
+import { confirmProductionOrderAction, substituteOperatorAction, cancelProductionOrderAction, correctProductionFactAction } from '../actions';
 
 interface ProductionOrderCardProps {
   order: ProductionOrder & {
@@ -29,10 +31,12 @@ interface ProductionOrderCardProps {
         workCenter: WorkCenter;
         product: Product;
         operator: Employee | null;
+        facts: Array<ProductionFact & { defectReason: DefectReason | null }>;
         workerAssignments: Array<ProductionOrderLineWorkers & { employee: Employee }>;
       }
     >;
   };
+  defectReasons: DefectReason[];
   userRoles: string[];
 }
 
@@ -69,7 +73,7 @@ const SUBSTITUTION_REASON_OPTIONS = [
   { value: 'OTHER', label: 'Прочее' },
 ];
 
-export default function ProductionOrderCard({ order, userRoles }: ProductionOrderCardProps) {
+export default function ProductionOrderCard({ order, defectReasons, userRoles }: ProductionOrderCardProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
@@ -81,6 +85,14 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
   const [substituteReason, setSubstituteReason] = useState('');
   const [substituteComment, setSubstituteComment] = useState('');
   const [substituteError, setSubstituteError] = useState<string | null>(null);
+  const [showCorrectFactDialog, setShowCorrectFactDialog] = useState(false);
+  const [correctFactId, setCorrectFactId] = useState<string | null>(null);
+  const [correctQuantity, setCorrectQuantity] = useState('');
+  const [correctDefectQuantity, setCorrectDefectQuantity] = useState('');
+  const [correctDefectReasonId, setCorrectDefectReasonId] = useState('');
+  const [correctStops, setCorrectStops] = useState('');
+  const [correctReason, setCorrectReason] = useState('');
+  const [correctError, setCorrectError] = useState<string | null>(null);
   const isDraft = order.status === 'DRAFT';
   const canConfirm = isDraft && hasPermission(userRoles, 'production_order:confirm');
   const editableStatuses: ProductionOrderStatus[] = ['DRAFT', 'CONFIRMED', 'IN_PROGRESS'];
@@ -91,6 +103,7 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
   const canEdit =
     editableStatuses.includes(order.status) && !hasReportedLine && hasPermission(userRoles, 'production_order:update');
   const canSubstitute = hasPermission(userRoles, 'production_order:confirm') && !isDraft && !isCompleted && !isCancelled;
+  const canCorrectFact = isCompleted && hasPermission(userRoles, 'production_order:confirm');
   const canCancel =
     (order.status === 'DRAFT' || order.status === 'CONFIRMED') &&
     !hasReportedLine &&
@@ -127,6 +140,66 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
         router.push('/production-orders');
       } else {
         setCancelError(result.error ?? 'Не удалось отменить ПЗ');
+      }
+    });
+  }
+
+  function openCorrectFactDialog(fact: ProductionFact) {
+    setCorrectFactId(fact.id);
+    setCorrectQuantity(fact.quantity.toString());
+    setCorrectDefectQuantity(fact.defectQuantity.toString());
+    setCorrectDefectReasonId(fact.defectReasonId ?? '');
+    setCorrectStops(fact.stopsDurationMinutes.toString());
+    setCorrectReason('');
+    setCorrectError(null);
+    setShowCorrectFactDialog(true);
+  }
+
+  function handleCorrectFactSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setCorrectError(null);
+    if (!correctFactId) return;
+
+    const quantity = Number(correctQuantity);
+    const defectQuantity = Number(correctDefectQuantity);
+    const stops = Number(correctStops);
+    const reason = correctReason.trim();
+
+    if (Number.isNaN(quantity) || quantity < 0) {
+      setCorrectError('Количество должно быть неотрицательным числом');
+      return;
+    }
+    if (Number.isNaN(defectQuantity) || defectQuantity < 0) {
+      setCorrectError('Брак должен быть неотрицательным числом');
+      return;
+    }
+    if (Number.isNaN(stops) || stops < 0 || !Number.isInteger(stops)) {
+      setCorrectError('Остановки должны быть целым неотрицательным числом');
+      return;
+    }
+    if (reason.length === 0) {
+      setCorrectError('Причина корректировки обязательна');
+      return;
+    }
+    if (defectQuantity > 0 && !correctDefectReasonId) {
+      setCorrectError('Укажите причину брака');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set('quantity', correctQuantity);
+    if (correctDefectQuantity) formData.set('defectQuantity', correctDefectQuantity);
+    if (correctDefectReasonId) formData.set('defectReasonId', correctDefectReasonId);
+    if (correctStops) formData.set('stopsDurationMinutes', correctStops);
+    formData.set('correctionReason', reason);
+
+    startTransition(async () => {
+      const result = await correctProductionFactAction(correctFactId, formData);
+      if (result.success) {
+        setShowCorrectFactDialog(false);
+        router.refresh();
+      } else {
+        setCorrectError(result.error ?? 'Не удалось скорректировать факт');
       }
     });
   }
@@ -268,6 +341,7 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
                 <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Номенклатура</th>
                 <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Количество</th>
                 <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Оператор</th>
+                <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Факт</th>
                 <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Работники</th>
                 <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Действия</th>
               </tr>
@@ -287,6 +361,31 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
                   <td className="border-b border-mist-metal px-4 py-3 text-graphite">
                     {line.operator ? line.operator.fullName : '—'}
                   </td>
+                  <td className="border-b border-mist-metal px-4 py-3 text-graphite align-top">
+                    {line.facts.length > 0 ? (
+                      <div className="space-y-2">
+                        {line.facts.map((fact) => (
+                          <div key={fact.id} className="space-y-1">
+                            <p className="text-graphite">
+                              Выпуск: {fact.quantity.toString()} | Брак: {fact.defectQuantity.toString()}
+                              {fact.defectReason ? ` (${fact.defectReason.name})` : ''}
+                              {fact.stopsDurationMinutes > 0 ? ` | Остановки: ${fact.stopsDurationMinutes} мин` : ''}
+                            </p>
+                            {fact.postCompletionCorrection && (
+                              <div className="space-y-1">
+                                <span className="inline-flex items-center rounded bg-signal-amber px-2 py-0.5 text-xs font-medium text-graphite">
+                                  Скорректировано после закрытия
+                                </span>
+                                <p className="text-xs text-graphite">Причина: {fact.correctionReason}</p>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td className="border-b border-mist-metal px-4 py-3 text-graphite">
                     {line.workerAssignments.length > 0
                       ? line.workerAssignments.map((wa) => wa.employee.fullName).join(', ')
@@ -302,6 +401,21 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
                       >
                         Ввести за Оператора
                       </Button>
+                    )}
+                    {canCorrectFact && line.facts.length > 0 && (
+                      <div className="space-y-2">
+                        {line.facts.map((fact) => (
+                          <Button
+                            key={fact.id}
+                            variant="cta"
+                            size="sm"
+                            disabled={isPending}
+                            onClick={() => openCorrectFactDialog(fact)}
+                          >
+                            Корректировать факт
+                          </Button>
+                        ))}
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -354,6 +468,88 @@ export default function ProductionOrderCard({ order, userRoles }: ProductionOrde
             </Button>
             <Button variant="danger" type="submit" disabled={isPending}>
               {isPending ? 'Отмена...' : 'Отменить ПЗ'}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      <Dialog
+        open={showCorrectFactDialog}
+        onClose={() => setShowCorrectFactDialog(false)}
+        title="Корректировать факт"
+      >
+        <form onSubmit={handleCorrectFactSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="correct-quantity">Выпуск</Label>
+            <input
+              id="correct-quantity"
+              type="number"
+              min="0"
+              step="0.01"
+              value={correctQuantity}
+              onChange={(e) => setCorrectQuantity(e.target.value)}
+              required
+              className="flex h-10 w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="correct-defect-quantity">Брак</Label>
+            <input
+              id="correct-defect-quantity"
+              type="number"
+              min="0"
+              step="0.01"
+              value={correctDefectQuantity}
+              onChange={(e) => setCorrectDefectQuantity(e.target.value)}
+              className="flex h-10 w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="correct-defect-reason">Причина брака</Label>
+            <Select
+              id="correct-defect-reason"
+              value={correctDefectReasonId}
+              onChange={(e) => setCorrectDefectReasonId(e.target.value)}
+              options={defectReasons.map((reason) => ({ value: reason.id, label: reason.name }))}
+              placeholder="Выберите причину"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="correct-stops">Остановки (мин)</Label>
+            <input
+              id="correct-stops"
+              type="number"
+              min="0"
+              step="1"
+              value={correctStops}
+              onChange={(e) => setCorrectStops(e.target.value)}
+              className="flex h-10 w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="correct-reason">Причина корректировки</Label>
+            <textarea
+              id="correct-reason"
+              value={correctReason}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setCorrectReason(e.target.value)}
+              placeholder="Укажите причину корректировки факта"
+              required
+              rows={3}
+              className="flex min-h-[80px] w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
+            />
+          </div>
+          {correctError && <p className="text-sm text-signal-amber">{correctError}</p>}
+          <div className="mt-6 flex justify-end gap-3">
+            <Button
+              variant="secondary"
+              type="button"
+              onClick={() => setShowCorrectFactDialog(false)}
+              disabled={isPending}
+            >
+              Отмена
+            </Button>
+            <Button variant="cta" type="submit" disabled={isPending}>
+              {isPending ? 'Сохранение...' : 'Сохранить корректировку'}
             </Button>
           </div>
         </form>

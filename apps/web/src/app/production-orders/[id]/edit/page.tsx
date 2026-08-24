@@ -12,7 +12,7 @@ interface ProductionOrderEditPageProps {
 
 export default async function ProductionOrderEditPage({ params }: ProductionOrderEditPageProps) {
   await requirePermission('production_order:update');
-  const [order, createData] = await Promise.all([
+  const [{ order }, createData] = await Promise.all([
     getProductionOrderById(params.id),
     getProductionOrderCreateData(),
   ]);
