@@ -6,6 +6,9 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  env: {
+    VERSION: process.env.VERSION || 'dev',
+  },
 };
 
 module.exports = nextConfig;

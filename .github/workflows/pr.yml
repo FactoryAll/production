@@ -41,3 +41,5 @@ jobs:
 
       - name: Build
         run: pnpm build
+        env:
+          VERSION: ${{ github.event.pull_request.head.sha }}

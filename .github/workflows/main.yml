@@ -39,8 +39,15 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      - name: Get version from git tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        if: startsWith(github.ref, 'refs/tags/')
+
       - name: Build
         run: pnpm build
+        env:
+          VERSION: ${{ steps.get_version.outputs.VERSION || 'dev' }}
 
   e2e:
     name: End-to-end tests (Playwright)
@@ -80,8 +87,15 @@ jobs:
       - name: Generate Prisma client
         run: pnpm --filter @prodtrack/db db:generate
 
+      - name: Get version from git tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        if: startsWith(github.ref, 'refs/tags/')
+
       - name: Build workspace packages
         run: pnpm --filter @prodtrack/contracts --filter @prodtrack/db --filter @prodtrack/ui build
+        env:
+          VERSION: ${{ steps.get_version.outputs.VERSION || 'dev' }}
 
       - name: Apply database migrations
         run: pnpm --filter @prodtrack/db db:migrate
@@ -103,6 +117,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Get version from git tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        if: startsWith(github.ref, 'refs/tags/')
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -115,3 +134,5 @@ jobs:
           tags: prodtrack/web:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ steps.get_version.outputs.VERSION || 'dev' }}
