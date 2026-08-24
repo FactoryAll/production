@@ -9,6 +9,7 @@ import {
   ProductionOrderLineStatus,
   TransferStatus,
   StockMovementType,
+  StockCategory,
   WarehouseType,
   RoleCode,
   DocumentType,
@@ -19,6 +20,7 @@ import {
   EVENT_CODES,
   ALL_ROLES,
   STOCK_MOVEMENT_TYPES,
+  STOCK_CATEGORIES,
   WAREHOUSE_TYPES,
   DOCUMENT_TYPES,
   ENTITY_TYPES,
@@ -36,6 +38,7 @@ import {
   isAuditAction,
   isProductCategory,
   isFactCategory,
+  isStockCategory,
 } from './index';
 
 describe('contracts enums', () => {
@@ -92,10 +95,17 @@ describe('contracts enums', () => {
 
   it('StockMovementType matches Prisma native enum', () => {
     expect(StockMovementType.RECEIPT).toBe('RECEIPT');
-    expect(StockMovementType.WRITE_OFF).toBe('WRITE_OFF');
+    expect(StockMovementType.ISSUE).toBe('ISSUE');
     expect(StockMovementType.CONSUMPTION).toBe('CONSUMPTION');
     expect(StockMovementType.RETURN).toBe('RETURN');
     expect(STOCK_MOVEMENT_TYPES).toHaveLength(4);
+  });
+
+  it('StockCategory has MASS, PF and GP', () => {
+    expect(StockCategory.MASS).toBe('MASS');
+    expect(StockCategory.PF).toBe('PF');
+    expect(StockCategory.GP).toBe('GP');
+    expect(STOCK_CATEGORIES).toHaveLength(3);
   });
 
   it('WarehouseType matches Prisma native enum', () => {
@@ -155,6 +165,7 @@ describe('contracts enums', () => {
     expect(isRoleCode('ADM')).toBe(true);
     expect(isRoleCode('GUEST')).toBe(false);
     expect(isStockMovementType('CONSUMPTION')).toBe(true);
+    expect(isStockMovementType('ISSUE')).toBe(true);
     expect(isStockMovementType('TRANSFER')).toBe(false);
     expect(isWarehouseType('PRODUCTION')).toBe(true);
     expect(isDocumentType('PRODUCTION_ORDER')).toBe(true);
@@ -183,5 +194,12 @@ describe('category type guards', () => {
     expect(isFactCategory('GP')).toBe(true);
     expect(isFactCategory('PF')).toBe(true);
     expect(isFactCategory('OTHER')).toBe(false);
+  });
+
+  it('isStockCategory accepts MASS, PF and GP', () => {
+    expect(isStockCategory('MASS')).toBe(true);
+    expect(isStockCategory('PF')).toBe(true);
+    expect(isStockCategory('GP')).toBe(true);
+    expect(isStockCategory('OTHER')).toBe(false);
   });
 });

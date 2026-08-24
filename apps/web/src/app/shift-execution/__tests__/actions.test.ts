@@ -173,6 +173,7 @@ function buildMockPrisma(overrides: {
   });
 
   const getAvailableBalance = vi.fn().mockResolvedValue({ available: 100, unit: 'кг' });
+  const applyStockMovements = vi.fn().mockResolvedValue(undefined);
   const factConsumptionCreateMany = vi.fn().mockResolvedValue(undefined);
 
   const tx = {
@@ -197,6 +198,12 @@ function buildMockPrisma(overrides: {
     },
     defectReason: {
       findUnique: defectReasonFindUnique,
+    },
+    warehouse: {
+      findFirstOrThrow: vi.fn().mockResolvedValue({ id: 'wh-prod', type: 'PRODUCTION' }),
+    },
+    product: {
+      findMany: vi.fn().mockResolvedValue([baseProduct, gpProduct]),
     },
   };
 
@@ -237,6 +244,7 @@ function buildMockPrisma(overrides: {
     userFindMany,
     defectReasonFindUnique,
     getAvailableBalance,
+    applyStockMovements,
   };
 }
 
@@ -463,7 +471,7 @@ describe('reportProductionFact', () => {
     const result = await reportProductionFact(
       'line-1',
       { quantity: 5, factCategory: 'GP' },
-      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
     );
 
     expect(result.fact.factCategory).toBe('GP');
@@ -484,7 +492,7 @@ describe('reportProductionFact', () => {
     await reportProductionFact(
       'line-1',
       { quantity: 5, factCategory: 'GP' },
-      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
     );
 
     expect(deps.notificationCreateMany).toHaveBeenCalled();
@@ -505,7 +513,7 @@ describe('reportProductionFact', () => {
     const result = await reportProductionFact(
       'line-1',
       { quantity: 10, factCategory: 'MASS' },
-      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
     );
 
     expect(result.fact.factCategory).toBe('MASS');
@@ -522,7 +530,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'PF' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Для массового продукта категория факта всегда MASS');
   });
@@ -538,7 +546,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 5, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Для готовой продукции разрешены категории GP или PF');
   });
@@ -553,7 +561,7 @@ describe('reportProductionFact', () => {
     await reportProductionFact(
       'line-1',
       { quantity: 10, factCategory: 'MASS', defectQuantity: 1, defectReasonId: 'defect-1' },
-      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
     );
 
     expect(deps.productionFactCreate).toHaveBeenCalledWith(
@@ -574,7 +582,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'MASS', defectQuantity: 1 },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Укажите причину брака');
   });
@@ -596,7 +604,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'MASS', defectQuantity: 1, defectReasonId: 'defect-2' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Причина брака не найдена или неактивна');
   });
@@ -611,7 +619,7 @@ describe('reportProductionFact', () => {
     await reportProductionFact(
       'line-1',
       { quantity: 10, factCategory: 'MASS', stopsCount: 2, stopsDurationMinutes: 30 },
-      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
     );
 
     expect(deps.productionFactCreate).toHaveBeenCalledWith(
@@ -632,7 +640,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'MASS', stopsCount: 2 },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Количество остановок и длительность должны быть заданы вместе');
   });
@@ -648,7 +656,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'MASS', stopsDurationMinutes: 30 },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Количество остановок и длительность должны быть заданы вместе');
   });
@@ -664,7 +672,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: -1, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Значение не может быть отрицательным');
   });
@@ -680,7 +688,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Строка не готова к вводу итога');
   });
@@ -696,7 +704,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Строка не готова к вводу итога');
   });
@@ -712,7 +720,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Внести итог может только Оператор, назначенный на этот РЦ');
   });
@@ -729,7 +737,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('ПЗ не может принять итог в этом статусе');
   });
@@ -749,7 +757,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Forbidden: insufficient permissions');
   });
@@ -765,7 +773,7 @@ describe('reportProductionFact', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Вне рабочего времени');
   });
@@ -797,7 +805,7 @@ describe('fact consumption', () => {
           { productId: 'gp-1', quantity: 1 },
         ],
       },
-      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
     );
 
     expect(fact.factCategory).toBe('GP');
@@ -829,7 +837,7 @@ describe('fact consumption', () => {
         factCategory: 'GP',
         consumption: [{ productId: 'mass-1', quantity: 2 }],
       },
-      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
     );
 
     expect(warnings.length).toBeGreaterThan(0);
@@ -846,7 +854,7 @@ describe('fact consumption', () => {
     const { fact } = await reportProductionFact(
       'line-1',
       { quantity: 10, factCategory: 'MASS' },
-      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
     );
 
     expect(fact.factCategory).toBe('MASS');
@@ -864,7 +872,7 @@ describe('fact consumption', () => {
       reportProductionFact(
         'line-1',
         { quantity: 10, factCategory: 'MASS', consumption: [{ productId: 'mass-1', quantity: 2 }] },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Потребление указывается только на ГП/ПФ-РЦ');
   });
@@ -884,7 +892,7 @@ describe('fact consumption', () => {
       reportProductionFact(
         'line-1',
         { quantity: 5, factCategory: 'GP', consumption: [{ productId: 'mass-1', quantity: 0 }] },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Количество потребления должно быть больше 0');
   });
@@ -911,7 +919,7 @@ describe('fact consumption', () => {
             { productId: 'mass-1', quantity: 2 },
           ],
         },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Продукт в потреблении не может повторяться');
   });
@@ -931,7 +939,7 @@ describe('fact consumption', () => {
       reportProductionFact(
         'line-1',
         { quantity: 5, factCategory: 'GP', consumption: [{ productId: 'unknown', quantity: 1 }] },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Продукт не найден');
   });
@@ -943,43 +951,36 @@ describe('getAvailableBalance', () => {
     vi.clearAllMocks();
   });
 
-  it('calculates MASS balance from MASS facts minus consumption', async () => {
-    const { getAvailableBalance } = await import('@/lib/stock-preview');
-    const productFindUnique = vi.fn().mockResolvedValue({ unit: 'кг', category: 'MASS' });
-    const productionFactFindMany = vi.fn().mockImplementation(({ where }: { where: { factCategory: string; productId: string } }) => {
-      if (where.factCategory === 'MASS') return Promise.resolve([{ quantity: new Decimal(100) }]);
-      return Promise.resolve([]);
-    });
-    const factConsumptionFindMany = vi.fn().mockResolvedValue([{ quantity: new Decimal(30) }]);
+  it('returns MASS stock balance for MASS product', async () => {
+    const { getAvailableBalance } = await import('@/lib/stock-service');
+    const client = {
+      product: { findUnique: vi.fn().mockResolvedValue({ unit: 'кг', category: 'MASS' }) },
+      warehouse: { findFirst: vi.fn().mockResolvedValue({ id: 'wh-prod' }) },
+      stockBalance: {
+        findUnique: vi.fn().mockResolvedValue({ quantity: new Decimal(70) }),
+      },
+    } as never;
 
-    const result = await getAvailableBalance('mass-1', {
-      product: { findUnique: productFindUnique },
-      productionFact: { findMany: productionFactFindMany },
-      factConsumption: { findMany: factConsumptionFindMany },
-    } as never);
-
+    const result = await getAvailableBalance(client, 'mass-1');
     expect(result.available).toBe(70);
     expect(result.unit).toBe('кг');
+    expect(result.stockCategory).toBe('MASS');
   });
 
-  it('calculates GP PF balance from PF facts minus consumption, ignoring GP facts', async () => {
-    const { getAvailableBalance } = await import('@/lib/stock-preview');
-    const productionFactFindMany = vi.fn().mockImplementation(({ where }: { where: { factCategory: string; productId: string } }) => {
-      if (where.factCategory === 'PF') return Promise.resolve([{ quantity: new Decimal(50) }]);
-      return Promise.resolve([{ quantity: new Decimal(20) }]);
-    });
-    const factConsumptionFindMany = vi.fn().mockResolvedValue([{ quantity: new Decimal(10) }]);
-
-    const result = await getAvailableBalance('gp-1', {
+  it('returns PF stock balance for GP product', async () => {
+    const { getAvailableBalance } = await import('@/lib/stock-service');
+    const client = {
       product: { findUnique: vi.fn().mockResolvedValue({ unit: 'шт', category: 'GP' }) },
-      productionFact: { findMany: productionFactFindMany },
-      factConsumption: { findMany: factConsumptionFindMany },
-    } as never);
+      warehouse: { findFirst: vi.fn().mockResolvedValue({ id: 'wh-prod' }) },
+      stockBalance: {
+        findUnique: vi.fn().mockResolvedValue({ quantity: new Decimal(40) }),
+      },
+    } as never;
 
+    const result = await getAvailableBalance(client, 'gp-1');
     expect(result.available).toBe(40);
-    expect(productionFactFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { factCategory: 'PF', productId: 'gp-1' } }),
-    );
+    expect(result.unit).toBe('шт');
+    expect(result.stockCategory).toBe('PF');
   });
 });
 
@@ -1002,7 +1003,7 @@ describe('correctFactByOperator', () => {
     const { fact } = await correctFactByOperator(
       'line-1',
       { quantity: 12, factCategory: 'MASS', defectQuantity: 1, defectReasonId: 'defect-1', stopsCount: 2, stopsDurationMinutes: 15 },
-      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
     );
 
     expect(fact.quantity.toString()).toBe('12');
@@ -1044,7 +1045,7 @@ describe('correctFactByOperator', () => {
     const { fact } = await correctFactByOperator(
       'line-1',
       { quantity: 5, factCategory: 'PF' },
-      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
     );
 
     expect(fact.factCategory).toBe('PF');
@@ -1066,7 +1067,7 @@ describe('correctFactByOperator', () => {
     const { warnings } = await correctFactByOperator(
       'line-1',
       { quantity: 5, factCategory: 'GP', consumption: [{ productId: 'mass-1', quantity: 5 }] },
-      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
     );
 
     expect(deps.factConsumptionDeleteMany).toHaveBeenCalledWith(
@@ -1096,7 +1097,7 @@ describe('correctFactByOperator', () => {
       correctFactByOperator(
         'line-1',
         { quantity: 5, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('После закрытия корректировка доступна только начальнику производства');
   });
@@ -1115,7 +1116,7 @@ describe('correctFactByOperator', () => {
       correctFactByOperator(
         'line-1',
         { quantity: 5, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('ПЗ отменено');
   });
@@ -1132,7 +1133,7 @@ describe('correctFactByOperator', () => {
       correctFactByOperator(
         'line-1',
         { quantity: 5, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Факт ещё не внесён');
   });
@@ -1150,7 +1151,7 @@ describe('correctFactByOperator', () => {
       correctFactByOperator(
         'line-1',
         { quantity: 5, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Корректировать факт может только Оператор');
   });
@@ -1169,7 +1170,7 @@ describe('correctFactByOperator', () => {
       correctFactByOperator(
         'line-1',
         { quantity: 5, factCategory: 'MASS', defectQuantity: 1 },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Укажите причину брака');
   });
@@ -1187,7 +1188,7 @@ describe('correctFactByOperator', () => {
       correctFactByOperator(
         'line-1',
         { quantity: -1, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Значение не может быть отрицательным');
   });
@@ -1206,7 +1207,7 @@ describe('correctFactByOperator', () => {
       correctFactByOperator(
         'line-1',
         { quantity: 5, factCategory: 'MASS', consumption: [{ productId: 'mass-1', quantity: 1 }] },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Потребление указывается только на ГП/ПФ-РЦ');
   });
@@ -1224,7 +1225,7 @@ describe('correctFactByOperator', () => {
       correctFactByOperator(
         'line-1',
         { quantity: 5, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Смена не открыта');
   });
@@ -1245,7 +1246,7 @@ describe('correctFactByOperator', () => {
       correctFactByOperator(
         'line-1',
         { quantity: 5, factCategory: 'MASS' },
-        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements },
       ),
     ).rejects.toThrow('Forbidden: insufficient permissions');
   });
