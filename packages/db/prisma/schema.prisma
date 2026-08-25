@@ -302,7 +302,7 @@ model ProductionFact {
 
   consumptions FactConsumption[]
 
-  @@unique([lineId])
+  @@unique([lineId, factCategory])
   @@map("production_facts")
 }
 

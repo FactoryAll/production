@@ -181,6 +181,17 @@ function buildMockPrisma(overrides: {
   const updateShiftSummary = vi.fn().mockResolvedValue(undefined);
   const factConsumptionCreateMany = vi.fn().mockResolvedValue(undefined);
 
+  const productionFactUpsert = vi.fn().mockImplementation((args: { where: Record<string, unknown>; create: Record<string, unknown>; update: Record<string, unknown> }) => {
+    const category = (args.create.factCategory ?? args.update.factCategory) as string;
+    return Promise.resolve({
+      id: `${existingFactId}-${category}`,
+      ...args.create,
+      ...args.update,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  });
+
   const tx = {
     productionOrderLine: {
       update: lineUpdate,
@@ -188,6 +199,7 @@ function buildMockPrisma(overrides: {
     },
     productionFact: {
       create: productionFactCreate,
+      upsert: productionFactUpsert,
       update: productionFactUpdate,
       deleteMany: vi.fn().mockResolvedValue(undefined),
     },
@@ -219,6 +231,7 @@ function buildMockPrisma(overrides: {
     },
     productionFact: {
       create: productionFactCreate,
+      upsert: productionFactUpsert,
       update: productionFactUpdate,
       deleteMany: vi.fn().mockResolvedValue(undefined),
     },
@@ -244,6 +257,7 @@ function buildMockPrisma(overrides: {
     prisma,
     lineUpdate,
     productionFactCreate,
+    productionFactUpsert,
     productionFactUpdate,
     productionFactDeleteMany: (tx.productionFact as unknown as { deleteMany: ReturnType<typeof vi.fn> }).deleteMany,
     factConsumptionCreateMany,
@@ -485,7 +499,7 @@ describe('reportProductionFact', () => {
 
     expect(result.facts).toHaveLength(1);
     expect(result.facts[0].factCategory).toBe('GP');
-    expect(deps.productionFactCreate).toHaveBeenCalled();
+    expect(deps.productionFactUpsert).toHaveBeenCalled();
     expect(deps.lineUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REPORTED' } }));
     expect(writeAudit).toHaveBeenCalledTimes(2);
     expect(writeTiming).toHaveBeenCalled();
@@ -575,9 +589,10 @@ describe('reportProductionFact', () => {
       { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements, updateShiftSummary: deps.updateShiftSummary },
     );
 
-    expect(deps.productionFactCreate).toHaveBeenCalledWith(
+    expect(deps.productionFactUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ defectQuantity: expect.objectContaining({}), defectReasonId: 'defect-1' }),
+        create: expect.objectContaining({ defectQuantity: expect.objectContaining({}), defectReasonId: 'defect-1' }),
+        update: expect.objectContaining({ defectQuantity: expect.objectContaining({}), defectReasonId: 'defect-1' }),
       }),
     );
   });
@@ -633,9 +648,10 @@ describe('reportProductionFact', () => {
       { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements, updateShiftSummary: deps.updateShiftSummary },
     );
 
-    expect(deps.productionFactCreate).toHaveBeenCalledWith(
+    expect(deps.productionFactUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ stopsCount: 2, stopsDurationMinutes: 30 }),
+        create: expect.objectContaining({ stopsCount: 2, stopsDurationMinutes: 30 }),
+        update: expect.objectContaining({ stopsCount: 2, stopsDurationMinutes: 30 }),
       }),
     );
   });

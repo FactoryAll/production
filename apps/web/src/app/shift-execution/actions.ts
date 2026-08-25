@@ -451,8 +451,9 @@ export async function reportProductionFact(
 
     const createdFacts: ProductionFact[] = [];
     for (const [category, quantity] of Object.entries(outputByCategory) as [FactCategoryInput, Prisma.Decimal][]) {
-      const fact = await tx.productionFact.create({
-        data: {
+      const fact = await tx.productionFact.upsert({
+        where: { lineId_factCategory: { lineId, factCategory: category } },
+        create: {
           lineId,
           productId: line.productId,
           factCategory: category,
@@ -465,6 +466,17 @@ export async function reportProductionFact(
           reportedAt: now,
           reportedByUserId: session.userId,
           createdById: session.userId,
+          postCompletionCorrection: false,
+        },
+        update: {
+          quantity,
+          defectQuantity,
+          defectReasonId: input.defectReasonId ?? null,
+          stopsCount,
+          stopsDurationMinutes,
+          recordedAt: now,
+          reportedAt: now,
+          reportedByUserId: session.userId,
           postCompletionCorrection: false,
         },
       });
@@ -812,8 +824,9 @@ export async function correctFactByOperator(
 
     const createdFacts: ProductionFact[] = [];
     for (const [category, quantity] of Object.entries(outputByCategory) as [FactCategoryInput, Prisma.Decimal][]) {
-      const fact = await tx.productionFact.create({
-        data: {
+      const fact = await tx.productionFact.upsert({
+        where: { lineId_factCategory: { lineId, factCategory: category } },
+        create: {
           lineId,
           productId: line.productId,
           factCategory: category,
@@ -826,6 +839,17 @@ export async function correctFactByOperator(
           reportedAt: now,
           reportedByUserId: session.userId,
           createdById: session.userId,
+          postCompletionCorrection: false,
+        },
+        update: {
+          quantity,
+          defectQuantity,
+          defectReasonId: input.defectReasonId ?? null,
+          stopsCount,
+          stopsDurationMinutes,
+          recordedAt: now,
+          reportedAt: now,
+          reportedByUserId: session.userId,
           postCompletionCorrection: false,
         },
       });
