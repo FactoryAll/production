@@ -1,9 +1,14 @@
 import { Button } from '@prodtrack/ui';
 
-export function LogoutButton() {
+interface LogoutButtonProps {
+  className?: string;
+  variant?: 'primary' | 'secondary' | 'danger' | 'cta';
+}
+
+export function LogoutButton({ className = '', variant = 'secondary' }: LogoutButtonProps) {
   return (
     <form action="/api/auth/logout" method="POST">
-      <Button type="submit" variant="secondary" size="sm">
+      <Button type="submit" variant={variant} size="sm" className={className}>
         Выйти
       </Button>
     </form>
