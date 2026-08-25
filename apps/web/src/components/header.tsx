@@ -1,6 +1,4 @@
 import Link from 'next/link';
-import { cookies } from 'next/headers';
-import { SESSION_COOKIE_NAME } from '@/lib/auth/constants';
 import { LogoutButton } from './logout-button';
 
 const navItems = [
@@ -20,13 +18,16 @@ const nsiItems = [
   { label: 'Причины', href: '/nsi/defect-reasons' },
 ];
 
-export function Header() {
-  const cookieStore = cookies();
-  const hasSession = cookieStore.has(SESSION_COOKIE_NAME);
+interface HeaderProps {
+  user: {
+    login: string;
+    roles: { role: { code: string } }[];
+  };
+}
 
-  if (!hasSession) {
-    return null;
-  }
+export function Header({ user }: HeaderProps) {
+  const roles = user.roles.map((ur) => ur.role.code);
+  const isAdmin = roles.includes('ADM');
 
   return (
     <header className="bg-graphite text-white shadow-sm">
@@ -63,15 +64,20 @@ export function Header() {
             </div>
           </div>
 
-          <Link
-            href="/users"
-            className="rounded-sm px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-white/10 hover:text-white"
-          >
-            Пользователи
-          </Link>
+          {isAdmin && (
+            <Link
+              href="/users"
+              className="rounded-sm px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              Пользователи
+            </Link>
+          )}
         </nav>
 
         <div className="flex items-center gap-4">
+          <span className="hidden text-sm text-neutral-300 sm:inline">
+            {user.login}
+          </span>
           <LogoutButton className="h-[var(--button-height-sm)] rounded-md border border-white/20 bg-transparent px-4 text-base font-medium text-white transition-colors hover:bg-white/10" />
         </div>
       </div>
@@ -86,6 +92,14 @@ export function Header() {
             {item.label}
           </Link>
         ))}
+        {isAdmin && (
+          <Link
+            href="/users"
+            className="whitespace-nowrap rounded-sm px-3 py-1.5 text-xs font-medium text-neutral-200 transition-colors hover:bg-white/10 hover:text-white"
+          >
+            Пользователи
+          </Link>
+        )}
       </div>
     </header>
   );
