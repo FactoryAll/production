@@ -121,3 +121,20 @@ export function getAttributeRole(
     return roleIndex < highestIndex ? role : highest;
   }, matchingRoles[0]) as RoleCode;
 }
+
+/**
+ * Returns the highest-priority role among the user's roles, regardless of permission.
+ * Useful for audit attribution of auth lifecycle events (login, logout, password change)
+ * that are not tied to a specific permission.
+ */
+export function getPrimaryRole(userRoles: string[]): string | null {
+  if (userRoles.length === 0) {
+    return null;
+  }
+  for (const role of ROLE_PRIORITY) {
+    if (userRoles.includes(role)) {
+      return role;
+    }
+  }
+  return userRoles[0];
+}

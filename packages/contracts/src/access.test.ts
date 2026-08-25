@@ -4,6 +4,7 @@ import {
   hasPermission,
   requirePermission,
   getAttributeRole,
+  getPrimaryRole,
   ALL_PERMISSIONS,
   ROLE_PERMISSIONS,
   ROLE_PRIORITY,
@@ -77,5 +78,21 @@ describe('getAttributeRole', () => {
 
   it('priority order is ADM > NP > OPR > KSGP > USGP > S1C', () => {
     expect(ROLE_PRIORITY).toEqual([RoleCode.ADM, RoleCode.NP, RoleCode.OPR, RoleCode.KSGP, RoleCode.USGP, RoleCode.S1C]);
+  });
+});
+
+describe('getPrimaryRole', () => {
+  it('returns null for empty roles', () => {
+    expect(getPrimaryRole([])).toBeNull();
+  });
+
+  it('returns the only role when single role is provided', () => {
+    expect(getPrimaryRole([RoleCode.OPR])).toBe(RoleCode.OPR);
+  });
+
+  it('returns the highest-priority role regardless of permission', () => {
+    expect(getPrimaryRole([RoleCode.OPR, RoleCode.NP])).toBe(RoleCode.NP);
+    expect(getPrimaryRole([RoleCode.KSGP, RoleCode.OPR])).toBe(RoleCode.OPR);
+    expect(getPrimaryRole([RoleCode.ADM, RoleCode.NP])).toBe(RoleCode.ADM);
   });
 });

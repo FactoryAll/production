@@ -62,8 +62,7 @@ describe('changePasswordAction', () => {
     expect(result).toEqual({ success: true });
     expect(writeAudit).toHaveBeenCalled();
     const auditCall = (writeAudit as ReturnType<typeof vi.fn>).mock.calls[0][1];
-    expect(auditCall.userRoles).toEqual(['ADM']);
-    expect(auditCall.permission).toBe('dashboard:read');
+    expect(auditCall.role).toBe('ADM');
   });
 
   it('returns error when current password is invalid', async () => {

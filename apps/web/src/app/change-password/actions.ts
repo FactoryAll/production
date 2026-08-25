@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { prisma, writeAudit } from '@prodtrack/db';
+import { getPrimaryRole } from '@prodtrack/contracts';
 import { hashPassword, verifyPassword } from '@/lib/auth/password';
 import { validatePassword } from '@/lib/auth/password-validation';
 import { requireSession } from '@/lib/auth/session';
@@ -52,8 +53,7 @@ export async function changePasswordAction(formData: FormData): Promise<ChangePa
       oldValue: '[REDACTED]',
       newValue: '[CHANGED]',
       userId,
-      userRoles: user.roles.map((ur) => ur.role.code),
-      permission: 'dashboard:read',
+      role: getPrimaryRole(user.roles.map((ur) => ur.role.code)) ?? undefined,
     });
   });
 

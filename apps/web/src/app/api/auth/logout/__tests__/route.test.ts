@@ -52,8 +52,7 @@ describe('logout route', () => {
         objectType: 'User',
         objectId: 'user-1',
         userId: 'user-1',
-        userRoles: ['ADM'],
-        permission: 'dashboard:read',
+        role: 'ADM',
       }),
     });
     expect(store.set).toHaveBeenCalledWith('session', '', expect.objectContaining({ maxAge: 0, path: '/' }));

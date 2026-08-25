@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { AuditAction, prisma, writeAudit } from '@prodtrack/db';
+import { getPrimaryRole } from '@prodtrack/contracts';
 import { SESSION_COOKIE_NAME } from '@/lib/auth/constants';
 import { getSessionFromToken } from '@/lib/auth/session-token';
 
@@ -17,8 +18,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         objectType: 'User',
         objectId: session.userId,
         userId: session.userId,
-        userRoles,
-        permission: 'dashboard:read',
+        role: getPrimaryRole(userRoles) ?? undefined,
       });
     }
     await prisma.session.deleteMany({ where: { token } });

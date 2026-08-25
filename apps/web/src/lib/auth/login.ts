@@ -1,7 +1,7 @@
 'use server';
 
 import { AuditAction, prisma, writeAudit } from '@prodtrack/db';
-import type { RoleCode } from '@prisma/client';
+import { getPrimaryRole, type RoleCode } from '@prodtrack/contracts';
 import { verifyPassword } from './password';
 
 export interface LoginSuccess {
@@ -56,8 +56,7 @@ export async function authenticate(
       objectType: 'User',
       objectId: user.id,
       userId: user.id,
-      userRoles,
-      permission: 'dashboard:read',
+      role: getPrimaryRole(userRoles) ?? undefined,
       newValue: auditPayload,
     });
     return { success: false, error: 'Пользователь заблокирован, обратитесь к администратору' };
@@ -70,8 +69,7 @@ export async function authenticate(
       objectType: 'User',
       objectId: user.id,
       userId: user.id,
-      userRoles,
-      permission: 'dashboard:read',
+      role: getPrimaryRole(userRoles) ?? undefined,
       newValue: auditPayload,
     });
     return { success: false, error: 'Неверный логин или пароль' };
@@ -82,8 +80,7 @@ export async function authenticate(
     objectType: 'User',
     objectId: user.id,
     userId: user.id,
-    userRoles,
-    permission: 'dashboard:read',
+    role: getPrimaryRole(userRoles) ?? undefined,
     newValue: auditPayload,
   });
 

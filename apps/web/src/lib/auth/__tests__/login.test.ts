@@ -34,7 +34,7 @@ describe('authenticate', () => {
     vi.clearAllMocks();
   });
 
-  it('succeeds with valid credentials and writes LOGIN audit with roles and permission', async () => {
+  it('succeeds with valid credentials and writes LOGIN audit with primary role', async () => {
     const user = await makeUser();
     (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(user);
 
@@ -50,13 +50,12 @@ describe('authenticate', () => {
         objectType: 'User',
         objectId: 'user-1',
         userId: 'user-1',
-        userRoles: ['ADM'],
-        permission: 'dashboard:read',
+        role: 'ADM',
       }),
     });
   });
 
-  it('fails with wrong password and writes LOGIN_FAILED audit with roles and permission', async () => {
+  it('fails with wrong password and writes LOGIN_FAILED audit with primary role', async () => {
     const user = await makeUser();
     (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(user);
 
@@ -68,13 +67,12 @@ describe('authenticate', () => {
         action: 'LOGIN_FAILED',
         objectId: 'user-1',
         userId: 'user-1',
-        userRoles: ['ADM'],
-        permission: 'dashboard:read',
+        role: 'ADM',
       }),
     });
   });
 
-  it('fails for inactive user with blocked message and audit with roles', async () => {
+  it('fails for inactive user with blocked message and audit with primary role', async () => {
     const user = await makeUser({ active: false });
     (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(user);
 
@@ -86,8 +84,7 @@ describe('authenticate', () => {
         action: 'LOGIN_FAILED',
         objectId: 'user-1',
         userId: 'user-1',
-        userRoles: ['ADM'],
-        permission: 'dashboard:read',
+        role: 'ADM',
       }),
     });
   });
