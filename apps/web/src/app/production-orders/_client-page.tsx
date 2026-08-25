@@ -10,10 +10,10 @@ import {
   flexRender,
   type ColumnDef,
 } from '@tanstack/react-table';
-import { Button, Card, Dialog } from '@prodtrack/ui';
+import { Button, Card, Dialog, Label } from '@prodtrack/ui';
 import { hasPermission } from '@prodtrack/contracts';
 import type { ProductionOrder, ProductionOrderLine, Shift, WorkCenter } from '@prisma/client';
-import { confirmProductionOrderAction } from './actions';
+import { confirmProductionOrderAction, cancelProductionOrderAction } from './actions';
 
 interface ProductionOrdersPageProps {
   orders: Array<
@@ -53,6 +53,9 @@ export default function ProductionOrdersPage({ orders, userRoles }: ProductionOr
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [confirmOrderId, setConfirmOrderId] = useState<string | null>(null);
+  const [cancelOrderId, setCancelOrderId] = useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const canConfirm = hasPermission(userRoles, 'production_order:confirm');
 
   function handleConfirm(orderId: string) {
@@ -61,6 +64,28 @@ export default function ProductionOrdersPage({ orders, userRoles }: ProductionOr
       setConfirmOrderId(null);
       if (result.success) {
         router.refresh();
+      }
+    });
+  }
+
+  function handleCancel(orderId: string) {
+    const trimmedReason = cancelReason.trim();
+    if (trimmedReason.length === 0) {
+      setCancelError('Укажите причину отмены');
+      return;
+    }
+
+    startTransition(async () => {
+      const formData = new FormData();
+      formData.set('reason', trimmedReason);
+      const result = await cancelProductionOrderAction(orderId, formData);
+      if (result.success) {
+        setCancelOrderId(null);
+        setCancelReason('');
+        setCancelError(null);
+        router.refresh();
+      } else {
+        setCancelError(result.error ?? 'Не удалось отменить ПЗ');
       }
     });
   }
@@ -112,6 +137,8 @@ export default function ProductionOrdersPage({ orders, userRoles }: ProductionOr
           header: 'Действия',
         cell: ({ row }) => {
           const isDraft = row.original.status === 'DRAFT';
+          const isCancellable = (row.original.status === 'DRAFT' || row.original.status === 'CONFIRMED') &&
+            !row.original.lines.some((line) => line.status === 'REPORTED');
           return (
             <div className="flex items-center gap-2">
               {isDraft && canConfirmDraft && (
@@ -125,6 +152,21 @@ export default function ProductionOrdersPage({ orders, userRoles }: ProductionOr
                   disabled={isPending}
                 >
                   Подтвердить
+                </Button>
+              )}
+              {isCancellable && canConfirmDraft && (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCancelOrderId(row.original.id);
+                    setCancelReason('');
+                    setCancelError(null);
+                  }}
+                  disabled={isPending}
+                >
+                  Отменить ПЗ
                 </Button>
               )}
               <Link href={'/production-orders/' + row.original.id}>
@@ -231,6 +273,55 @@ export default function ProductionOrdersPage({ orders, userRoles }: ProductionOr
             {isPending ? 'Подтверждение...' : 'Подтвердить'}
           </Button>
         </div>
+      </Dialog>
+
+      <Dialog
+        open={cancelOrderId !== null}
+        onClose={() => {
+          setCancelOrderId(null);
+          setCancelReason('');
+          setCancelError(null);
+        }}
+        title="Отменить ПЗ?"
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (cancelOrderId) handleCancel(cancelOrderId);
+          }}
+          className="space-y-4"
+        >
+          <div className="space-y-2">
+            <Label htmlFor="cancel-reason">Причина отмены</Label>
+            <textarea
+              id="cancel-reason"
+              value={cancelReason}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setCancelReason(e.target.value)}
+              placeholder="Укажите причину отмены"
+              required
+              rows={3}
+              className="flex min-h-[80px] w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
+            />
+          </div>
+          {cancelError && <p className="text-sm text-signal-amber">{cancelError}</p>}
+          <div className="mt-6 flex justify-end gap-3">
+            <Button
+              variant="secondary"
+              type="button"
+              onClick={() => {
+                setCancelOrderId(null);
+                setCancelReason('');
+                setCancelError(null);
+              }}
+              disabled={isPending}
+            >
+              Не отменять
+            </Button>
+            <Button variant="danger" type="submit" disabled={isPending || !cancelOrderId}>
+              {isPending ? 'Отмена...' : 'Отменить ПЗ'}
+            </Button>
+          </div>
+        </form>
       </Dialog>
     </div>
   );
