@@ -62,6 +62,8 @@ interface BalanceInfo {
 function emptyReportForm(): {
   quantity: string;
   factCategory: string;
+  outputGP: string;
+  outputPF: string;
   defectQuantity: string;
   defectReasonId: string;
   stopsCount: string;
@@ -71,6 +73,8 @@ function emptyReportForm(): {
   return {
     quantity: '',
     factCategory: '',
+    outputGP: '',
+    outputPF: '',
     defectQuantity: '',
     defectReasonId: '',
     stopsCount: '',
@@ -108,10 +112,11 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
 
   function openReportDialog(line: ShiftExecutionPageProps['lines'][number]) {
     setDialogState({ line, mode: 'report' });
-    setForm({
-      ...emptyReportForm(),
-      factCategory: line.product.category === 'MASS' ? 'MASS' : '',
-    });
+    const base = emptyReportForm();
+    if (line.product.category === 'MASS') {
+      base.factCategory = 'MASS';
+    }
+    setForm(base);
     setError(null);
     setFieldErrors({});
     setBalances({});
@@ -119,21 +124,29 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
   }
 
   function openCorrectDialog(line: ShiftExecutionPageProps['lines'][number]) {
-    const fact = line.facts[0];
+    const facts = line.facts;
+    const fact = facts[0];
     setDialogState({ line, mode: 'correct' });
-    setForm({
-      quantity: fact ? String(fact.quantity) : '',
-      factCategory: fact ? fact.factCategory : line.product.category === 'MASS' ? 'MASS' : '',
-      defectQuantity: fact ? String(fact.defectQuantity) : '',
-      defectReasonId: fact?.defectReasonId ?? '',
-      stopsCount: fact ? String(fact.stopsCount) : '',
-      stopsDurationMinutes: fact ? String(fact.stopsDurationMinutes) : '',
-      consumption:
-        fact?.consumptions.map((c) => ({
-          productId: c.productId,
-          quantity: c.quantity.toString(),
-        })) ?? [],
-    });
+    const base = emptyReportForm();
+    if (line.product.category === 'MASS') {
+      base.factCategory = 'MASS';
+      base.quantity = fact ? String(fact.quantity) : '';
+    } else {
+      for (const f of facts) {
+        if (f.factCategory === 'GP') base.outputGP = String(f.quantity);
+        if (f.factCategory === 'PF') base.outputPF = String(f.quantity);
+      }
+    }
+    base.defectQuantity = fact ? String(fact.defectQuantity) : '';
+    base.defectReasonId = fact?.defectReasonId ?? '';
+    base.stopsCount = fact ? String(fact.stopsCount) : '';
+    base.stopsDurationMinutes = fact ? String(fact.stopsDurationMinutes) : '';
+    base.consumption =
+      fact?.consumptions.map((c) => ({
+        productId: c.productId,
+        quantity: c.quantity.toString(),
+      })) ?? [];
+    setForm(base);
     if (fact?.consumptions) {
       fact.consumptions.forEach((c) => void fetchBalance(c.productId));
     }
@@ -160,10 +173,30 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
 
   function validateReportForm(): boolean {
     const errors: Partial<Record<keyof typeof form, string>> = {};
-    const quantity = Number(form.quantity);
-    if (Number.isNaN(quantity) || quantity < 0) {
-      errors.quantity = 'Количество должно быть неотрицательным';
+    const category = productCategory();
+
+    if (category === 'MASS') {
+      const quantity = Number(form.quantity);
+      if (Number.isNaN(quantity) || quantity <= 0) {
+        errors.quantity = 'Укажите выпуск';
+      }
+    } else {
+      const gp = Number(form.outputGP);
+      const pf = Number(form.outputPF);
+      const hasGP = !Number.isNaN(gp) && gp > 0;
+      const hasPF = !Number.isNaN(pf) && pf > 0;
+      if (!hasGP && !hasPF) {
+        errors.outputGP = 'Укажите выпуск ГП или ПФ';
+        errors.outputPF = 'Укажите выпуск ГП или ПФ';
+      }
+      if (!Number.isNaN(gp) && gp < 0) {
+        errors.outputGP = 'Количество должно быть неотрицательным';
+      }
+      if (!Number.isNaN(pf) && pf < 0) {
+        errors.outputPF = 'Количество должно быть неотрицательным';
+      }
     }
+
     const defectQty = Number(form.defectQuantity);
     if (Number.isNaN(defectQty) || defectQty < 0) {
       errors.defectQuantity = 'Брак должен быть неотрицательным';
@@ -177,12 +210,6 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
     if (hasCount !== hasDuration) {
       errors.stopsCount = 'Количество и длительность остановок должны быть заданы вместе';
       errors.stopsDurationMinutes = 'Количество и длительность остановок должны быть заданы вместе';
-    }
-    if (!form.factCategory) {
-      errors.factCategory = 'Выберите категорию факта';
-    }
-    if (form.factCategory === 'MASS' && productCategory() === 'GP') {
-      errors.factCategory = 'Для ГП выберите GP или PF';
     }
 
     const seen = new Set<string>();
@@ -246,8 +273,17 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
     if (!validateReportForm()) return;
     startTransition(async () => {
       const formData = new FormData();
-      formData.set('quantity', form.quantity);
-      formData.set('factCategory', form.factCategory);
+      if (productCategory() === 'MASS') {
+        formData.set('quantity', form.quantity);
+        formData.set('factCategory', form.factCategory);
+      } else {
+        const outputByCategory: Record<string, number> = {};
+        const gp = Number(form.outputGP);
+        const pf = Number(form.outputPF);
+        if (!Number.isNaN(gp) && gp > 0) outputByCategory.GP = gp;
+        if (!Number.isNaN(pf) && pf > 0) outputByCategory.PF = pf;
+        formData.set('outputByCategory', JSON.stringify(outputByCategory));
+      }
       if (form.defectQuantity) formData.set('defectQuantity', form.defectQuantity);
       if (form.defectReasonId) formData.set('defectReasonId', form.defectReasonId);
       if (form.stopsCount) formData.set('stopsCount', form.stopsCount);
@@ -282,8 +318,17 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
     if (!validateReportForm()) return;
     startTransition(async () => {
       const formData = new FormData();
-      formData.set('quantity', form.quantity);
-      formData.set('factCategory', form.factCategory);
+      if (productCategory() === 'MASS') {
+        formData.set('quantity', form.quantity);
+        formData.set('factCategory', form.factCategory);
+      } else {
+        const outputByCategory: Record<string, number> = {};
+        const gp = Number(form.outputGP);
+        const pf = Number(form.outputPF);
+        if (!Number.isNaN(gp) && gp > 0) outputByCategory.GP = gp;
+        if (!Number.isNaN(pf) && pf > 0) outputByCategory.PF = pf;
+        formData.set('outputByCategory', JSON.stringify(outputByCategory));
+      }
       if (form.defectQuantity) formData.set('defectQuantity', form.defectQuantity);
       if (form.defectReasonId) formData.set('defectReasonId', form.defectReasonId);
       if (form.stopsCount) formData.set('stopsCount', form.stopsCount);
@@ -435,35 +480,44 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
             ПЗ по РЦ <strong>{dialogState?.line.workCenterId}</strong>
           </p>
           <div className="space-y-3">
-            <div>
-              <label className="mb-1 block text-sm text-graphite">Выпуск</label>
-              <Input
-                type="number"
-                min={0}
-                step="0.01"
-                value={form.quantity}
-                onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))}
-              />
-              {fieldErrors.quantity && <p className="text-sm text-signal-amber">{fieldErrors.quantity}</p>}
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm text-graphite">Категория факта</label>
-              {productCategory() === 'MASS' ? (
-                <span className="inline-block rounded bg-neutral-200 px-3 py-2 text-sm text-graphite">Масса</span>
-              ) : (
-                <Select
-                  options={[
-                    { value: 'GP', label: 'Готовая продукция' },
-                    { value: 'PF', label: 'Полуфабрикат' },
-                  ]}
-                  placeholder="Выберите категорию"
-                  value={form.factCategory}
-                  onChange={(e) => setForm((f) => ({ ...f, factCategory: e.target.value }))}
-                  error={fieldErrors.factCategory}
+            {productCategory() === 'MASS' ? (
+              <div>
+                <label className="mb-1 block text-sm text-graphite">Выпуск, кг</label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={form.quantity}
+                  onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))}
                 />
-              )}
-            </div>
+                {fieldErrors.quantity && <p className="text-sm text-signal-amber">{fieldErrors.quantity}</p>}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-sm text-graphite">Выпуск ГП, шт</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="1"
+                    value={form.outputGP}
+                    onChange={(e) => setForm((f) => ({ ...f, outputGP: e.target.value }))}
+                  />
+                  {fieldErrors.outputGP && <p className="text-sm text-signal-amber">{fieldErrors.outputGP}</p>}
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm text-graphite">Выпуск ПФ, шт</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="1"
+                    value={form.outputPF}
+                    onChange={(e) => setForm((f) => ({ ...f, outputPF: e.target.value }))}
+                  />
+                  {fieldErrors.outputPF && <p className="text-sm text-signal-amber">{fieldErrors.outputPF}</p>}
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div>

@@ -57,8 +57,11 @@ export interface ConsumptionInput {
 }
 
 export interface ReportFactInput {
-  quantity: number;
-  factCategory: FactCategoryInput;
+  /** @deprecated Use outputByCategory instead. */
+  quantity?: number;
+  /** @deprecated Use outputByCategory instead. */
+  factCategory?: FactCategoryInput;
+  outputByCategory?: Partial<Record<FactCategoryInput, number>>;
   defectQuantity?: number;
   defectReasonId?: string;
   stopsCount?: number;
@@ -106,21 +109,7 @@ function assertOperatorCorrectionAllowed(
   }
 }
 
-function resolveFactCategory(productCategory: ProductCategory, input: FactCategoryInput): FactCategoryInput {
-  if (productCategory === 'MASS') {
-    if (input !== 'MASS') {
-      throw new Error('Для массового продукта категория факта всегда MASS');
-    }
-    return 'MASS';
-  }
-  if (productCategory === 'GP') {
-    if (input !== 'GP' && input !== 'PF') {
-      throw new Error('Для готовой продукции разрешены категории GP или PF');
-    }
-    return input;
-  }
-  throw new Error('Неизвестная категория продукта');
-}
+
 
 function parseNonNegativeDecimal(value: unknown): Prisma.Decimal {
   if (value === undefined || value === null || value === '') {
@@ -152,33 +141,59 @@ function parseFactCategory(value: unknown): FactCategoryInput {
   throw new Error('Недопустимая категория факта');
 }
 
-function parseConsumptionInput(raw: unknown): ConsumptionInput[] {
-  if (!raw || (Array.isArray(raw) && raw.length === 0)) return [];
-  if (!Array.isArray(raw)) {
-    throw new Error('Некорректный формат потребления');
+function allowedCategoriesForProduct(productCategory: ProductCategory): FactCategoryInput[] {
+  if (productCategory === 'MASS') return ['MASS'];
+  if (productCategory === 'GP') return ['GP', 'PF'];
+  throw new Error('Неизвестная категория продукта');
+}
+
+function parseOutputByCategory(
+  productCategory: ProductCategory,
+  outputByCategory: unknown,
+  legacyQuantity: number | undefined,
+  legacyFactCategory: FactCategoryInput | undefined,
+): Partial<Record<FactCategoryInput, Prisma.Decimal>> {
+  const allowed = allowedCategoriesForProduct(productCategory);
+  const result: Partial<Record<FactCategoryInput, Prisma.Decimal>> = {};
+
+  // Legacy single-fact path: keep old callers/tests working.
+  if (legacyFactCategory && allowed.includes(legacyFactCategory)) {
+    result[legacyFactCategory] = parseNonNegativeDecimal(legacyQuantity);
   }
-  return raw.map((item) => {
-    if (!item || typeof item !== 'object') {
-      throw new Error('Некорректный формат строки потребления');
+
+  if (outputByCategory && typeof outputByCategory === 'object') {
+    for (const [key, value] of Object.entries(outputByCategory as Record<string, unknown>)) {
+      const cat = parseFactCategory(key);
+      if (!allowed.includes(cat)) {
+        throw new Error(`Для данного продукта категория ${cat} недопустима`);
+      }
+      const qty = parseNonNegativeDecimal(value);
+      if (qty.greaterThan(0)) {
+        result[cat] = qty;
+      }
     }
-    const productId = (item as Record<string, unknown>).productId;
-    const quantity = Number((item as Record<string, unknown>).quantity);
-    if (typeof productId !== 'string' || !productId) {
-      throw new Error('Укажите продукт в строке потребления');
-    }
-    if (Number.isNaN(quantity) || quantity <= 0) {
-      throw new Error('Количество потребления должно быть больше 0');
-    }
-    return { productId, quantity };
-  });
+  }
+
+  return result;
 }
 
 async function validateReportLikeInput(
   input: ReportFactInput,
   deps: { prisma: typeof prisma; getAvailableBalance: typeof getAvailableBalance; applyStockMovements: typeof applyStockMovements },
   line: ProductionOrderLine & { product: { category: ProductCategory }; workCenter: { producesMass: boolean } },
-): Promise<{ factCategory: FactCategoryInput; quantity: Prisma.Decimal; defectQuantity: Prisma.Decimal; stopsCount: number; stopsDurationMinutes: number; consumption: ConsumptionInput[]; warnings: string[] }> {
-  const quantity = parseNonNegativeDecimal(input.quantity);
+): Promise<{ outputByCategory: Partial<Record<FactCategoryInput, Prisma.Decimal>>; defectQuantity: Prisma.Decimal; stopsCount: number; stopsDurationMinutes: number; consumption: ConsumptionInput[]; warnings: string[] }> {
+  const outputByCategory = parseOutputByCategory(
+    line.product.category,
+    input.outputByCategory,
+    input.quantity,
+    input.factCategory,
+  );
+
+  const totalOutput = Object.values(outputByCategory).reduce((sum, q) => sum.plus(q ?? new Prisma.Decimal(0)), new Prisma.Decimal(0));
+  if (totalOutput.lessThanOrEqualTo(0)) {
+    throw new Error('Укажите выпуск');
+  }
+
   const defectQuantity = parseNonNegativeDecimal(input.defectQuantity);
   const stopsCount = parseNonNegativeInteger(input.stopsCount);
   const stopsDurationMinutes = parseNonNegativeInteger(input.stopsDurationMinutes);
@@ -191,7 +206,6 @@ async function validateReportLikeInput(
     throw new Error('Количество остановок и длительность должны быть заданы вместе');
   }
 
-  const factCategory = resolveFactCategory(line.product.category, parseFactCategory(input.factCategory));
   const consumption = parseConsumptionInput(input.consumption);
 
   if (line.workCenter.producesMass && consumption.length > 0) {
@@ -236,8 +250,31 @@ async function validateReportLikeInput(
     }
   }
 
-  return { factCategory, quantity, defectQuantity, stopsCount, stopsDurationMinutes, consumption, warnings };
+  return { outputByCategory, defectQuantity, stopsCount, stopsDurationMinutes, consumption, warnings };
 }
+
+function parseConsumptionInput(raw: unknown): ConsumptionInput[] {
+  if (!raw || (Array.isArray(raw) && raw.length === 0)) return [];
+  if (!Array.isArray(raw)) {
+    throw new Error('Некорректный формат потребления');
+  }
+  return raw.map((item) => {
+    if (!item || typeof item !== 'object') {
+      throw new Error('Некорректный формат строки потребления');
+    }
+    const productId = (item as Record<string, unknown>).productId;
+    const quantity = Number((item as Record<string, unknown>).quantity);
+    if (typeof productId !== 'string' || !productId) {
+      throw new Error('Укажите продукт в строке потребления');
+    }
+    if (Number.isNaN(quantity) || quantity <= 0) {
+      throw new Error('Количество потребления должно быть больше 0');
+    }
+    return { productId, quantity };
+  });
+}
+
+
 
 export async function acceptProductionOrderLine(
   lineId: string,
@@ -365,7 +402,7 @@ export async function reportProductionFact(
     applyStockMovements,
     updateShiftSummary,
   },
-): Promise<{ fact: ProductionFact; warnings: string[] }> {
+): Promise<{ facts: ProductionFact[]; warnings: string[] }> {
   const session = await deps.requireShiftWindow();
   const userRoles = session.user.roles.map((ur) => ur.role.code);
 
@@ -392,41 +429,13 @@ export async function reportProductionFact(
     session.user.employeeId,
   );
 
-  const { factCategory, quantity, defectQuantity, stopsCount, stopsDurationMinutes, consumption, warnings } =
+  const { outputByCategory, defectQuantity, stopsCount, stopsDurationMinutes, consumption, warnings } =
     await validateReportLikeInput(input, deps, line as unknown as ProductionOrderLine & { product: { category: ProductCategory }; workCenter: { producesMass: boolean } });
 
   const attributedRole = getAttributeRole(userRoles, 'production_order:report') ?? undefined;
   const now = new Date();
 
   const result = await deps.prisma.$transaction(async (tx) => {
-    const fact = await tx.productionFact.create({
-      data: {
-        lineId,
-        productId: line.productId,
-        factCategory,
-        quantity,
-        defectQuantity,
-        defectReasonId: input.defectReasonId ?? null,
-        stopsCount,
-        stopsDurationMinutes,
-        recordedAt: now,
-        reportedAt: now,
-        reportedByUserId: session.userId,
-        createdById: session.userId,
-        postCompletionCorrection: false,
-      },
-    });
-
-    if (consumption.length > 0) {
-      await tx.factConsumption.createMany({
-        data: consumption.map((item) => ({
-          productionFactId: fact.id,
-          productId: item.productId,
-          quantity: new Prisma.Decimal(item.quantity),
-        })),
-      });
-    }
-
     const productionWarehouse = await tx.warehouse.findFirstOrThrow({
       where: { type: 'PRODUCTION' },
     });
@@ -440,27 +449,83 @@ export async function reportProductionFact(
       : [];
     const categoryById = new Map(consumedProducts.map((p) => [p.id, p.category]));
 
-    const movements = buildProductionFactMovements({
-      factId: fact.id,
-      productId: line.productId,
-      factCategory,
-      quantity,
-      warehouseId: productionWarehouse.id,
-      sourceType: 'PRODUCTION_FACT',
-      consumption: consumption.map((item) => {
-        const productCategory = categoryById.get(item.productId);
-        if (!productCategory) {
-          throw new Error('Продукт потребления не найден');
-        }
-        return {
-          productId: item.productId,
-          productCategory,
-          quantity: new Prisma.Decimal(item.quantity),
-        };
-      }),
-    });
+    const createdFacts: ProductionFact[] = [];
+    for (const [category, quantity] of Object.entries(outputByCategory) as [FactCategoryInput, Prisma.Decimal][]) {
+      const fact = await tx.productionFact.create({
+        data: {
+          lineId,
+          productId: line.productId,
+          factCategory: category,
+          quantity,
+          defectQuantity,
+          defectReasonId: input.defectReasonId ?? null,
+          stopsCount,
+          stopsDurationMinutes,
+          recordedAt: now,
+          reportedAt: now,
+          reportedByUserId: session.userId,
+          createdById: session.userId,
+          postCompletionCorrection: false,
+        },
+      });
+      createdFacts.push(fact as unknown as ProductionFact);
 
-    await deps.applyStockMovements(tx, movements);
+      if (consumption.length > 0) {
+        await tx.factConsumption.createMany({
+          data: consumption.map((item) => ({
+            productionFactId: fact.id,
+            productId: item.productId,
+            quantity: new Prisma.Decimal(item.quantity),
+          })),
+        });
+      }
+
+      const movements = buildProductionFactMovements({
+        factId: fact.id,
+        productId: line.productId,
+        factCategory: category,
+        quantity,
+        warehouseId: productionWarehouse.id,
+        sourceType: 'PRODUCTION_FACT',
+        consumption: consumption.map((item) => {
+          const productCategory = categoryById.get(item.productId);
+          if (!productCategory) {
+            throw new Error('Продукт потребления не найден');
+          }
+          return {
+            productId: item.productId,
+            productCategory,
+            quantity: new Prisma.Decimal(item.quantity),
+          };
+        }),
+      });
+
+      await deps.applyStockMovements(tx, movements);
+
+      await deps.writeAudit(tx, {
+        action: 'CREATE',
+        objectType: 'ProductionFact',
+        objectId: fact.id,
+        newValue: JSON.stringify({
+          lineId,
+          productId: line.productId,
+          factCategory: category,
+          quantity: quantity.toString(),
+          defectQuantity: defectQuantity.toString(),
+          stopsCount,
+          stopsDurationMinutes,
+          consumption,
+        }),
+        userId: session.userId,
+        userRoles,
+        permission: 'production_order:report',
+      });
+    }
+
+    if (createdFacts.length === 0) {
+      throw new Error('Не удалось создать факты');
+    }
+
     await deps.updateShiftSummary(lineId, tx);
 
     const updatedLine = await tx.productionOrderLine.update({
@@ -475,25 +540,6 @@ export async function reportProductionFact(
       field: 'status',
       oldValue: 'ACCEPTED',
       newValue: 'REPORTED',
-      userId: session.userId,
-      userRoles,
-      permission: 'production_order:report',
-    });
-
-    await deps.writeAudit(tx, {
-      action: 'CREATE',
-      objectType: 'ProductionFact',
-      objectId: fact.id,
-      newValue: JSON.stringify({
-        lineId,
-        productId: line.productId,
-        factCategory,
-        quantity: quantity.toString(),
-        defectQuantity: defectQuantity.toString(),
-        stopsCount,
-        stopsDurationMinutes,
-        consumption,
-      }),
       userId: session.userId,
       userRoles,
       permission: 'production_order:report',
@@ -529,7 +575,7 @@ export async function reportProductionFact(
         body: JSON.stringify({
           orderId: line.order.id,
           lineId,
-          factId: fact.id,
+          factIds: createdFacts.map((f) => f.id),
           workCenterId: line.workCenterId,
           operatorId: line.operatorId,
         }),
@@ -540,26 +586,32 @@ export async function reportProductionFact(
 
     await checkAndCloseProductionOrder(line.order.id, tx, session);
 
-    return { ...fact, line: updatedLine };
+    return { facts: createdFacts, line: updatedLine };
   });
 
   revalidatePath('/shift-execution');
   revalidatePath('/production-orders/' + line.order.id);
-  return { fact: result as unknown as ProductionFact, warnings };
+  return { facts: result.facts as ProductionFact[], warnings };
 }
 
 export async function reportProductionFactAction(lineId: string, formData: FormData): Promise<ReportFactResult> {
   try {
     const rawConsumption = formData.get('consumption')?.toString();
+    const rawOutputByCategory = formData.get('outputByCategory')?.toString();
     const input: ReportFactInput = {
-      quantity: Number(formData.get('quantity')),
-      factCategory: parseFactCategory(formData.get('factCategory')),
       defectQuantity: formData.get('defectQuantity') ? Number(formData.get('defectQuantity')) : undefined,
       defectReasonId: formData.get('defectReasonId')?.toString() || undefined,
       stopsCount: formData.get('stopsCount') ? Number(formData.get('stopsCount')) : undefined,
       stopsDurationMinutes: formData.get('stopsDurationMinutes') ? Number(formData.get('stopsDurationMinutes')) : undefined,
       consumption: rawConsumption ? JSON.parse(rawConsumption) : undefined,
     };
+
+    if (rawOutputByCategory) {
+      input.outputByCategory = JSON.parse(rawOutputByCategory);
+    } else {
+      input.quantity = Number(formData.get('quantity'));
+      input.factCategory = parseFactCategory(formData.get('factCategory'));
+    }
 
     const { warnings } = await reportProductionFact(lineId, input);
     return { success: true, warnings };
@@ -602,7 +654,7 @@ export async function correctFactByOperator(
     applyStockMovements,
     updateShiftSummary,
   },
-): Promise<{ fact: ProductionFact; warnings: string[] }> {
+): Promise<{ facts: ProductionFact[]; warnings: string[] }> {
   const session = await deps.requireShiftWindow();
   const userRoles = session.user.roles.map((ur) => ur.role.code);
 
@@ -618,7 +670,6 @@ export async function correctFactByOperator(
       product: true,
       workCenter: true,
       facts: {
-        take: 1,
         include: {
           consumptions: true,
         },
@@ -635,79 +686,53 @@ export async function correctFactByOperator(
     session.user.employeeId,
   );
 
-  const existingFact = line.facts[0];
-  if (!existingFact) {
+  const existingFacts = line.facts;
+  if (existingFacts.length === 0) {
     throw new Error('Факт ещё не внесён — используйте ввод факта');
   }
 
-  const { factCategory, quantity, defectQuantity, stopsCount, stopsDurationMinutes, consumption, warnings } =
+  const { outputByCategory, defectQuantity, stopsCount, stopsDurationMinutes, consumption, warnings } =
     await validateReportLikeInput(input, deps, line as unknown as ProductionOrderLine & { product: { category: ProductCategory }; workCenter: { producesMass: boolean } });
 
   const attributedRole = getAttributeRole(userRoles, 'production_order:report') ?? undefined;
   const now = new Date();
 
-  const oldValue = JSON.stringify({
-    factCategory: existingFact.factCategory,
-    quantity: existingFact.quantity.toString(),
-    defectQuantity: existingFact.defectQuantity.toString(),
-    defectReasonId: existingFact.defectReasonId,
-    stopsCount: existingFact.stopsCount,
-    stopsDurationMinutes: existingFact.stopsDurationMinutes,
-    consumption: existingFact.consumptions.map((c) => ({
-      productId: c.productId,
-      quantity: c.quantity.toString(),
-    })),
-  });
-
   const result = await deps.prisma.$transaction(async (tx) => {
-    const fact = await tx.productionFact.update({
-      where: { id: existingFact.id },
-      data: {
-        factCategory,
-        quantity,
-        defectQuantity,
-        defectReasonId: input.defectReasonId ?? null,
-        stopsCount,
-        stopsDurationMinutes,
-        recordedAt: now,
-        postCompletionCorrection: false,
-      },
-    });
-
-    await tx.factConsumption.deleteMany({
-      where: { productionFactId: existingFact.id },
-    });
-
-    if (consumption.length > 0) {
-      await tx.factConsumption.createMany({
-        data: consumption.map((item) => ({
-          productionFactId: existingFact.id,
-          productId: item.productId,
-          quantity: new Prisma.Decimal(item.quantity),
-        })),
-      });
-    }
-
     const productionWarehouse = await tx.warehouse.findFirstOrThrow({
       where: { type: 'PRODUCTION' },
     });
 
-    const allProductIds = [
-      ...new Set([
-        ...existingFact.consumptions.map((c) => c.productId),
-        ...consumption.map((c) => c.productId),
-      ]),
+    // Build oldValue snapshot from all existing facts.
+    const oldValue = JSON.stringify(
+      existingFacts.map((f) => ({
+        id: f.id,
+        factCategory: f.factCategory,
+        quantity: f.quantity.toString(),
+        defectQuantity: f.defectQuantity.toString(),
+        defectReasonId: f.defectReasonId,
+        stopsCount: f.stopsCount,
+        stopsDurationMinutes: f.stopsDurationMinutes,
+        consumption: f.consumptions.map((c) => ({
+          productId: c.productId,
+          quantity: c.quantity.toString(),
+        })),
+      })),
+    );
+
+    // 1. Reverse all existing facts (stock + consumptions).
+    const reverseAllProductIds = [
+      ...new Set(existingFacts.flatMap((f) => f.consumptions.map((c) => c.productId))),
     ];
-    const relatedProducts =
-      allProductIds.length > 0
+    const reverseRelatedProducts =
+      reverseAllProductIds.length > 0
         ? await tx.product.findMany({
-            where: { id: { in: allProductIds } },
+            where: { id: { in: reverseAllProductIds } },
             select: { id: true, category: true },
           })
         : [];
-    const categoryById = new Map(relatedProducts.map((p) => [p.id, p.category]));
+    const reverseCategoryById = new Map(reverseRelatedProducts.map((p) => [p.id, p.category]));
 
-    const deltas = new Map<
+    const reverseDeltas = new Map<
       string,
       {
         warehouseId: string;
@@ -717,50 +742,38 @@ export async function correctFactByOperator(
       }
     >();
 
-    function addDelta(
+    function addReverseDelta(
       productId: string,
       stockCategory: import('@prisma/client').StockCategory,
       signedAmount: Prisma.Decimal,
     ) {
       const key = `${productionWarehouse.id}:${productId}:${stockCategory}`;
-      const entry = deltas.get(key) ?? {
+      const entry = reverseDeltas.get(key) ?? {
         warehouseId: productionWarehouse.id,
         productId,
         stockCategory,
         delta: new Prisma.Decimal(0),
       };
       entry.delta = entry.delta.plus(signedAmount);
-      deltas.set(key, entry);
+      reverseDeltas.set(key, entry);
     }
 
-    addDelta(
-      line.productId,
-      factCategoryToStockCategory(existingFact.factCategory),
-      existingFact.quantity.times(-1),
-    );
-    addDelta(line.productId, factCategoryToStockCategory(factCategory), quantity);
-
-    for (const c of existingFact.consumptions) {
-      const category = categoryById.get(c.productId);
-      if (!category) {
-        throw new Error('Продукт потребления не найден');
-      }
-      addDelta(c.productId, consumptionProductCategoryToStockCategory(category), c.quantity);
-    }
-
-    for (const item of consumption) {
-      const category = categoryById.get(item.productId);
-      if (!category) {
-        throw new Error('Продукт потребления не найден');
-      }
-      addDelta(
-        item.productId,
-        consumptionProductCategoryToStockCategory(category),
-        new Prisma.Decimal(item.quantity).times(-1),
+    for (const f of existingFacts) {
+      addReverseDelta(
+        line.productId,
+        factCategoryToStockCategory(f.factCategory),
+        f.quantity.times(-1),
       );
+      for (const c of f.consumptions) {
+        const category = reverseCategoryById.get(c.productId);
+        if (!category) {
+          throw new Error('Продукт потребления не найден');
+        }
+        addReverseDelta(c.productId, consumptionProductCategoryToStockCategory(category), c.quantity);
+      }
     }
 
-    const correctionMovements = Array.from(deltas.values())
+    const reverseMovements = Array.from(reverseDeltas.values())
       .filter((entry) => !entry.delta.equals(0))
       .map((entry) => ({
         warehouseId: entry.warehouseId,
@@ -771,26 +784,105 @@ export async function correctFactByOperator(
           : ('CONSUMPTION' as import('@prisma/client').StockMovementType),
         quantity: entry.delta.absoluteValue(),
         sourceType: 'FACT_CORRECTION',
-        sourceId: existingFact.id,
+        sourceId: existingFacts[0].id,
       }));
 
-    await deps.applyStockMovements(tx, correctionMovements);
+    await deps.applyStockMovements(tx, reverseMovements);
+
+    // 2. Delete old fact consumptions and facts.
+    await tx.factConsumption.deleteMany({
+      where: { productionFactId: { in: existingFacts.map((f) => f.id) } },
+    });
+    await tx.productionFact.deleteMany({
+      where: { lineId },
+    });
+
+    // 3. Create new facts.
+    const allProductIds = [
+      ...new Set(consumption.map((c) => c.productId)),
+    ];
+    const relatedProducts =
+      allProductIds.length > 0
+        ? await tx.product.findMany({
+            where: { id: { in: allProductIds } },
+            select: { id: true, category: true },
+          })
+        : [];
+    const categoryById = new Map(relatedProducts.map((p) => [p.id, p.category]));
+
+    const createdFacts: ProductionFact[] = [];
+    for (const [category, quantity] of Object.entries(outputByCategory) as [FactCategoryInput, Prisma.Decimal][]) {
+      const fact = await tx.productionFact.create({
+        data: {
+          lineId,
+          productId: line.productId,
+          factCategory: category,
+          quantity,
+          defectQuantity,
+          defectReasonId: input.defectReasonId ?? null,
+          stopsCount,
+          stopsDurationMinutes,
+          recordedAt: now,
+          reportedAt: now,
+          reportedByUserId: session.userId,
+          createdById: session.userId,
+          postCompletionCorrection: false,
+        },
+      });
+      createdFacts.push(fact as unknown as ProductionFact);
+
+      if (consumption.length > 0) {
+        await tx.factConsumption.createMany({
+          data: consumption.map((item) => ({
+            productionFactId: fact.id,
+            productId: item.productId,
+            quantity: new Prisma.Decimal(item.quantity),
+          })),
+        });
+      }
+
+      const movements = buildProductionFactMovements({
+        factId: fact.id,
+        productId: line.productId,
+        factCategory: category,
+        quantity,
+        warehouseId: productionWarehouse.id,
+        sourceType: 'PRODUCTION_FACT',
+        consumption: consumption.map((item) => {
+          const productCategory = categoryById.get(item.productId);
+          if (!productCategory) {
+            throw new Error('Продукт потребления не найден');
+          }
+          return {
+            productId: item.productId,
+            productCategory,
+            quantity: new Prisma.Decimal(item.quantity),
+          };
+        }),
+      });
+
+      await deps.applyStockMovements(tx, movements);
+    }
+
     await deps.updateShiftSummary(lineId, tx);
 
-    const newValue = JSON.stringify({
-      factCategory,
-      quantity: quantity.toString(),
-      defectQuantity: defectQuantity.toString(),
-      defectReasonId: input.defectReasonId ?? null,
-      stopsCount,
-      stopsDurationMinutes,
-      consumption,
-    });
+    const newValue = JSON.stringify(
+      createdFacts.map((f) => ({
+        id: f.id,
+        factCategory: f.factCategory,
+        quantity: f.quantity.toString(),
+        defectQuantity: defectQuantity.toString(),
+        defectReasonId: input.defectReasonId ?? null,
+        stopsCount,
+        stopsDurationMinutes,
+        consumption,
+      })),
+    );
 
     await deps.writeAudit(tx, {
       action: 'UPDATE',
       objectType: 'ProductionFact',
-      objectId: existingFact.id,
+      objectId: existingFacts[0].id,
       field: 'fact',
       oldValue,
       newValue,
@@ -810,13 +902,15 @@ export async function correctFactByOperator(
       initiatorId: session.userId,
     });
 
-    return fact;
+    return createdFacts;
   });
 
   revalidatePath('/shift-execution');
   revalidatePath('/production-orders/' + line.order.id);
-  return { fact: result, warnings };
+  return { facts: result as ProductionFact[], warnings };
 }
+
+
 
 export async function correctFactByOperatorAction(lineId: string, formData: FormData): Promise<CorrectFactResult> {
   try {

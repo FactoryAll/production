@@ -136,12 +136,16 @@ function buildMockPrisma(overrides: {
     ] : [],
   });
 
-  const productionFactCreate = vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve({
-    id: existingFactId,
-    ...data,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  }));
+  let createCallIndex = 0;
+  const productionFactCreate = vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) => {
+    createCallIndex += 1;
+    return Promise.resolve({
+      id: `${existingFactId}-${createCallIndex}`,
+      ...data,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  });
 
   const productionFactUpdate = vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve({
     id: existingFact?.id ?? existingFactId,
@@ -185,6 +189,7 @@ function buildMockPrisma(overrides: {
     productionFact: {
       create: productionFactCreate,
       update: productionFactUpdate,
+      deleteMany: vi.fn().mockResolvedValue(undefined),
     },
     factConsumption: {
       createMany: factConsumptionCreateMany,
@@ -215,6 +220,7 @@ function buildMockPrisma(overrides: {
     productionFact: {
       create: productionFactCreate,
       update: productionFactUpdate,
+      deleteMany: vi.fn().mockResolvedValue(undefined),
     },
     factConsumption: {
       createMany: factConsumptionCreateMany,
@@ -239,6 +245,7 @@ function buildMockPrisma(overrides: {
     lineUpdate,
     productionFactCreate,
     productionFactUpdate,
+    productionFactDeleteMany: (tx.productionFact as unknown as { deleteMany: ReturnType<typeof vi.fn> }).deleteMany,
     factConsumptionCreateMany,
     factConsumptionDeleteMany,
     notificationCreateMany,
@@ -476,7 +483,8 @@ describe('reportProductionFact', () => {
       { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements, updateShiftSummary: deps.updateShiftSummary },
     );
 
-    expect(result.fact.factCategory).toBe('GP');
+    expect(result.facts).toHaveLength(1);
+    expect(result.facts[0].factCategory).toBe('GP');
     expect(deps.productionFactCreate).toHaveBeenCalled();
     expect(deps.lineUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REPORTED' } }));
     expect(writeAudit).toHaveBeenCalledTimes(2);
@@ -518,10 +526,11 @@ describe('reportProductionFact', () => {
       { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements, updateShiftSummary: deps.updateShiftSummary },
     );
 
-    expect(result.fact.factCategory).toBe('MASS');
+    expect(result.facts).toHaveLength(1);
+    expect(result.facts[0].factCategory).toBe('MASS');
   });
 
-  it('blocks MASS line with input PF', async () => {
+  it('blocks MASS line with outputByCategory PF', async () => {
     const line = makeLine({ status: 'ACCEPTED', productId: 'mass-1' });
     const deps = buildMockPrisma({ line, product: baseProduct });
     const writeAudit = vi.fn();
@@ -531,13 +540,13 @@ describe('reportProductionFact', () => {
     await expect(
       reportProductionFact(
         'line-1',
-        { quantity: 10, factCategory: 'PF' },
+        { outputByCategory: { PF: 10 } },
         { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements, updateShiftSummary: deps.updateShiftSummary },
       ),
-    ).rejects.toThrow('Для массового продукта категория факта всегда MASS');
+    ).rejects.toThrow('Для данного продукта категория PF недопустима');
   });
 
-  it('blocks GP line with factCategory MASS', async () => {
+  it('blocks GP line with outputByCategory MASS', async () => {
     const line = makeLine({ status: 'ACCEPTED', productId: 'gp-1' });
     const deps = buildMockPrisma({ line, product: gpProduct });
     const writeAudit = vi.fn();
@@ -547,10 +556,10 @@ describe('reportProductionFact', () => {
     await expect(
       reportProductionFact(
         'line-1',
-        { quantity: 5, factCategory: 'MASS' },
+        { outputByCategory: { MASS: 5 } },
         { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements, updateShiftSummary: deps.updateShiftSummary },
       ),
-    ).rejects.toThrow('Для готовой продукции разрешены категории GP или PF');
+    ).rejects.toThrow('Для данного продукта категория MASS недопустима');
   });
 
   it('saves defect quantity and reason', async () => {
@@ -797,7 +806,7 @@ describe('fact consumption', () => {
     const writeTiming = vi.fn();
     const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
 
-    const { fact } = await reportProductionFact(
+    const { facts } = await reportProductionFact(
       'line-1',
       {
         quantity: 5,
@@ -810,11 +819,12 @@ describe('fact consumption', () => {
       { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements, updateShiftSummary: deps.updateShiftSummary },
     );
 
-    expect(fact.factCategory).toBe('GP');
+    expect(facts).toHaveLength(1);
+    expect(facts[0].factCategory).toBe('GP');
     expect(deps.factConsumptionCreateMany).toHaveBeenCalledWith({
       data: expect.arrayContaining([
-        expect.objectContaining({ productionFactId: fact.id, productId: 'mass-1' }),
-        expect.objectContaining({ productionFactId: fact.id, productId: 'gp-1' }),
+        expect.objectContaining({ productionFactId: facts[0].id, productId: 'mass-1' }),
+        expect.objectContaining({ productionFactId: facts[0].id, productId: 'gp-1' }),
       ]),
     });
   });
@@ -853,13 +863,14 @@ describe('fact consumption', () => {
     const writeTiming = vi.fn();
     const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
 
-    const { fact } = await reportProductionFact(
+    const { facts } = await reportProductionFact(
       'line-1',
       { quantity: 10, factCategory: 'MASS' },
       { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements, updateShiftSummary: deps.updateShiftSummary },
     );
 
-    expect(fact.factCategory).toBe('MASS');
+    expect(facts).toHaveLength(1);
+    expect(facts[0].factCategory).toBe('MASS');
     expect(deps.factConsumptionCreateMany).not.toHaveBeenCalled();
   });
 
@@ -1002,20 +1013,17 @@ describe('correctFactByOperator', () => {
     const writeTiming = vi.fn();
     const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
 
-    const { fact } = await correctFactByOperator(
+    const { facts } = await correctFactByOperator(
       'line-1',
       { quantity: 12, factCategory: 'MASS', defectQuantity: 1, defectReasonId: 'defect-1', stopsCount: 2, stopsDurationMinutes: 15 },
       { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements, updateShiftSummary: deps.updateShiftSummary },
     );
 
-    expect(fact.quantity.toString()).toBe('12');
-    expect(fact.factCategory).toBe('MASS');
-    expect(fact.postCompletionCorrection).toBe(false);
-    expect(deps.productionFactUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ quantity: expect.anything(), defectQuantity: expect.anything(), stopsCount: 2, stopsDurationMinutes: 15 }),
-      }),
-    );
+    expect(facts).toHaveLength(1);
+    expect(facts[0].quantity.toString()).toBe('12');
+    expect(facts[0].factCategory).toBe('MASS');
+    expect(facts[0].postCompletionCorrection).toBe(false);
+    expect(deps.productionFactDeleteMany).toHaveBeenCalledWith(expect.objectContaining({ where: { lineId: 'line-1' } }));
     expect(writeAudit).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -1044,13 +1052,14 @@ describe('correctFactByOperator', () => {
     const writeTiming = vi.fn();
     const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
 
-    const { fact } = await correctFactByOperator(
+    const { facts } = await correctFactByOperator(
       'line-1',
       { quantity: 5, factCategory: 'PF' },
       { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements, updateShiftSummary: deps.updateShiftSummary },
     );
 
-    expect(fact.factCategory).toBe('PF');
+    expect(facts).toHaveLength(1);
+    expect(facts[0].factCategory).toBe('PF');
   });
 
   it('replaces consumption set and warns on overconsumption', async () => {
@@ -1066,14 +1075,15 @@ describe('correctFactByOperator', () => {
     const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
     deps.getAvailableBalance.mockResolvedValue({ available: 0, unit: 'кг' });
 
-    const { warnings } = await correctFactByOperator(
+    const { warnings, facts } = await correctFactByOperator(
       'line-1',
       { quantity: 5, factCategory: 'GP', consumption: [{ productId: 'mass-1', quantity: 5 }] },
       { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements, updateShiftSummary: deps.updateShiftSummary },
     );
 
+    expect(facts).toHaveLength(1);
     expect(deps.factConsumptionDeleteMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { productionFactId: 'fact-old' } }),
+      expect.objectContaining({ where: { productionFactId: { in: ['fact-old'] } } }),
     );
     expect(deps.factConsumptionCreateMany).toHaveBeenCalledWith(
       expect.objectContaining({
