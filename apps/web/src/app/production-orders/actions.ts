@@ -10,7 +10,7 @@ import type {
   ProductionFact,
 } from '@prisma/client';
 import { Prisma } from '@prisma/client';
-import { prisma, writeAudit, writeTiming } from '@prodtrack/db';
+import { prisma, writeAudit, writeTiming, emitEvent } from '@prodtrack/db';
 import { requirePermission } from '@/lib/auth/access';
 import { getAttributeRole } from '@prodtrack/contracts';
 import {
@@ -592,32 +592,28 @@ export async function substituteOperator(
 
     const uniqueRecipientIds = [...recipientIds];
     if (uniqueRecipientIds.length > 0) {
-      await tx.notification.createMany({
-        data: uniqueRecipientIds.map((recipientId) => ({
-          eventCode: 'EV_08' as EventCode,
-          recipientId,
-          title: 'Смена закрыта за Оператора',
-          body: JSON.stringify({
-            orderId,
-            lineId,
-            operatorId,
-            reasonCode,
-            comment,
-          }),
-          deepLink: '/production-orders/' + orderId,
-        })),
+      await emitEvent(tx, {
+        eventCode: 'EV_08',
+        title: 'Смена закрыта за Оператора',
+        body: JSON.stringify({
+          orderId,
+          lineId,
+          operatorId,
+          reasonCode,
+          comment,
+        }),
+        deepLink: '/production-orders/' + orderId,
+        recipientIds: uniqueRecipientIds,
       });
     }
 
     if (s1cUserIds.length > 0) {
-      await tx.notification.createMany({
-        data: s1cUserIds.map((recipientId) => ({
-          eventCode: 'EV_03' as EventCode,
-          recipientId,
-          title: 'Итог смены внесён',
-          body: JSON.stringify({ orderId, lineId }),
-          deepLink: '/production-orders/' + orderId,
-        })),
+      await emitEvent(tx, {
+        eventCode: 'EV_03',
+        title: 'Итог смены внесён',
+        body: JSON.stringify({ orderId, lineId }),
+        deepLink: '/production-orders/' + orderId,
+        recipientIds: s1cUserIds,
       });
     }
   });

@@ -8,6 +8,8 @@ import {
   TEST_MULTI_ROLE_ROLES,
   TEST_OPR_SHIFT_LOGIN,
   TEST_OPR_SHIFT_PASSWORD,
+  TEST_S1C_LOGIN,
+  TEST_S1C_PASSWORD,
 } from '../prisma/seed';
 
 const TEST_FIRST_LOGIN_LOGIN = 'test_first_login';
@@ -28,6 +30,7 @@ describe('seed configuration', () => {
   it('maps permissions to roles according to matrix', () => {
     expect(ROLE_PERMISSION_MAP.NP).toContain('production_order:create');
     expect(ROLE_PERMISSION_MAP.OPR).toContain('production_order:accept');
+    expect(ROLE_PERMISSION_MAP.OPR).toContain('production_order:confirm');
     expect(ROLE_PERMISSION_MAP.KSGP).toContain('transfer:receive');
     expect(ROLE_PERMISSION_MAP.USGP).toContain('transfer:reconcile');
     expect(ROLE_PERMISSION_MAP.S1C).toContain('onec:process');
@@ -63,5 +66,12 @@ describe('opr-shift test user', () => {
   it('seed constants for test_opr_shift are present', () => {
     expect(TEST_OPR_SHIFT_LOGIN).toBe('test_opr_shift');
     expect(TEST_OPR_SHIFT_PASSWORD).toBe('opr12345');
+  });
+});
+
+describe('s1c test user', () => {
+  it('seed constants for test_s1c are present', () => {
+    expect(TEST_S1C_LOGIN).toBe('test_s1c');
+    expect(TEST_S1C_PASSWORD).toBe('s1c12345');
   });
 });

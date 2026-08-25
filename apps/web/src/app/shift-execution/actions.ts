@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { Prisma, type ProductionOrderLine, type ProductionFact, type ProductCategory } from '@prisma/client';
-import { prisma, writeAudit, writeTiming } from '@prodtrack/db';
+import { prisma, writeAudit, writeTiming, emitEvent } from '@prodtrack/db';
 import { requireShiftWindow } from '@/lib/auth/require-shift-window';
 import { hasPermission, getAttributeRole } from '@prodtrack/contracts';
 import {
@@ -318,19 +318,17 @@ export async function acceptProductionOrderLine(
 
     const recipientIds = npUsers.map((u) => u.id);
     if (recipientIds.length > 0) {
-      await tx.notification.createMany({
-        data: recipientIds.map((recipientId) => ({
-          eventCode: 'EV_02' as const,
-          recipientId,
-          title: 'Оператор подтвердил получение ПЗ',
-          body: JSON.stringify({
-            orderId: line.order.id,
-            lineId,
-            workCenterId: line.workCenterId,
-            operatorId: line.operatorId,
-          }),
-          deepLink: '/production-orders/' + line.order.id,
-        })),
+      await emitEvent(tx, {
+        eventCode: 'EV_02',
+        title: 'Оператор подтвердил получение ПЗ',
+        body: JSON.stringify({
+          orderId: line.order.id,
+          lineId,
+          workCenterId: line.workCenterId,
+          operatorId: line.operatorId,
+        }),
+        deepLink: '/production-orders/' + line.order.id,
+        recipientIds,
       });
     }
 
@@ -525,20 +523,18 @@ export async function reportProductionFact(
 
     const recipientIds = s1cUsers.map((u) => u.id);
     if (recipientIds.length > 0) {
-      await tx.notification.createMany({
-        data: recipientIds.map((recipientId) => ({
-          eventCode: 'EV_03' as const,
-          recipientId,
-          title: 'Оператор внёс итог смены',
-          body: JSON.stringify({
-            orderId: line.order.id,
-            lineId,
-            factId: fact.id,
-            workCenterId: line.workCenterId,
-            operatorId: line.operatorId,
-          }),
-          deepLink: '/production-orders/' + line.order.id,
-        })),
+      await emitEvent(tx, {
+        eventCode: 'EV_03',
+        title: 'Оператор внёс итог смены',
+        body: JSON.stringify({
+          orderId: line.order.id,
+          lineId,
+          factId: fact.id,
+          workCenterId: line.workCenterId,
+          operatorId: line.operatorId,
+        }),
+        deepLink: '/production-orders/' + line.order.id,
+        recipientIds,
       });
     }
 
