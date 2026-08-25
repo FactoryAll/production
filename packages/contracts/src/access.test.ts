@@ -14,6 +14,7 @@ describe('access matrix', () => {
   it('hasPermission returns true for a role with the permission', () => {
     expect(hasPermission([RoleCode.NP], 'production_order:create')).toBe(true);
     expect(hasPermission([RoleCode.OPR], 'production_order:accept')).toBe(true);
+    expect(hasPermission([RoleCode.OPR], 'production_order:confirm')).toBe(true);
     expect(hasPermission([RoleCode.KSGP], 'transfer:receive')).toBe(true);
     expect(hasPermission([RoleCode.ADM], 'nsi:manage')).toBe(true);
   });

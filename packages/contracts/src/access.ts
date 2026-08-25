@@ -67,6 +67,7 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     'production_order:read_own',
     'production_order:accept',
     'production_order:report',
+    'production_order:confirm',
     'stock:read',
     'dashboard:read_own',
     'nsi:read',
