@@ -12,4 +12,31 @@ describe('Button', () => {
     render(<Button disabled>Click me</Button>);
     expect(screen.getByRole('button').hasAttribute('disabled')).toBe(true);
   });
+
+  it('uses readable text color for each variant', () => {
+    const { rerender } = render(<Button variant="primary">Primary</Button>);
+    let button = screen.getByRole('button', { name: 'Primary' });
+    expect(button.className).toMatch(/bg-deep-industry-blue/);
+    expect(button.className).toMatch(/text-white/);
+
+    rerender(<Button variant="secondary">Secondary</Button>);
+    button = screen.getByRole('button', { name: 'Secondary' });
+    expect(button.className).toMatch(/text-graphite/);
+
+    rerender(<Button variant="cta">CTA</Button>);
+    button = screen.getByRole('button', { name: 'CTA' });
+    expect(button.className).toMatch(/bg-signal-amber/);
+    expect(button.className).toMatch(/text-graphite/);
+
+    rerender(<Button variant="danger">Danger</Button>);
+    button = screen.getByRole('button', { name: 'Danger' });
+    expect(button.className).toMatch(/text-white/);
+  });
+
+  it('uses design-token padding and radius classes', () => {
+    render(<Button size="md">Padded</Button>);
+    const button = screen.getByRole('button', { name: 'Padded' });
+    expect(button.className).toMatch(/px-\[var\(--button-padding-x-md\)\]/);
+    expect(button.className).toMatch(/rounded-\[var\(--radius-sm\)\]/);
+  });
 });
