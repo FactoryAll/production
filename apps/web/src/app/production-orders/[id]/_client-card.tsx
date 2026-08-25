@@ -315,6 +315,10 @@ export default function ProductionOrderCard({ order, defectReasons, userRoles }:
             {order.confirmedAt && ' (' + formatDate(order.confirmedAt) + ')'}
           </p>
         </div>
+        <div>
+          <span className="text-sm text-neutral-500">Прогресс</span>
+          <p className="text-graphite">{reportedCount} из {totalCount} РЦ отчитались</p>
+        </div>
         {isCompleted && (
           <div>
             <span className="text-sm text-neutral-500">Завершено</span>
@@ -349,6 +353,7 @@ export default function ProductionOrderCard({ order, defectReasons, userRoles }:
                 <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Номенклатура</th>
                 <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Количество</th>
                 <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Оператор</th>
+                <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Статус</th>
                 <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Факт</th>
                 <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Работники</th>
                 <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Действия</th>
@@ -368,6 +373,9 @@ export default function ProductionOrderCard({ order, defectReasons, userRoles }:
                   </td>
                   <td className="border-b border-mist-metal px-4 py-3 text-graphite">
                     {line.operator ? line.operator.fullName : '—'}
+                  </td>
+                  <td className="border-b border-mist-metal px-4 py-3 text-graphite">
+                    {STATUS_LABELS[line.status] ?? line.status}
                   </td>
                   <td className="border-b border-mist-metal px-4 py-3 text-graphite align-top">
                     {line.facts.length > 0 ? (

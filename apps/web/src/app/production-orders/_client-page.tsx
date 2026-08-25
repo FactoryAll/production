@@ -38,6 +38,17 @@ function formatShift(shift: Shift): string {
   return 'Смена ' + shift.number + ' (' + date + ', ' + shift.start + '–' + shift.end + ')';
 }
 
+function lineProgressLabel(lines: ProductionOrderLine[]): string {
+  const total = lines.length;
+  if (total === 0) return '';
+  const reported = lines.filter((line) => line.status === 'REPORTED').length;
+  const accepted = lines.filter((line) => line.status === 'ACCEPTED').length;
+  const assigned = lines.filter((line) => line.status === 'ASSIGNED').length;
+  if (reported === total) return 'все РЦ отчитались';
+  if (assigned === total) return 'ожидает подтверждения';
+  return `${reported} из ${total} РЦ отчитались, ${accepted} в работе, ${assigned} не приняты`;
+}
+
 export default function ProductionOrdersPage({ orders, userRoles }: ProductionOrdersPageProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -78,7 +89,18 @@ export default function ProductionOrdersPage({ orders, userRoles }: ProductionOr
         {
           accessorKey: 'status',
           header: 'Статус',
-          cell: ({ getValue }) => STATUS_LABELS[getValue() as string] ?? getValue(),
+          cell: ({ row }) => {
+            const statusLabel = STATUS_LABELS[row.original.status] ?? row.original.status;
+            const progress = lineProgressLabel(row.original.lines);
+            return (
+              <div>
+                <span>{statusLabel}</span>
+                {progress && row.original.status !== 'COMPLETED' && row.original.status !== 'CANCELLED' && (
+                  <p className="text-xs text-neutral-500">{progress}</p>
+                )}
+              </div>
+            );
+          },
         },
         {
           accessorKey: 'createdAt',
@@ -96,13 +118,20 @@ export default function ProductionOrdersPage({ orders, userRoles }: ProductionOr
                 <Button
                   variant="primary"
                   size="sm"
-                  onClick={() => setConfirmOrderId(row.original.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirmOrderId(row.original.id);
+                  }}
                   disabled={isPending}
                 >
                   Подтвердить
                 </Button>
               )}
-              {!isDraft && <span className="text-neutral-500">—</span>}
+              <Link href={'/production-orders/' + row.original.id}>
+                <Button variant="secondary" size="sm" onClick={(e) => e.stopPropagation()}>
+                  Открыть
+                </Button>
+              </Link>
             </div>
           );
         },
@@ -159,7 +188,11 @@ export default function ProductionOrdersPage({ orders, userRoles }: ProductionOr
             </thead>
             <tbody>
               {table.getRowModel().rows.map((row) => (
-                <tr key={row.id} className="hover:bg-neutral-100">
+                <tr
+                  key={row.id}
+                  className="hover:bg-neutral-100 cursor-pointer"
+                  onClick={() => router.push('/production-orders/' + row.original.id)}
+                >
                   {row.getVisibleCells().map((cell) => (
                     <td
                       key={cell.id}
