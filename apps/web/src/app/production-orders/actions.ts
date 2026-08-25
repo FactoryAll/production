@@ -1030,28 +1030,41 @@ export async function cancelProductionOrder(
       initiatorId: userId,
     });
 
+    const recipientIds = new Set<string>();
+
     if (uniqueOperatorIds.length > 0) {
       const operatorUsers = await tx.user.findMany({
         where: { employeeId: { in: uniqueOperatorIds } },
         select: { id: true },
       });
-      const operatorUserIds = operatorUsers.map((u) => u.id);
-
-      if (operatorUserIds.length > 0) {
-        await tx.notification.createMany({
-          data: operatorUserIds.map((recipientId) => ({
-            eventCode: 'EV_09' as EventCode,
-            recipientId,
-            title: 'Производственное задание отменено',
-            body: JSON.stringify({
-              orderId: order.id,
-              reason,
-              cancelledAt,
-            }),
-            deepLink: '/production-orders/' + order.id,
-          })),
-        });
+      for (const u of operatorUsers) {
+        recipientIds.add(u.id);
       }
+    }
+
+    const s1cUserIds = await findS1CUserIds(tx as unknown as PrismaLike);
+    for (const id of s1cUserIds) {
+      recipientIds.add(id);
+    }
+
+    recipientIds.add(userId);
+
+    const uniqueRecipientIds = [...recipientIds];
+    if (uniqueRecipientIds.length > 0) {
+      await tx.notification.createMany({
+        data: uniqueRecipientIds.map((recipientId) => ({
+          eventCode: 'EV_09' as EventCode,
+          recipientId,
+          title: 'Производственное задание отменено',
+          body: JSON.stringify({
+            orderId: order.id,
+            reason,
+            cancelledAt,
+            cancelledByUserId: userId,
+          }),
+          deepLink: '/production-orders/' + order.id,
+        })),
+      });
     }
 
     return updated;

@@ -1481,6 +1481,7 @@ function buildCancellableOrder(
 
 function buildCancelDeps(
   order: ReturnType<typeof buildConfirmableOrder>,
+  s1cUsers: { id: string }[] = [],
   userRoles: string[] = ['NP'],
 ) {
   const writeAudit = vi.fn();
@@ -1507,7 +1508,12 @@ function buildCancelDeps(
       createMany: notificationCreateMany,
     },
     user: {
-      findMany: vi.fn().mockResolvedValue([{ id: 'user-opr-1' }]),
+      findMany: vi.fn().mockImplementation((args: { where?: { roles?: { some?: { role?: { code?: string } } } } }) => {
+        if (args.where?.roles?.some?.role?.code === 'S1C') {
+          return Promise.resolve(s1cUsers);
+        }
+        return Promise.resolve([{ id: 'user-opr-1' }]);
+      }),
     },
   };
 
@@ -1576,9 +1582,9 @@ describe('cancelProductionOrder', () => {
     expect(timingCall.toStatus).toBe('CANCELLED');
   });
 
-  it('emits EV_09 with correct payload and recipients', async () => {
+  it('emits EV_09 to operators, S1C and cancelling user with correct payload', async () => {
     const order = buildCancellableOrder('CONFIRMED', ['ASSIGNED', 'ASSIGNED'], 'emp-1');
-    const deps = buildCancelDeps(order);
+    const deps = buildCancelDeps(order, [{ id: 's1c-user-1' }, { id: 's1c-user-2' }]);
     await cancelProductionOrder('po-1', { reason: 'Ремонт РЦ' }, {
       prisma: deps.prisma,
       requirePermission: deps.requirePermission,
@@ -1590,13 +1596,15 @@ describe('cancelProductionOrder', () => {
 
     expect(deps.notificationCreateMany).toHaveBeenCalled();
     const data = deps.notificationCreateMany.mock.calls[0][0].data;
-    expect(data).toHaveLength(1);
+    expect(data).toHaveLength(4);
+    const recipientIds = data.map((item: { recipientId: string }) => item.recipientId).sort();
+    expect(recipientIds).toEqual(['s1c-user-1', 's1c-user-2', 'user-1', 'user-opr-1']);
     expect(data[0].eventCode).toBe('EV_09');
-    expect(data[0].recipientId).toBe('user-opr-1');
     expect(data[0].deepLink).toBe('/production-orders/po-1');
     const payload = JSON.parse(data[0].body);
     expect(payload).toMatchObject({ orderId: 'po-1', reason: 'Ремонт РЦ' });
     expect(payload.cancelledAt).toBeDefined();
+    expect(payload.cancelledByUserId).toBe('user-1');
   });
 
   it('deduplicates operator recipients for EV_09', async () => {
@@ -1612,8 +1620,9 @@ describe('cancelProductionOrder', () => {
     });
 
     const data = deps.notificationCreateMany.mock.calls[0][0].data;
-    expect(data).toHaveLength(1);
-    expect(data[0].recipientId).toBe('user-opr-1');
+    expect(data).toHaveLength(2);
+    const recipientIds = data.map((item: { recipientId: string }) => item.recipientId).sort();
+    expect(recipientIds).toEqual(['user-1', 'user-opr-1']);
   });
 
   it('blocks cancel of IN_PROGRESS order', async () => {

@@ -18,10 +18,11 @@ export interface ShiftReportData {
     actual: number;
   }>;
 
-  outputStructure: Array<{
-    category: 'MASS' | 'PF' | 'GP';
-    quantity: number;
-  }>;
+  outputStructure: {
+    MASS: Array<{ productName: string; quantity: number }>;
+    GP: Array<{ productName: string; quantity: number }>;
+    PF: Array<{ productName: string; quantity: number }>;
+  };
 
   defectsByReason: Array<{
     reasonName: string;
@@ -145,20 +146,35 @@ export async function getShiftReportData(
     };
   });
 
-  const outputStructure: ShiftReportData['outputStructure'] = [
-    {
-      category: 'MASS' as const,
-      quantity: sumDecimal(visibleSummaries.map((s) => s.massOutput)),
-    },
-    {
-      category: 'PF' as const,
-      quantity: sumDecimal(visibleSummaries.map((s) => s.pfOutput)),
-    },
-    {
-      category: 'GP' as const,
-      quantity: sumDecimal(visibleSummaries.map((s) => s.gpOutput)),
-    },
-  ].filter((item) => item.quantity > 0);
+  const outputAccumulators = {
+    MASS: new Map<string, number>(),
+    GP: new Map<string, number>(),
+    PF: new Map<string, number>(),
+  };
+
+  for (const line of visibleLines) {
+    for (const fact of line.facts) {
+      const category = fact.factCategory;
+      if (category !== 'MASS' && category !== 'GP' && category !== 'PF') continue;
+      const quantity = toNumber(fact.quantity);
+      if (quantity <= 0) continue;
+      const productName = line.product.name;
+      const existing = outputAccumulators[category].get(productName) ?? 0;
+      outputAccumulators[category].set(productName, existing + quantity);
+    }
+  }
+
+  const outputStructure: ShiftReportData['outputStructure'] = {
+    MASS: Array.from(outputAccumulators.MASS.entries())
+      .map(([productName, quantity]) => ({ productName, quantity }))
+      .sort((a, b) => b.quantity - a.quantity),
+    GP: Array.from(outputAccumulators.GP.entries())
+      .map(([productName, quantity]) => ({ productName, quantity }))
+      .sort((a, b) => b.quantity - a.quantity),
+    PF: Array.from(outputAccumulators.PF.entries())
+      .map(([productName, quantity]) => ({ productName, quantity }))
+      .sort((a, b) => b.quantity - a.quantity),
+  };
 
   const defectMap = new Map<string, number>();
   for (const line of visibleLines) {

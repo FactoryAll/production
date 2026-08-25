@@ -39,16 +39,56 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 const CATEGORY_COLORS = {
-  MASS: 'var(--color-graphite)',
-  PF: 'var(--color-deep-industry-blue)',
-  GP: 'var(--color-signal-amber)',
+  MASS: 'var(--color-deep-industry-blue)',
+  PF: 'var(--color-signal-amber)',
+  GP: 'var(--color-graphite)',
 };
+
+const DEFECT_BAR_COLOR = 'var(--color-graphite)';
+const STOPS_BAR_COLOR = 'var(--color-machine-gray)';
+
+const PALETTE = [
+  'var(--color-deep-industry-blue)',
+  'var(--color-signal-amber)',
+  'var(--color-graphite)',
+  'var(--color-machine-gray)',
+  'var(--color-mist-metal)',
+];
+
+function normalizeOutputStructure(outputStructure: SerializableShiftReportData['outputStructure']): Array<{
+  category: 'MASS' | 'PF' | 'GP';
+  productName: string;
+  quantity: number;
+  share: number;
+}> {
+  return (['MASS', 'PF', 'GP'] as const)
+    .flatMap((category) =>
+      outputStructure[category].map((item) => ({
+        ...item,
+        category,
+        share: 0,
+      })),
+    )
+    .map((item) => {
+      const groupTotal = outputStructure[item.category].reduce((sum, i) => sum + i.quantity, 0);
+      return {
+        ...item,
+        share: groupTotal > 0 ? Math.round((item.quantity / groupTotal) * 100) : 0,
+      };
+    });
+}
 
 export default function ShiftReportClientPage({ data }: ShiftReportClientPageProps) {
   const { order, planVsFact, outputStructure, defectsByReason, stopsByDuration, consumptionByProduct } = data;
 
+  const normalizedOutput = useMemo(() => normalizeOutputStructure(outputStructure), [outputStructure]);
+
   const totalOutput = useMemo(
-    () => outputStructure.reduce((sum, item) => sum + item.quantity, 0),
+    () =>
+      (['MASS', 'PF', 'GP'] as const).reduce(
+        (sum, category) => sum + outputStructure[category].reduce((s, item) => s + item.quantity, 0),
+        0,
+      ),
     [outputStructure],
   );
 
@@ -157,25 +197,27 @@ export default function ShiftReportClientPage({ data }: ShiftReportClientPagePro
           <h2 className="mb-4 font-sans text-lg font-semibold text-graphite">
             Структура выпуска
           </h2>
-          <div className="h-80">
+          <div className="h-96">
             <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
+              <PieChart margin={{ top: 16, right: 120, bottom: 16, left: 16 }}>
                 <Pie
-                  data={outputStructure}
+                  data={normalizedOutput}
                   dataKey="quantity"
-                  nameKey="category"
-                  cx="50%"
+                  nameKey="productName"
+                  cx="40%"
                   cy="50%"
-                  outerRadius={100}
+                  outerRadius={90}
+                  labelLine
                   label={(entry) => {
-                    const percent = totalOutput > 0 ? Math.round((entry.quantity / totalOutput) * 100) : 0;
-                    return `${CATEGORY_LABELS[entry.category] ?? entry.category}: ${entry.quantity} (${percent}%)`;
+                    const label = entry.productName as string;
+                    const short = label.length > 14 ? label.slice(0, 13) + '…' : label;
+                    return `${short}: ${entry.share}%`;
                   }}
                 >
-                  {outputStructure.map((entry) => (
+                  {normalizedOutput.map((entry, index) => (
                     <Cell
-                      key={entry.category}
-                      fill={CATEGORY_COLORS[entry.category]}
+                      key={`${entry.category}-${entry.productName}`}
+                      fill={PALETTE[index % PALETTE.length]}
                     />
                   ))}
                 </Pie>
@@ -186,10 +228,10 @@ export default function ShiftReportClientPage({ data }: ShiftReportClientPagePro
                   formatter={(value) => CATEGORY_LABELS[value as string] ?? value}
                 />
                 <Tooltip
-                  formatter={(value, name) => [
-                    value,
-                    CATEGORY_LABELS[name as string] ?? name,
-                  ]}
+                  formatter={(value, _name, props) => {
+                    const item = props?.payload as { productName: string; category: string; share: number } | undefined;
+                    return item ? [`${value} (${item.share}% выбранной категории)`, item.productName] : [value, ''];
+                  }}
                 />
               </PieChart>
             </ResponsiveContainer>
@@ -219,7 +261,7 @@ export default function ShiftReportClientPage({ data }: ShiftReportClientPagePro
                 <Bar
                   dataKey="quantity"
                   name="Брак"
-                  fill="var(--color-alert)"
+                  fill={DEFECT_BAR_COLOR}
                   radius={[0, 4, 4, 0]}
                 />
               </BarChart>
@@ -252,7 +294,7 @@ export default function ShiftReportClientPage({ data }: ShiftReportClientPagePro
                 <Bar
                   dataKey="count"
                   name="Количество"
-                  fill="var(--color-graphite)"
+                  fill={STOPS_BAR_COLOR}
                   radius={[4, 4, 0, 0]}
                 />
               </BarChart>

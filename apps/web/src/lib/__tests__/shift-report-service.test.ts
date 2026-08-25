@@ -130,31 +130,53 @@ describe('getShiftReportData', () => {
     expect(data.planVsFact[1]).toEqual({ workCenterCode: '02', workCenterName: 'РЦ-2', planned: 200, actual: 200 });
   });
 
-  it('aggregates output structure by category', async () => {
-    const summaries = [
-      makeSummary({ massOutput: 100, pfOutput: 50, gpOutput: 30 }),
-      makeSummary({ id: 'summary-2', workCenterId: 'wc-02', massOutput: 50, pfOutput: 0, gpOutput: 20 }),
+  it('aggregates output structure by category and product', async () => {
+    const lines = [
+      makeLine({
+        product: { id: 'mass-1', name: 'Масса А', unit: 'кг' },
+        facts: [makeFact({ factCategory: 'MASS', quantity: new Decimal(100) })],
+      }),
+      makeLine({
+        id: 'line-2',
+        workCenterId: 'wc-02',
+        workCenter: { id: 'wc-02', code: '02', name: 'РЦ-2' },
+        product: { id: 'mass-2', name: 'Масса Б', unit: 'кг' },
+        facts: [makeFact({ id: 'fact-2', lineId: 'line-2', factCategory: 'MASS', quantity: new Decimal(50) })],
+      }),
+      makeLine({
+        id: 'line-3',
+        workCenterId: 'wc-03',
+        workCenter: { id: 'wc-03', code: '03', name: 'РЦ-3' },
+        product: { id: 'gp-1', name: 'ГП X', unit: 'шт' },
+        facts: [makeFact({ id: 'fact-3', lineId: 'line-3', factCategory: 'GP', quantity: new Decimal(30) })],
+      }),
     ];
-    const { client } = makePrismaClient({ summaries });
+    const { client } = makePrismaClient({ order: { lines } });
 
     const data = await getShiftReportData('po-1', client);
 
-    const mass = data.outputStructure.find((i) => i.category === 'MASS');
-    const pf = data.outputStructure.find((i) => i.category === 'PF');
-    const gp = data.outputStructure.find((i) => i.category === 'GP');
-    expect(mass?.quantity).toBe(150);
-    expect(pf?.quantity).toBe(50);
-    expect(gp?.quantity).toBe(50);
+    expect(data.outputStructure.MASS).toEqual([
+      { productName: 'Масса А', quantity: 100 },
+      { productName: 'Масса Б', quantity: 50 },
+    ]);
+    expect(data.outputStructure.GP).toEqual([{ productName: 'ГП X', quantity: 30 }]);
+    expect(data.outputStructure.PF).toHaveLength(0);
   });
 
   it('filters zero categories from output structure', async () => {
-    const summaries = [makeSummary({ massOutput: 100, pfOutput: 0, gpOutput: 0 })];
-    const { client } = makePrismaClient({ summaries });
+    const lines = [
+      makeLine({
+        product: { id: 'mass-1', name: 'Масса', unit: 'кг' },
+        facts: [makeFact({ factCategory: 'MASS', quantity: new Decimal(100) })],
+      }),
+    ];
+    const { client } = makePrismaClient({ order: { lines } });
 
     const data = await getShiftReportData('po-1', client);
 
-    expect(data.outputStructure).toHaveLength(1);
-    expect(data.outputStructure[0].category).toBe('MASS');
+    expect(data.outputStructure.MASS).toHaveLength(1);
+    expect(data.outputStructure.PF).toHaveLength(0);
+    expect(data.outputStructure.GP).toHaveLength(0);
   });
 
   it('groups defects by reason sorted descending', async () => {
@@ -243,7 +265,9 @@ describe('getShiftReportData', () => {
 
     expect(data.planVsFact).toHaveLength(0);
     expect(data.summaries).toHaveLength(0);
-    expect(data.outputStructure).toHaveLength(0);
+    expect(data.outputStructure.MASS).toHaveLength(0);
+    expect(data.outputStructure.GP).toHaveLength(0);
+    expect(data.outputStructure.PF).toHaveLength(0);
     expect(data.consumptionByProduct).toHaveLength(0);
   });
 
@@ -263,8 +287,20 @@ describe('getShiftReportData', () => {
 
   it('filters outputStructure to own work centers', async () => {
     const lines = [
-      makeLine({ id: 'line-1', workCenterId: 'wc-01', operatorId: 'emp-1' }),
-      makeLine({ id: 'line-2', workCenterId: 'wc-02', operatorId: 'emp-2' }),
+      makeLine({
+        id: 'line-1',
+        workCenterId: 'wc-01',
+        operatorId: 'emp-1',
+        product: { id: 'mass-1', name: 'Масса', unit: 'кг' },
+        facts: [makeFact({ id: 'fact-1', lineId: 'line-1', factCategory: 'MASS', quantity: new Decimal(20) })],
+      }),
+      makeLine({
+        id: 'line-2',
+        workCenterId: 'wc-02',
+        operatorId: 'emp-2',
+        product: { id: 'mass-2', name: 'Масса', unit: 'кг' },
+        facts: [makeFact({ id: 'fact-2', lineId: 'line-2', factCategory: 'MASS', quantity: new Decimal(100) })],
+      }),
     ];
     const summaries = [
       makeSummary({ workCenterId: 'wc-01', massOutput: new Decimal(20), pfOutput: new Decimal(5), gpOutput: new Decimal(0) }),
@@ -274,9 +310,10 @@ describe('getShiftReportData', () => {
 
     const data = await getShiftReportData('po-1', client, ['production_order:read_own'], 'emp-1');
 
-    expect(data.outputStructure).toHaveLength(2);
-    const mass = data.outputStructure.find((i) => i.category === 'MASS');
-    expect(mass?.quantity).toBe(20);
+    expect(data.outputStructure.MASS).toHaveLength(1);
+    expect(data.outputStructure.GP).toHaveLength(0);
+    expect(data.outputStructure.PF).toHaveLength(0);
+    expect(data.outputStructure.MASS[0].quantity).toBe(20);
   });
 
 
