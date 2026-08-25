@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import { getSession } from '@/lib/auth/session';
+import { cookies } from 'next/headers';
+import { SESSION_COOKIE_NAME } from '@/lib/auth/constants';
 import { LogoutButton } from './logout-button';
 
 const navItems = [
@@ -19,25 +20,21 @@ const nsiItems = [
   { label: 'Причины', href: '/nsi/defect-reasons' },
 ];
 
-export async function Header() {
-  const session = await getSession();
-  const user = session?.user;
-  const roles = user?.roles.map((ur) => ur.role.code) ?? [];
-  const isAdmin = roles.includes('ADM');
+export function Header() {
+  const cookieStore = cookies();
+  const hasSession = cookieStore.has(SESSION_COOKIE_NAME);
 
-  if (!user) {
+  if (!hasSession) {
     return null;
   }
 
   return (
     <header className="bg-graphite text-white shadow-sm">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-        {/* Logo / Brand */}
         <Link href="/dashboard" className="text-lg font-bold tracking-tight">
           ProdTrack
         </Link>
 
-        {/* Navigation */}
         <nav className="hidden items-center gap-1 md:flex">
           {navItems.map((item) => (
             <Link
@@ -49,7 +46,6 @@ export async function Header() {
             </Link>
           ))}
 
-          {/* NSI Dropdown */}
           <div className="group relative">
             <button className="rounded-sm px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-white/10 hover:text-white">
               НСИ
@@ -67,27 +63,19 @@ export async function Header() {
             </div>
           </div>
 
-          {/* Users — только для АДМ */}
-          {isAdmin && (
-            <Link
-              href="/users"
-              className="rounded-sm px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-white/10 hover:text-white"
-            >
-              Пользователи
-            </Link>
-          )}
+          <Link
+            href="/users"
+            className="rounded-sm px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-white/10 hover:text-white"
+          >
+            Пользователи
+          </Link>
         </nav>
 
-        {/* Right side: user info + logout */}
         <div className="flex items-center gap-4">
-          <span className="hidden text-sm text-neutral-300 sm:inline">
-            {user.login}
-          </span>
           <LogoutButton className="h-[var(--button-height-sm)] rounded-md border border-white/20 bg-transparent px-4 text-base font-medium text-white transition-colors hover:bg-white/10" />
         </div>
       </div>
 
-      {/* Mobile nav strip */}
       <div className="flex gap-1 overflow-x-auto border-t border-white/10 px-4 py-2 md:hidden">
         {navItems.map((item) => (
           <Link
@@ -98,14 +86,6 @@ export async function Header() {
             {item.label}
           </Link>
         ))}
-        {isAdmin && (
-          <Link
-            href="/users"
-            className="whitespace-nowrap rounded-sm px-3 py-1.5 text-xs font-medium text-neutral-200 transition-colors hover:bg-white/10 hover:text-white"
-          >
-            Пользователи
-          </Link>
-        )}
       </div>
     </header>
   );
