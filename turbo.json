@@ -32,7 +32,8 @@
     "lint": {},
     "typecheck": {
       "dependsOn": [
-        "^build"
+        "^build",
+        "^db:generate"
       ]
     },
     "test": {
