@@ -8,7 +8,7 @@ export interface EmitEventInput {
   title: string;
   body?: string;
   deepLink?: string;
-  payload?: Record<string, unknown>;
+  payload?: Prisma.InputJsonValue;
   recipientIds: string[];
 }
 
@@ -21,7 +21,7 @@ export async function emitEvent(tx: TxClient, input: EmitEventInput): Promise<vo
       title: input.title,
       body: input.body ?? null,
       deepLink: input.deepLink ?? null,
-      payload: input.payload ? JSON.stringify(input.payload) : null,
+      payload: input.payload,
     })),
   });
 }
