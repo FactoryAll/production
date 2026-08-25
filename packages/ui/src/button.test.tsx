@@ -38,6 +38,6 @@ describe('Button', () => {
     const button = screen.getByRole('button', { name: 'Padded' });
     expect(button.className).toMatch(/px-7/);
     expect(button.className).toMatch(/py-3/);
-    expect(button.className).toMatch(/rounded-\[6px\]/);
+    expect(button.className).toMatch(/rounded-\[var\(--radius-button\)\]/);
   });
 });
