@@ -65,6 +65,25 @@ describe('createShift', () => {
     await expect(createShift({ number: 1, date: '2026-08-22' })).rejects.toThrow('Смена с таким номером и датой уже существует');
   });
 
+  it('uses number and date in findUnique lookup', async () => {
+    const { prisma } = await import('@prodtrack/db');
+    const findUnique = prisma.shift.findUnique as ReturnType<typeof vi.fn>;
+    findUnique.mockResolvedValue(null);
+    (prisma as unknown as { $transaction: (cb: (tx: { shift: { create: () => Promise<unknown> } }) => Promise<unknown>) => Promise<unknown> }).$transaction = vi.fn(async (cb) => {
+      const mockTx = { shift: { create: vi.fn().mockResolvedValue({ ...base, id: 'new' }) } };
+      return cb(mockTx);
+    });
+    const { createShift } = await import('../actions');
+    await createShift({ number: 1, date: '2026-08-22' });
+    expect(findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          number_date: expect.objectContaining({ number: 1 }),
+        }),
+      }),
+    );
+  });
+
   it('creates shift 1 with correct times and writes audit', async () => {
     const { prisma, writeAudit } = await import('@prodtrack/db');
     (prisma.shift.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);

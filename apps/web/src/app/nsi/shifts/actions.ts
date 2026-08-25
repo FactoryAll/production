@@ -16,12 +16,13 @@ const SHIFT_TIMES = {
 };
 
 function parseDate(date: string): Date {
-  // Interpret YYYY-MM-DD as local midnight to avoid timezone drift
+  // Build a Date object that Prisma will map to the exact YYYY-MM-DD
+  // stored in PostgreSQL's DATE column, regardless of process timezone.
   const [year, month, day] = date.split('-').map(Number);
   if (!year || !month || !day) {
     throw new Error('Некорректная дата');
   }
-  return new Date(year, month - 1, day);
+  return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
 }
 
 function assertNumber(number: number): asserts number is 1 | 2 {
