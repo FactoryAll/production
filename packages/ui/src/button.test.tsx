@@ -33,10 +33,11 @@ describe('Button', () => {
     expect(button.className).toMatch(/text-white/);
   });
 
-  it('uses design-token padding and radius classes', () => {
+  it('uses explicit padding and 6px radius', () => {
     render(<Button size="md">Padded</Button>);
     const button = screen.getByRole('button', { name: 'Padded' });
-    expect(button.className).toMatch(/px-\[var\(--button-padding-x-md\)\]/);
-    expect(button.className).toMatch(/rounded-\[var\(--radius-sm\)\]/);
+    expect(button.className).toMatch(/px-7/);
+    expect(button.className).toMatch(/py-3/);
+    expect(button.className).toMatch(/rounded-\[6px\]/);
   });
 });

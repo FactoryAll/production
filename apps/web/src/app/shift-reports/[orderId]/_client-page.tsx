@@ -41,16 +41,16 @@ const CATEGORY_LABELS: Record<string, string> = {
 const CATEGORY_COLORS = {
   MASS: 'var(--color-deep-industry-blue)',
   PF: 'var(--color-signal-amber)',
-  GP: 'var(--color-graphite)',
+  GP: 'var(--color-steel-graphite)',
 };
 
-const DEFECT_BAR_COLOR = 'var(--color-graphite)';
+const DEFECT_BAR_COLOR = 'var(--color-steel-graphite)';
 const STOPS_BAR_COLOR = 'var(--color-machine-gray)';
 
 const PALETTE = [
   'var(--color-deep-industry-blue)',
   'var(--color-signal-amber)',
-  'var(--color-graphite)',
+  'var(--color-steel-graphite)',
   'var(--color-machine-gray)',
   'var(--color-mist-metal)',
 ];

@@ -8,7 +8,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ variant = 'primary', size = 'md', className = '', children, ...props }, ref) => {
     const base =
-      'inline-flex items-center justify-center rounded-[var(--radius-sm)] font-sans font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none';
+      'inline-flex items-center justify-center rounded-[6px] font-sans font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none';
     const variants = {
       primary:
         'bg-deep-industry-blue text-white hover:bg-[#0f264f] border border-transparent',
@@ -18,8 +18,8 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       cta: 'bg-signal-amber text-graphite hover:bg-[#b07b25] border border-transparent'
     };
     const sizes = {
-      sm: 'h-[var(--button-height-sm)] px-[var(--button-padding-x-sm)] text-base',
-      md: 'h-[var(--button-height-md)] px-[var(--button-padding-x-md)] text-base'
+      sm: 'h-12 px-5 py-3 text-base',
+      md: 'h-14 px-7 py-3 text-base'
     };
     const classes = [base, variants[variant], sizes[size], className].join(' ');
     return (
