@@ -81,15 +81,12 @@ export async function checkAndCloseProductionOrder(
 
   const allReported = order.lines.every((line) => line.status === 'REPORTED');
 
-  let shouldClose = false;
-  if (totalLines === 1) {
-    shouldClose = allReported;
-  } else {
-    const allAccepted = order.lines.every((line) => line.status === 'ACCEPTED' || line.status === 'REPORTED');
-    shouldClose = allAccepted && allReported;
+  if (!allReported) {
+    return { closed: false, status };
   }
 
-  if (!shouldClose) {
+  const allAcceptedOrReported = order.lines.every((line) => line.status === 'ACCEPTED' || line.status === 'REPORTED');
+  if (!allAcceptedOrReported) {
     return { closed: false, status };
   }
 

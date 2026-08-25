@@ -116,7 +116,7 @@ describe('checkAndCloseProductionOrder', () => {
     expect(writeAudit).not.toHaveBeenCalled();
   });
 
-  it('closes multi-RC order when all lines are ACCEPTED and REPORTED', async () => {
+  it('closes multi-RC order when all lines are REPORTED', async () => {
     const order = makeOrder({
       status: 'IN_PROGRESS',
       lines: [
@@ -157,7 +157,7 @@ describe('checkAndCloseProductionOrder', () => {
     expect(result.status).toBe('IN_PROGRESS');
   });
 
-  it('does not close multi-RC order when all ACCEPTED but only 2 of 3 REPORTED', async () => {
+  it('does not close multi-RC order when only 2 of 3 lines are REPORTED and 1 is ACCEPTED', async () => {
     const order = makeOrder({
       status: 'IN_PROGRESS',
       lines: [
@@ -173,17 +173,15 @@ describe('checkAndCloseProductionOrder', () => {
     expect(result.status).toBe('IN_PROGRESS');
   });
 
-  it('does not close multi-RC order when all REPORTED but only 2 of 3 ACCEPTED', async () => {
+  it('does not close multi-RC order when a line is ASSIGNED', async () => {
     const order = makeOrder({
       status: 'IN_PROGRESS',
       lines: [
         makeLine({ id: 'line-1', status: 'REPORTED' }),
         makeLine({ id: 'line-2', workCenterId: 'wc-03', productId: 'gp-1', status: 'REPORTED' }),
-        makeLine({ id: 'line-3', workCenterId: 'wc-04', productId: 'gp-1', status: 'REPORTED' }),
+        makeLine({ id: 'line-3', workCenterId: 'wc-04', productId: 'gp-1', status: 'ASSIGNED' }),
       ],
     });
-    // Заменяем статус третьей строки на ASSIGNED, чтобы она не была ни ACCEPTED, ни REPORTED.
-    order.lines[2].status = 'ASSIGNED';
     const prisma = makeMockPrisma(order);
     const result = await checkAndCloseProductionOrder('po-1', prisma, baseSession);
 
