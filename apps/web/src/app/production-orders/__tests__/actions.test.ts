@@ -715,6 +715,9 @@ describe('confirmProductionOrder', () => {
       notification: {
         createMany: vi.fn().mockResolvedValue(undefined),
       },
+      user: {
+        findMany: vi.fn().mockResolvedValue([{ id: 'user-opr-1' }]),
+      },
     };
     await txUpdate(txMock);
     expect(txMock.productionOrder.update).toHaveBeenCalled();
@@ -807,6 +810,9 @@ describe('confirmProductionOrder', () => {
       notification: {
         createMany: vi.fn().mockResolvedValue(undefined),
       },
+      user: {
+        findMany: vi.fn().mockResolvedValue([{ id: 'user-opr-1' }]),
+      },
     };
     await txUpdate(txMock);
 
@@ -814,7 +820,7 @@ describe('confirmProductionOrder', () => {
     const createData = txMock.notification.createMany.mock.calls[0][0].data;
     expect(createData).toHaveLength(1);
     expect(createData[0].eventCode).toBe('EV_01');
-    expect(createData[0].recipientId).toBe('emp-1');
+    expect(createData[0].recipientId).toBe('user-opr-1');
     expect(createData[0].deepLink).toBe('/production-orders/po-1');
     expect(JSON.parse(createData[0].body)).toMatchObject({
       orderId: 'po-1',
@@ -1141,6 +1147,7 @@ function buildSubstituteDeps(
     },
     user: {
       findMany: userFindMany,
+      findFirst: vi.fn().mockResolvedValue({ id: 'user-opr-1' }),
     },
   };
 
@@ -1236,8 +1243,8 @@ describe('substituteOperator', () => {
 
     expect(ev08Call).toBeDefined();
     const ev08Data = ev08Call![0].data;
-    expect(ev08Data).toHaveLength(3); // operator + 2 S1C
-    expect(ev08Data.map((item: { recipientId: string }) => item.recipientId).sort()).toEqual(['emp-1', 's1c-user-1', 's1c-user-2']);
+    expect(ev08Data).toHaveLength(3); // operator user + 2 S1C
+    expect(ev08Data.map((item: { recipientId: string }) => item.recipientId).sort()).toEqual(['s1c-user-1', 's1c-user-2', 'user-opr-1']);
     const ev08Payload = JSON.parse(ev08Data[0].body);
     expect(ev08Payload).toMatchObject({ orderId: 'po-1', lineId: 'line-1', operatorId: 'emp-1', reasonCode: 'LEFT_SHIFT', comment: 'Ушёл' });
 
@@ -1416,6 +1423,9 @@ function buildCancelDeps(
     notification: {
       createMany: notificationCreateMany,
     },
+    user: {
+      findMany: vi.fn().mockResolvedValue([{ id: 'user-opr-1' }]),
+    },
   };
 
   const prisma = {
@@ -1499,7 +1509,7 @@ describe('cancelProductionOrder', () => {
     const data = deps.notificationCreateMany.mock.calls[0][0].data;
     expect(data).toHaveLength(1);
     expect(data[0].eventCode).toBe('EV_09');
-    expect(data[0].recipientId).toBe('emp-1');
+    expect(data[0].recipientId).toBe('user-opr-1');
     expect(data[0].deepLink).toBe('/production-orders/po-1');
     const payload = JSON.parse(data[0].body);
     expect(payload).toMatchObject({ orderId: 'po-1', reason: 'Ремонт РЦ' });
@@ -1520,7 +1530,7 @@ describe('cancelProductionOrder', () => {
 
     const data = deps.notificationCreateMany.mock.calls[0][0].data;
     expect(data).toHaveLength(1);
-    expect(data[0].recipientId).toBe('emp-1');
+    expect(data[0].recipientId).toBe('user-opr-1');
   });
 
   it('blocks cancel of IN_PROGRESS order', async () => {

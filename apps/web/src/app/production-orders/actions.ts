@@ -278,22 +278,30 @@ export async function confirmProductionOrder(
     });
 
     if (uniqueOperatorIds.length > 0) {
-      const shiftName = 'Смена ' + order.shift.number;
-      await tx.notification.createMany({
-        data: uniqueOperatorIds.map((recipientId) => ({
-          eventCode: 'EV_01',
-          recipientId,
-          title: 'Подтверждено производственное задание',
-          body: JSON.stringify({
-            orderId: order.id,
-            shiftId: order.shift.id,
-            shiftName,
-            linesCount: order.lines.length,
-            confirmedAt,
-          }),
-          deepLink: '/production-orders/' + order.id,
-        })),
+      const operatorUsers = await tx.user.findMany({
+        where: { employeeId: { in: uniqueOperatorIds } },
+        select: { id: true },
       });
+      const operatorUserIds = operatorUsers.map((u) => u.id);
+
+      if (operatorUserIds.length > 0) {
+        const shiftName = 'Смена ' + order.shift.number;
+        await tx.notification.createMany({
+          data: operatorUserIds.map((recipientId) => ({
+            eventCode: 'EV_01',
+            recipientId,
+            title: 'Подтверждено производственное задание',
+            body: JSON.stringify({
+              orderId: order.id,
+              shiftId: order.shift.id,
+              shiftName,
+              linesCount: order.lines.length,
+              confirmedAt,
+            }),
+            deepLink: '/production-orders/' + order.id,
+          })),
+        });
+      }
     }
 
     return updated;
@@ -569,7 +577,13 @@ export async function substituteOperator(
 
     const recipientIds = new Set<string>();
     if (operatorId) {
-      recipientIds.add(operatorId);
+      const operatorUser = await tx.user.findFirst({
+        where: { employeeId: operatorId },
+        select: { id: true },
+      });
+      if (operatorUser) {
+        recipientIds.add(operatorUser.id);
+      }
     }
     const s1cUserIds = await findS1CUserIds(tx as unknown as PrismaLike);
     for (const id of s1cUserIds) {
@@ -723,19 +737,27 @@ export async function cancelProductionOrder(
     });
 
     if (uniqueOperatorIds.length > 0) {
-      await tx.notification.createMany({
-        data: uniqueOperatorIds.map((recipientId) => ({
-          eventCode: 'EV_09' as EventCode,
-          recipientId,
-          title: 'Производственное задание отменено',
-          body: JSON.stringify({
-            orderId: order.id,
-            reason,
-            cancelledAt,
-          }),
-          deepLink: '/production-orders/' + order.id,
-        })),
+      const operatorUsers = await tx.user.findMany({
+        where: { employeeId: { in: uniqueOperatorIds } },
+        select: { id: true },
       });
+      const operatorUserIds = operatorUsers.map((u) => u.id);
+
+      if (operatorUserIds.length > 0) {
+        await tx.notification.createMany({
+          data: operatorUserIds.map((recipientId) => ({
+            eventCode: 'EV_09' as EventCode,
+            recipientId,
+            title: 'Производственное задание отменено',
+            body: JSON.stringify({
+              orderId: order.id,
+              reason,
+              cancelledAt,
+            }),
+            deepLink: '/production-orders/' + order.id,
+          })),
+        });
+      }
     }
 
     return updated;
