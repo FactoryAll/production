@@ -15,6 +15,7 @@ import { requirePermission } from '@/lib/auth/access';
 import { getAttributeRole } from '@prodtrack/contracts';
 import {
   applyStockMovements,
+  buildProductionFactMovements,
   factCategoryToStockCategory,
 } from '@/lib/stock-service';
 import { updateShiftSummary } from '@/lib/shift-summary-service';
@@ -477,9 +478,165 @@ export async function updateProductionOrderAction(
 
 const SUBSTITUTION_REASON_CODES = ['ILLNESS', 'NO_SHOW', 'LEFT_SHIFT', 'OTHER'] as const;
 type SubstitutionReasonCode = (typeof SUBSTITUTION_REASON_CODES)[number];
+type SubstitutionFactCategory = 'MASS' | 'GP' | 'PF';
 
 function isSubstitutionReasonCode(value: unknown): value is SubstitutionReasonCode {
   return typeof value === 'string' && SUBSTITUTION_REASON_CODES.includes(value as SubstitutionReasonCode);
+}
+
+function parseNonNegativeDecimal(value: unknown): Prisma.Decimal {
+  if (value === undefined || value === null || value === '') {
+    return new Prisma.Decimal(0);
+  }
+  const num = Number(value);
+  if (Number.isNaN(num) || !Number.isFinite(num) || num < 0) {
+    throw new Error('Значение не может быть отрицательным');
+  }
+  return new Prisma.Decimal(num);
+}
+
+function parseNonNegativeInteger(value: unknown): number {
+  if (value === undefined || value === null || value === '') {
+    return 0;
+  }
+  const num = Number(value);
+  if (Number.isNaN(num) || !Number.isInteger(num) || num < 0) {
+    throw new Error('Значение должно быть целым неотрицательным числом');
+  }
+  return num;
+}
+
+function parseFactCategory(value: unknown): SubstitutionFactCategory {
+  const v = String(value).toUpperCase();
+  if (v === 'MASS' || v === 'GP' || v === 'PF') {
+    return v;
+  }
+  throw new Error('Недопустимая категория факта');
+}
+
+function allowedCategoriesForProduct(productCategory: 'MASS' | 'GP' | 'PF'): SubstitutionFactCategory[] {
+  if (productCategory === 'MASS') return ['MASS'];
+  if (productCategory === 'GP') return ['GP', 'PF'];
+  throw new Error('Неизвестная категория продукта');
+}
+
+function parseSubstitutionOutput(
+  productCategory: 'MASS' | 'GP' | 'PF',
+  outputByCategory: unknown,
+  legacyQuantity: number | undefined,
+  legacyFactCategory: SubstitutionFactCategory | undefined,
+): Partial<Record<SubstitutionFactCategory, Prisma.Decimal>> {
+  const allowed = allowedCategoriesForProduct(productCategory);
+  const result: Partial<Record<SubstitutionFactCategory, Prisma.Decimal>> = {};
+
+  // Legacy single-fact path: keep old callers/tests working.
+  if (legacyFactCategory && allowed.includes(legacyFactCategory)) {
+    result[legacyFactCategory] = parseNonNegativeDecimal(legacyQuantity);
+  }
+
+  if (outputByCategory && typeof outputByCategory === 'object') {
+    for (const [key, value] of Object.entries(outputByCategory as Record<string, unknown>)) {
+      const cat = parseFactCategory(key);
+      if (!allowed.includes(cat)) {
+        throw new Error(`Для данного продукта категория ${cat} недопустима`);
+      }
+      const qty = parseNonNegativeDecimal(value);
+      if (qty.greaterThan(0)) {
+        result[cat] = qty;
+      }
+    }
+  }
+
+  return result;
+}
+
+function parseSubstitutionConsumption(raw: unknown): { productId: string; quantity: number }[] {
+  if (!raw || (Array.isArray(raw) && raw.length === 0)) return [];
+  if (!Array.isArray(raw)) {
+    throw new Error('Некорректный формат потребления');
+  }
+  return raw.map((item) => {
+    if (!item || typeof item !== 'object') {
+      throw new Error('Некорректный формат строки потребления');
+    }
+    const { productId, quantity } = item as Record<string, unknown>;
+    if (!productId || typeof productId !== 'string') {
+      throw new Error('Укажите продукт в потреблении');
+    }
+    const q = Number(quantity);
+    if (Number.isNaN(q) || q <= 0) {
+      throw new Error('Количество потребления должно быть больше 0');
+    }
+    return { productId, quantity: q };
+  });
+}
+
+async function validateSubstitutionInput(
+  input: SubstitutionInput,
+  deps: { prisma: typeof prisma },
+  line: ProductionOrderLine & { product: { category: 'MASS' | 'GP' | 'PF'; id: string }; workCenter: { producesMass: boolean }; operator: { id: string } | null },
+): Promise<{ outputByCategory: Partial<Record<SubstitutionFactCategory, Prisma.Decimal>>; defectQuantity: Prisma.Decimal; stopsCount: number; stopsDurationMinutes: number; consumption: { productId: string; quantity: number }[] }> {
+  const outputByCategory = parseSubstitutionOutput(
+    line.product.category,
+    input.outputByCategory,
+    input.output,
+    input.factCategory,
+  );
+
+  const totalOutput = Object.values(outputByCategory).reduce(
+    (sum, q) => sum.plus(q ?? new Prisma.Decimal(0)),
+    new Prisma.Decimal(0),
+  );
+  if (totalOutput.lessThanOrEqualTo(0)) {
+    throw new Error('Укажите выпуск');
+  }
+
+  const defectQuantity = parseNonNegativeDecimal(input.defectQuantity);
+  const stopsCount = parseNonNegativeInteger(input.stopsCount);
+  const stopsDurationMinutes = parseNonNegativeInteger(input.stopsDurationMinutes);
+
+  if (defectQuantity.greaterThan(0) && !input.defectReasonId) {
+    throw new Error('Укажите причину брака');
+  }
+
+  if ((stopsCount > 0) !== (stopsDurationMinutes > 0)) {
+    throw new Error('Количество остановок и длительность должны быть заданы вместе');
+  }
+
+  const consumption = parseSubstitutionConsumption(input.consumption);
+
+  if (line.workCenter.producesMass && consumption.length > 0) {
+    throw new Error('Потребление указывается только на ГП/ПФ-РЦ');
+  }
+
+  const seenProducts = new Set<string>();
+  for (const item of consumption) {
+    if (seenProducts.has(item.productId)) {
+      throw new Error('Продукт в потреблении не может повторяться');
+    }
+    seenProducts.add(item.productId);
+
+    const product = await deps.prisma.product.findUnique({
+      where: { id: item.productId },
+    });
+    if (!product) {
+      throw new Error('Продукт не найден');
+    }
+    if (!product.active) {
+      throw new Error('Продукт неактивен');
+    }
+  }
+
+  if (defectQuantity.greaterThan(0) && input.defectReasonId) {
+    const reason = await deps.prisma.defectReason.findUnique({
+      where: { id: input.defectReasonId },
+    });
+    if (!reason || !reason.active) {
+      throw new Error('Причина брака не найдена или неактивна');
+    }
+  }
+
+  return { outputByCategory, defectQuantity, stopsCount, stopsDurationMinutes, consumption };
 }
 
 async function findS1CUserIds(client: { user: { findMany: typeof prisma.user.findMany } }): Promise<string[]> {
@@ -490,9 +647,24 @@ async function findS1CUserIds(client: { user: { findMany: typeof prisma.user.fin
   return users.map((u: { id: string }) => u.id);
 }
 
+export interface SubstitutionInput {
+  reasonCode: string;
+  comment: string;
+  /** @deprecated Use outputByCategory instead. */
+  output?: number;
+  /** @deprecated Use outputByCategory instead. */
+  factCategory?: 'MASS' | 'GP' | 'PF';
+  outputByCategory?: Partial<Record<'MASS' | 'GP' | 'PF', number>>;
+  defectQuantity?: number;
+  defectReasonId?: string;
+  stopsCount?: number;
+  stopsDurationMinutes?: number;
+  consumption?: { productId: string; quantity: number }[];
+}
+
 export async function substituteOperator(
   lineId: string,
-  input: { reasonCode: string; comment: string },
+  input: SubstitutionInput,
   deps: CreateProductionOrderDeps = { prisma, writeAudit, writeTiming, requirePermission },
 ): Promise<void> {
   const session = await deps.requirePermission('production_order:confirm');
@@ -501,7 +673,7 @@ export async function substituteOperator(
 
   const line = await deps.prisma.productionOrderLine.findUnique({
     where: { id: lineId },
-    include: { order: true, operator: true },
+    include: { order: true, operator: true, product: true, workCenter: true },
   });
   if (!line) {
     throw new Error('Строка ПЗ не найдена');
@@ -522,6 +694,9 @@ export async function substituteOperator(
     throw new Error('Комментарий обязателен');
   }
 
+  const { outputByCategory, defectQuantity, stopsCount, stopsDurationMinutes, consumption } =
+    await validateSubstitutionInput(input, deps, line as unknown as ProductionOrderLine & { product: { category: 'MASS' | 'GP' | 'PF'; id: string }; workCenter: { producesMass: boolean }; operator: { id: string } | null });
+
   const operatorId = line.operatorId;
   const orderId = line.orderId;
   const oldStatus = line.status;
@@ -532,6 +707,109 @@ export async function substituteOperator(
   })();
 
   await deps.prisma.$transaction(async (tx) => {
+    const productionWarehouse = await tx.warehouse.findFirstOrThrow({
+      where: { type: 'PRODUCTION' },
+    });
+
+    const consumedProductIds = [...new Set(consumption.map((item) => item.productId))];
+    const consumedProducts = consumedProductIds.length > 0
+      ? await tx.product.findMany({
+          where: { id: { in: consumedProductIds } },
+          select: { id: true, category: true },
+        })
+      : [];
+    const categoryById = new Map(consumedProducts.map((p) => [p.id, p.category]));
+
+    const createdFacts: ProductionFact[] = [];
+    const now = new Date();
+    for (const [category, quantity] of Object.entries(outputByCategory) as ['MASS' | 'GP' | 'PF', Prisma.Decimal][]) {
+      const fact = await tx.productionFact.upsert({
+        where: { lineId_factCategory: { lineId, factCategory: category } },
+        create: {
+          lineId,
+          productId: line.productId,
+          factCategory: category,
+          quantity,
+          defectQuantity,
+          defectReasonId: input.defectReasonId ?? null,
+          stopsCount,
+          stopsDurationMinutes,
+          recordedAt: now,
+          reportedAt: now,
+          reportedByUserId: userId,
+          createdById: userId,
+          postCompletionCorrection: false,
+          comment: reasonCode,
+        },
+        update: {
+          quantity,
+          defectQuantity,
+          defectReasonId: input.defectReasonId ?? null,
+          stopsCount,
+          stopsDurationMinutes,
+          recordedAt: now,
+          reportedAt: now,
+          reportedByUserId: userId,
+          postCompletionCorrection: false,
+          comment: reasonCode,
+        },
+      });
+      createdFacts.push(fact as unknown as ProductionFact);
+
+      if (consumption.length > 0) {
+        await tx.factConsumption.createMany({
+          data: consumption.map((item) => ({
+            productionFactId: fact.id,
+            productId: item.productId,
+            quantity: new Prisma.Decimal(item.quantity),
+          })),
+        });
+      }
+
+      const movements = buildProductionFactMovements({
+        factId: fact.id,
+        productId: line.productId,
+        factCategory: category,
+        quantity,
+        warehouseId: productionWarehouse.id,
+        sourceType: 'PRODUCTION_FACT',
+        consumption: consumption.map((item) => {
+          const productCategory = categoryById.get(item.productId);
+          if (!productCategory) {
+            throw new Error('Продукт потребления не найден');
+          }
+          return {
+            productId: item.productId,
+            productCategory,
+            quantity: new Prisma.Decimal(item.quantity),
+          };
+        }),
+      });
+
+      await (deps.applyStockMovements ?? applyStockMovements)(tx, movements);
+
+      await deps.writeAudit(tx, {
+        action: 'CREATE',
+        objectType: 'ProductionFact',
+        objectId: fact.id,
+        newValue: JSON.stringify({
+          lineId,
+          productId: line.productId,
+          factCategory: category,
+          quantity: quantity.toString(),
+          defectQuantity: defectQuantity.toString(),
+          stopsCount,
+          stopsDurationMinutes,
+          consumption,
+          reasonCode,
+          comment,
+        }),
+        userId,
+        userRoles: roles,
+        permission: 'production_order:confirm',
+      });
+    }
+
     await tx.productionOrderLine.update({
       where: { id: lineId },
       data: { status: 'REPORTED' },
@@ -563,7 +841,7 @@ export async function substituteOperator(
 
     await deps.writeTiming(tx, {
       documentType: 'PRODUCTION_ORDER',
-      documentId: lineId,
+      documentId: orderId,
       entityType: 'LINE',
       entityId: lineId,
       fromStatus: oldStatus,
@@ -601,6 +879,7 @@ export async function substituteOperator(
           operatorId,
           reasonCode,
           comment,
+          factIds: createdFacts.map((f) => f.id),
         }),
         deepLink: '/production-orders/' + orderId,
         recipientIds: uniqueRecipientIds,
@@ -611,7 +890,7 @@ export async function substituteOperator(
       await emitEvent(tx, {
         eventCode: 'EV_03',
         title: 'Итог смены внесён',
-        body: JSON.stringify({ orderId, lineId }),
+        body: JSON.stringify({ orderId, lineId, factIds: createdFacts.map((f) => f.id) }),
         deepLink: '/production-orders/' + orderId,
         recipientIds: s1cUserIds,
       });
@@ -629,7 +908,26 @@ export async function substituteOperatorAction(
   try {
     const reasonCode = formData.get('reasonCode') as string;
     const comment = formData.get('comment') as string;
-    await substituteOperator(lineId, { reasonCode, comment });
+    const rawConsumption = formData.get('consumption')?.toString();
+    const rawOutputByCategory = formData.get('outputByCategory')?.toString();
+    const input: SubstitutionInput = {
+      reasonCode,
+      comment,
+      defectQuantity: formData.get('defectQuantity') ? Number(formData.get('defectQuantity')) : undefined,
+      defectReasonId: formData.get('defectReasonId')?.toString() || undefined,
+      stopsCount: formData.get('stopsCount') ? Number(formData.get('stopsCount')) : undefined,
+      stopsDurationMinutes: formData.get('stopsDurationMinutes') ? Number(formData.get('stopsDurationMinutes')) : undefined,
+      consumption: rawConsumption ? JSON.parse(rawConsumption) : undefined,
+    };
+
+    if (rawOutputByCategory) {
+      input.outputByCategory = JSON.parse(rawOutputByCategory);
+    } else {
+      input.output = Number(formData.get('output'));
+      input.factCategory = formData.get('factCategory') as 'MASS' | 'GP' | 'PF';
+    }
+
+    await substituteOperator(lineId, input);
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Не удалось внести итог за Оператора';
@@ -779,38 +1077,6 @@ export async function cancelProductionOrderAction(
 }
 
 const CORRECTABLE_STATUSES: ProductionOrderStatus[] = ['COMPLETED'];
-
-function parseNonNegativeDecimal(value: unknown): Prisma.Decimal {
-  const raw = value as Prisma.Decimal.Value;
-  if (raw instanceof Prisma.Decimal) {
-    if (raw.lessThan(0)) {
-      throw new Error('Значение не может быть отрицательным');
-    }
-    return raw;
-  }
-
-  const str = typeof raw === 'string' ? raw.trim() : String(raw);
-  if (!str) {
-    throw new Error('Значение не может быть отрицательным');
-  }
-
-  const normalized = str.replace(',', '.');
-  const num = Number(normalized);
-  if (!Number.isFinite(num) || num < 0) {
-    throw new Error('Значение не может быть отрицательным');
-  }
-
-  return new Prisma.Decimal(num);
-}
-
-function parseNonNegativeInteger(value: unknown): number {
-  if (value === undefined || value === null || value === '') return 0;
-  const num = Number(value);
-  if (Number.isNaN(num) || !Number.isInteger(num) || num < 0) {
-    throw new Error('Значение должно быть целым неотрицательным числом');
-  }
-  return num;
-}
 
 export async function correctProductionFact(
   factId: string,

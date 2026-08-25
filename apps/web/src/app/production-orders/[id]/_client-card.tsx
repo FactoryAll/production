@@ -84,6 +84,12 @@ export default function ProductionOrderCard({ order, defectReasons, userRoles }:
   const [substituteLineId, setSubstituteLineId] = useState<string | null>(null);
   const [substituteReason, setSubstituteReason] = useState('');
   const [substituteComment, setSubstituteComment] = useState('');
+  const [substituteOutput, setSubstituteOutput] = useState('');
+  const [substituteOutputPF, setSubstituteOutputPF] = useState('');
+  const [substituteDefectQuantity, setSubstituteDefectQuantity] = useState('');
+  const [substituteDefectReasonId, setSubstituteDefectReasonId] = useState('');
+  const [substituteStopsCount, setSubstituteStopsCount] = useState('');
+  const [substituteStopsDurationMinutes, setSubstituteStopsDurationMinutes] = useState('');
   const [substituteError, setSubstituteError] = useState<string | null>(null);
   const [showCorrectFactDialog, setShowCorrectFactDialog] = useState(false);
   const [correctFactId, setCorrectFactId] = useState<string | null>(null);
@@ -102,7 +108,7 @@ export default function ProductionOrderCard({ order, defectReasons, userRoles }:
   const isCancelled = order.status === 'CANCELLED';
   const canEdit =
     editableStatuses.includes(order.status) && !hasReportedLine && hasPermission(userRoles, 'production_order:update');
-  const canSubstitute = hasPermission(userRoles, 'production_order:confirm') && !isDraft && !isCompleted && !isCancelled;
+  const canSubstitute = hasPermission(userRoles, 'production_order:confirm') && !isDraft && !isCancelled;
   const canCorrectFact = isCompleted && hasPermission(userRoles, 'production_order:confirm');
   const canViewShiftReport = isCompleted && hasPermission(userRoles, 'production_order:read');
   const canCancel =
@@ -205,12 +211,27 @@ export default function ProductionOrderCard({ order, defectReasons, userRoles }:
     });
   }
 
+  const [substituteConsumption, setSubstituteConsumption] = useState<{ productId: string; quantity: string }[]>([]);
+
   function openSubstituteDialog(lineId: string) {
     setSubstituteLineId(lineId);
     setSubstituteReason('');
     setSubstituteComment('');
+    setSubstituteOutput('');
+    setSubstituteOutputPF('');
+    setSubstituteDefectQuantity('');
+    setSubstituteDefectReasonId('');
+    setSubstituteStopsCount('');
+    setSubstituteStopsDurationMinutes('');
+    setSubstituteConsumption([]);
     setSubstituteError(null);
     setShowSubstituteDialog(true);
+  }
+
+  function productCategoryForSubstituteLine(): 'MASS' | 'GP' {
+    if (!substituteLineId) return 'MASS';
+    const line = order.lines.find((l) => l.id === substituteLineId);
+    return line?.product.category === 'MASS' ? 'MASS' : 'GP';
   }
 
   function handleSubstituteSubmit(e: React.FormEvent) {
@@ -226,9 +247,38 @@ export default function ProductionOrderCard({ order, defectReasons, userRoles }:
       return;
     }
 
+    const category = productCategoryForSubstituteLine();
     const formData = new FormData();
     formData.set('reasonCode', substituteReason);
     formData.set('comment', substituteComment.trim());
+
+    if (category === 'MASS') {
+      formData.set('output', substituteOutput);
+      formData.set('factCategory', 'MASS');
+    } else {
+      const outputByCategory: Record<string, number> = {};
+      const gp = Number(substituteOutput);
+      const pf = Number(substituteOutputPF);
+      if (!Number.isNaN(gp) && gp > 0) outputByCategory.GP = gp;
+      if (!Number.isNaN(pf) && pf > 0) outputByCategory.PF = pf;
+      if (Object.keys(outputByCategory).length === 0) {
+        setSubstituteError('Укажите выпуск ГП или ПФ');
+        return;
+      }
+      formData.set('outputByCategory', JSON.stringify(outputByCategory));
+    }
+
+    if (substituteDefectQuantity) formData.set('defectQuantity', substituteDefectQuantity);
+    if (substituteDefectReasonId) formData.set('defectReasonId', substituteDefectReasonId);
+    if (substituteStopsCount) formData.set('stopsCount', substituteStopsCount);
+    if (substituteStopsDurationMinutes) formData.set('stopsDurationMinutes', substituteStopsDurationMinutes);
+    if (substituteConsumption.length > 0) {
+      formData.set('consumption', JSON.stringify(
+        substituteConsumption
+          .filter((row) => row.productId && row.quantity)
+          .map((row) => ({ productId: row.productId, quantity: Number(row.quantity) })),
+      ));
+    }
 
     startTransition(async () => {
       const result = await substituteOperatorAction(substituteLineId, formData);
@@ -606,6 +656,93 @@ export default function ProductionOrderCard({ order, defectReasons, userRoles }:
               className="flex min-h-[80px] w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
             />
           </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="substitute-output">
+              {productCategoryForSubstituteLine() === 'MASS' ? 'Выпуск Массы' : 'Выпуск ГП'}
+            </Label>
+            <input
+              id="substitute-output"
+              type="number"
+              min="0"
+              step="0.01"
+              value={substituteOutput}
+              onChange={(e) => setSubstituteOutput(e.target.value)}
+              required={productCategoryForSubstituteLine() === 'MASS'}
+              placeholder="Укажите фактический выпуск"
+              className="flex h-10 w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
+            />
+          </div>
+
+          {productCategoryForSubstituteLine() === 'GP' && (
+            <div className="space-y-2">
+              <Label htmlFor="substitute-output-pf">Выпуск ПФ</Label>
+              <input
+                id="substitute-output-pf"
+                type="number"
+                min="0"
+                step="0.01"
+                value={substituteOutputPF}
+                onChange={(e) => setSubstituteOutputPF(e.target.value)}
+                placeholder="Полуфабрикат (необязательно)"
+                className="flex h-10 w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
+              />
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="substitute-defect-quantity">Брак</Label>
+            <input
+              id="substitute-defect-quantity"
+              type="number"
+              min="0"
+              step="0.01"
+              value={substituteDefectQuantity}
+              onChange={(e) => setSubstituteDefectQuantity(e.target.value)}
+              placeholder="Количество брака"
+              className="flex h-10 w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="substitute-defect-reason">Причина брака</Label>
+            <Select
+              id="substitute-defect-reason"
+              value={substituteDefectReasonId}
+              onChange={(e) => setSubstituteDefectReasonId(e.target.value)}
+              options={defectReasons.map((reason) => ({ value: reason.id, label: reason.name }))}
+              placeholder="Выберите причину"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="substitute-stops-count">Остановки (количество)</Label>
+            <input
+              id="substitute-stops-count"
+              type="number"
+              min="0"
+              step="1"
+              value={substituteStopsCount}
+              onChange={(e) => setSubstituteStopsCount(e.target.value)}
+              placeholder="Количество остановок"
+              className="flex h-10 w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="substitute-stops-duration">Остановки (минут)</Label>
+            <input
+              id="substitute-stops-duration"
+              type="number"
+              min="0"
+              step="1"
+              value={substituteStopsDurationMinutes}
+              onChange={(e) => setSubstituteStopsDurationMinutes(e.target.value)}
+              placeholder="Общая длительность остановок, мин"
+              className="flex h-10 w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
+            />
+          </div>
+
           {substituteError && <p className="text-sm text-signal-amber">{substituteError}</p>}
           <div className="mt-6 flex justify-end gap-3">
             <Button

@@ -1086,7 +1086,10 @@ describe('updateProductionOrder', () => {
   });
 });
 
-function buildSubstitutableLine(status: 'ASSIGNED' | 'ACCEPTED' | 'REPORTED', overrides: Partial<MockOrderLine> = {}): MockOrderLine {
+function buildSubstitutableLine(
+  status: 'ASSIGNED' | 'ACCEPTED' | 'REPORTED',
+  overrides: Partial<MockOrderLine> = {},
+): MockOrderLine {
   return {
     id: 'line-1',
     orderId: 'po-1',
@@ -1107,6 +1110,25 @@ function buildSubstitutableLine(status: 'ASSIGNED' | 'ACCEPTED' | 'REPORTED', ov
       createdAt: new Date(),
       updatedAt: new Date(),
     } as Employee,
+    product: {
+      id: 'mass-1',
+      code: 'MASS-01',
+      name: 'Масса',
+      unit: 'кг',
+      category: 'MASS',
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+    workCenter: {
+      id: 'wc-01',
+      code: '01',
+      name: '01.Реактор',
+      active: true,
+      producesMass: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
     ...overrides,
   } as MockOrderLine;
 }
@@ -1132,6 +1154,29 @@ function buildSubstituteDeps(
   );
   const orderFindUnique = vi.fn().mockResolvedValue(order);
   const productionOrderLineFindUnique = vi.fn().mockResolvedValue(line);
+  let productionFactCreateCallIndex = 0;
+  const productionFactUpsert = vi.fn().mockImplementation((args: { create: Record<string, unknown> }) => {
+    productionFactCreateCallIndex += 1;
+    return Promise.resolve({
+      id: `fact-${productionFactCreateCallIndex}`,
+      ...args.create,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  });
+  const productionFactUpdate = vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+    Promise.resolve({ id: 'fact-1', ...data, createdAt: new Date(), updatedAt: new Date() }),
+  );
+  const warehouseFindFirstOrThrow = vi.fn().mockResolvedValue({ id: 'wh-prod', type: 'PRODUCTION' });
+  const productFindMany = vi.fn().mockResolvedValue([]);
+  const defectReasonFindUnique = vi.fn().mockResolvedValue({
+    id: 'defect-1',
+    code: 'D-1',
+    name: 'Брак',
+    active: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
 
   const tx = {
     productionOrderLine: {
@@ -1142,12 +1187,29 @@ function buildSubstituteDeps(
       update: orderUpdate,
       findUnique: orderFindUnique,
     },
+    productionFact: {
+      upsert: productionFactUpsert,
+      update: productionFactUpdate,
+    },
+    factConsumption: {
+      createMany: vi.fn().mockResolvedValue(undefined),
+      deleteMany: vi.fn().mockResolvedValue(undefined),
+    },
     notification: {
       createMany: notificationCreateMany,
     },
     user: {
       findMany: userFindMany,
       findFirst: vi.fn().mockResolvedValue({ id: 'user-opr-1' }),
+    },
+    warehouse: {
+      findFirstOrThrow: warehouseFindFirstOrThrow,
+    },
+    product: {
+      findMany: productFindMany,
+    },
+    defectReason: {
+      findUnique: defectReasonFindUnique,
     },
   };
 
@@ -1166,6 +1228,7 @@ function buildSubstituteDeps(
     applyStockMovements,
     updateShiftSummary,
     lineUpdate,
+    productionFactUpsert,
     notificationCreateMany,
     userFindMany,
     tx,
@@ -1189,11 +1252,11 @@ describe('substituteOperator', () => {
     vi.clearAllMocks();
   });
 
-  it('reports ASSIGNED line for ILLNESS with comment', async () => {
+  it('reports ASSIGNED line and creates ProductionFact for ILLNESS with comment (Р-11/Р-13)', async () => {
     const line = buildSubstitutableLine('ASSIGNED');
     const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
     const deps = buildSubstituteDeps(line, order);
-    await substituteOperator('line-1', { reasonCode: 'ILLNESS', comment: 'Заболевание' }, {
+    await substituteOperator('line-1', { reasonCode: 'ILLNESS', comment: 'Заболевание', output: 50, factCategory: 'MASS' }, {
       prisma: deps.prisma,
       requirePermission: deps.requirePermission,
       writeAudit: deps.writeAudit,
@@ -1202,8 +1265,14 @@ describe('substituteOperator', () => {
       updateShiftSummary: deps.updateShiftSummary,
     });
 
+    expect(deps.productionFactUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ quantity: expect.anything(), factCategory: 'MASS' }),
+      }),
+    );
+    expect(deps.applyStockMovements).toHaveBeenCalled();
     expect(deps.lineUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REPORTED' } }));
-    expect(deps.writeAudit).toHaveBeenCalledTimes(2);
+    expect(deps.writeAudit).toHaveBeenCalledTimes(3);
     expect(deps.writeTiming).toHaveBeenCalledTimes(1);
   });
 
@@ -1211,7 +1280,7 @@ describe('substituteOperator', () => {
     const line = buildSubstitutableLine('ACCEPTED');
     const order = buildSubstitutableOrder('IN_PROGRESS', [line as MockOrderLine]);
     const deps = buildSubstituteDeps(line, order);
-    await substituteOperator('line-1', { reasonCode: 'NO_SHOW', comment: 'Не вышел' }, {
+    await substituteOperator('line-1', { reasonCode: 'NO_SHOW', comment: 'Не вышел', output: 10, factCategory: 'MASS' }, {
       prisma: deps.prisma,
       requirePermission: deps.requirePermission,
       writeAudit: deps.writeAudit,
@@ -1227,7 +1296,7 @@ describe('substituteOperator', () => {
     const line = buildSubstitutableLine('ASSIGNED');
     const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
     const deps = buildSubstituteDeps(line, order, [{ id: 's1c-user-1' }, { id: 's1c-user-2' }]);
-    await substituteOperator('line-1', { reasonCode: 'LEFT_SHIFT', comment: 'Ушёл' }, {
+    await substituteOperator('line-1', { reasonCode: 'LEFT_SHIFT', comment: 'Ушёл', output: 15, factCategory: 'MASS' }, {
       prisma: deps.prisma,
       requirePermission: deps.requirePermission,
       writeAudit: deps.writeAudit,
@@ -1258,7 +1327,7 @@ describe('substituteOperator', () => {
     const line = buildSubstitutableLine('ASSIGNED');
     const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
     const deps = buildSubstituteDeps(line, order);
-    await substituteOperator('line-1', { reasonCode: 'OTHER', comment: 'Иная' }, {
+    await substituteOperator('line-1', { reasonCode: 'OTHER', comment: 'Иная', output: 20, factCategory: 'MASS' }, {
       prisma: deps.prisma,
       requirePermission: deps.requirePermission,
       writeAudit: deps.writeAudit,
@@ -1281,7 +1350,7 @@ describe('substituteOperator', () => {
     const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
     const deps = buildSubstituteDeps(line, order);
     const { checkAndCloseProductionOrder, transitionToInProgress } = await import('@/lib/production-order-closing');
-    await substituteOperator('line-1', { reasonCode: 'ILLNESS', comment: 'Болезнь' }, {
+    await substituteOperator('line-1', { reasonCode: 'ILLNESS', comment: 'Болезнь', output: 30, factCategory: 'MASS' }, {
       prisma: deps.prisma,
       requirePermission: deps.requirePermission,
       writeAudit: deps.writeAudit,
@@ -1299,7 +1368,7 @@ describe('substituteOperator', () => {
     const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
     const deps = buildSubstituteDeps(line, order);
     await expect(
-      substituteOperator('line-1', { reasonCode: 'ILLNESS', comment: 'Болезнь' }, {
+      substituteOperator('line-1', { reasonCode: 'ILLNESS', comment: 'Болезнь', output: 10, factCategory: 'MASS' }, {
         prisma: deps.prisma,
         requirePermission: deps.requirePermission,
         writeAudit: deps.writeAudit,
@@ -1313,7 +1382,7 @@ describe('substituteOperator', () => {
     const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
     const deps = buildSubstituteDeps(line, order);
     await expect(
-      substituteOperator('line-1', { reasonCode: '', comment: 'Болезнь' }, {
+      substituteOperator('line-1', { reasonCode: '', comment: 'Болезнь', output: 10, factCategory: 'MASS' }, {
         prisma: deps.prisma,
         requirePermission: deps.requirePermission,
         writeAudit: deps.writeAudit,
@@ -1327,7 +1396,7 @@ describe('substituteOperator', () => {
     const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
     const deps = buildSubstituteDeps(line, order);
     await expect(
-      substituteOperator('line-1', { reasonCode: 'UNKNOWN', comment: 'Болезнь' }, {
+      substituteOperator('line-1', { reasonCode: 'UNKNOWN', comment: 'Болезнь', output: 10, factCategory: 'MASS' }, {
         prisma: deps.prisma,
         requirePermission: deps.requirePermission,
         writeAudit: deps.writeAudit,
@@ -1341,7 +1410,7 @@ describe('substituteOperator', () => {
     const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
     const deps = buildSubstituteDeps(line, order);
     await expect(
-      substituteOperator('line-1', { reasonCode: 'ILLNESS', comment: '' }, {
+      substituteOperator('line-1', { reasonCode: 'ILLNESS', comment: '', output: 10, factCategory: 'MASS' }, {
         prisma: deps.prisma,
         requirePermission: deps.requirePermission,
         writeAudit: deps.writeAudit,
@@ -1350,13 +1419,27 @@ describe('substituteOperator', () => {
     ).rejects.toThrow('Комментарий обязателен');
   });
 
+  it('blocks substitute without output', async () => {
+    const line = buildSubstitutableLine('ASSIGNED');
+    const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
+    const deps = buildSubstituteDeps(line, order);
+    await expect(
+      substituteOperator('line-1', { reasonCode: 'ILLNESS', comment: 'Болезнь' }, {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+      }),
+    ).rejects.toThrow('Укажите выпуск');
+  });
+
   it('blocks substitute without permission', async () => {
     const line = buildSubstitutableLine('ASSIGNED');
     const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
     const deps = buildSubstituteDeps(line, order);
     deps.requirePermission.mockRejectedValue(new Error('Forbidden'));
     await expect(
-      substituteOperator('line-1', { reasonCode: 'ILLNESS', comment: 'Болезнь' }, {
+      substituteOperator('line-1', { reasonCode: 'ILLNESS', comment: 'Болезнь', output: 10, factCategory: 'MASS' }, {
         prisma: deps.prisma,
         requirePermission: deps.requirePermission,
         writeAudit: deps.writeAudit,
