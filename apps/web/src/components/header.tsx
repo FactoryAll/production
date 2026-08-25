@@ -83,7 +83,7 @@ export async function Header() {
           <span className="hidden text-sm text-neutral-300 sm:inline">
             {user.login}
           </span>
-          <LogoutButton variant="secondary" className="border-white/20 text-white hover:bg-white/10 hover:text-white" />
+          <LogoutButton className="h-[var(--button-height-sm)] rounded-md border border-white/20 bg-transparent px-4 text-base font-medium text-white transition-colors hover:bg-white/10" />
         </div>
       </div>
 

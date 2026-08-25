@@ -32,5 +32,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     maxAge: 0,
   });
 
-  return NextResponse.redirect(new URL('/login', request.url), { status: 303 });
+  const host = request.headers.get('host') || 'localhost';
+  const forwardedProto = request.headers.get('x-forwarded-proto');
+  const protocol = forwardedProto || 'http';
+
+  return NextResponse.redirect(`${protocol}://${host}/login`, { status: 303 });
 }
