@@ -72,6 +72,7 @@ model Product {
   balances            StockBalance[]
   summaryConsumptions ShiftSummaryConsumption[]
   transferLines       TransferLine[]
+  Discrepancy         Discrepancy[]
 
   @@map("products")
 }
@@ -179,14 +180,15 @@ model User {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  roles              UserRole[]
-  sessions           Session[]
-  createdOrders      ProductionOrder[] @relation("CreatedOrders")
-  confirmedOrders    ProductionOrder[] @relation("ConfirmedOrders")
-  cancelledOrders    ProductionOrder[] @relation("CancelledOrders")
-  submittedTransfers GoodsTransfer[]   @relation("TransferSubmitter")
-  auditRecords       AuditRecord[]
-  notifications      Notification[]
+  roles                   UserRole[]
+  sessions                Session[]
+  createdOrders           ProductionOrder[] @relation("CreatedOrders")
+  confirmedOrders         ProductionOrder[] @relation("ConfirmedOrders")
+  cancelledOrders         ProductionOrder[] @relation("CancelledOrders")
+  submittedTransfers      GoodsTransfer[]   @relation("TransferSubmitter")
+  auditRecords            AuditRecord[]
+  notifications           Notification[]
+  reconciledDiscrepancies Discrepancy[]     @relation("DiscrepancyReconciler")
 
   @@map("users")
 }
@@ -463,18 +465,29 @@ model TransferLine {
 }
 
 model Discrepancy {
-  id               String         @id @default(uuid())
-  transferLineId   String
-  transferLine     TransferLine   @relation(fields: [transferLineId], references: [id], onDelete: Cascade)
-  plannedQuantity  Decimal        @db.Decimal(18, 4)
-  actualQuantity   Decimal        @db.Decimal(18, 4)
-  resolvedQuantity Decimal?       @db.Decimal(18, 4)
-  resolvedById     String?
-  resolvedAt       DateTime?
-  createdAt        DateTime       @default(now())
-  GoodsTransfer    GoodsTransfer? @relation(fields: [goodsTransferId], references: [id])
-  goodsTransferId  String?
+  id              String        @id @default(uuid())
+  goodsTransferId String
+  goodsTransfer   GoodsTransfer @relation(fields: [goodsTransferId], references: [id], onDelete: Cascade)
 
+  transferLineId String
+  transferLine   TransferLine @relation(fields: [transferLineId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
+  plannedQuantity Decimal @db.Decimal(10, 2)
+  actualQuantity  Decimal @db.Decimal(10, 2)
+  difference      Decimal @db.Decimal(10, 2)
+
+  reconciled         Boolean   @default(false)
+  reconciledAt       DateTime?
+  reconciledByUserId String?
+  reconciledBy       User?     @relation("DiscrepancyReconciler", fields: [reconciledByUserId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([goodsTransferId, transferLineId])
   @@map("discrepancies")
 }
 

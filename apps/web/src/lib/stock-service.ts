@@ -356,3 +356,60 @@ export function buildTransferReturnMovements(
     sourceId: line.sourceId,
   }));
 }
+
+/**
+ * Builds RECEIPT movements for a received goods transfer (Р-03).
+ * TODO T-041: call this from receiveGoodsTransfer inside the transaction.
+ */
+export function buildTransferReceiptMovements(
+  warehouseId: string,
+  lines: GoodsTransferLineMovement[],
+  products: TransferMovementProduct[],
+): NewMovement[] {
+  if (lines.length === 0) {
+    throw new Error('Перемещение не содержит строк');
+  }
+
+  const seenProducts = new Set<string>();
+  const productById = new Map(products.map((p) => [p.id, p]));
+  const movements: NewMovement[] = [];
+
+  for (const line of lines) {
+    if (!line.productId) {
+      throw new Error('Укажите продукт');
+    }
+    if (line.quantity < 0) {
+      throw new Error('Количество не может быть отрицательным');
+    }
+
+    if (seenProducts.has(line.productId)) {
+      throw new Error('Продукт в перемещении не может повторяться');
+    }
+    seenProducts.add(line.productId);
+
+    const product = productById.get(line.productId);
+    if (!product) {
+      throw new Error('Продукт не найден');
+    }
+    if (!product.active) {
+      throw new Error('Продукт неактивен');
+    }
+    if (product.category !== 'GP') {
+      throw new Error('Перемещения возможны только для ГП');
+    }
+
+    if (line.quantity > 0) {
+      movements.push({
+        warehouseId,
+        productId: line.productId,
+        stockCategory: 'GP' as StockCategory,
+        type: 'RECEIPT' as StockMovementType,
+        quantity: line.quantity,
+        sourceType: 'GOODS_TRANSFER',
+        sourceId: line.sourceId,
+      });
+    }
+  }
+
+  return movements;
+}

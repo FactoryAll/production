@@ -41,10 +41,12 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
   const [cancelError, setCancelError] = useState<string | null>(null);
 
   const isDraft = transfer.status === 'DRAFT';
+  const isSubmitted = transfer.status === 'SUBMITTED';
   const canSubmit = isDraft && hasPermission(userRoles, 'transfer:update');
   const canEdit = isDraft && hasPermission(userRoles, 'transfer:create');
   const canCancel =
     (transfer.status === 'DRAFT' || transfer.status === 'SUBMITTED') && hasPermission(userRoles, 'transfer:update');
+  const canReceive = isSubmitted && hasPermission(userRoles, 'transfer:receive');
 
   const cancelDialogMessage =
     transfer.status === 'DRAFT'
@@ -103,6 +105,11 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
             <Button variant="danger" onClick={() => setShowCancelDialog(true)} disabled={isPending}>
               Отменить перемещение
             </Button>
+          )}
+          {canReceive && (
+            <Link href={`/transfers/${transfer.id}/receive`}>
+              <Button variant="cta" disabled={isPending}>Принять перемещение</Button>
+            </Link>
           )}
         </div>
       </div>

@@ -56,6 +56,9 @@ export function getRoutePermissions(pathname: string): string[] {
     if (pathname.includes('/submit') || pathname.includes('/cancel')) {
       return ['transfer:update'];
     }
+    if (pathname.includes('/receive')) {
+      return ['transfer:receive'];
+    }
     return ['transfer:create', 'transfer:update', 'transfer:receive', 'transfer:reconcile'];
   }
   return [];
