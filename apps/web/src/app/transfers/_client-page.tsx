@@ -13,7 +13,7 @@ import {
 import { Button, Card } from '@prodtrack/ui';
 import { hasPermission } from '@prodtrack/contracts';
 import type { GoodsTransfer, TransferLine, Warehouse, Product } from '@prisma/client';
-import { transferStatusLabel, submitGoodsTransferAction } from './actions';
+import { transferStatusLabel, submitGoodsTransferAction, cancelGoodsTransferAction } from './actions';
 
 interface TransferWithLines extends GoodsTransfer {
   sourceWarehouse: Warehouse;
@@ -42,6 +42,8 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
   const [statusFilter, setStatusFilter] = useState<GoodsTransfer['status'] | 'ALL'>('ALL');
   const [submitTransferId, setSubmitTransferId] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [cancelTransferId, setCancelTransferId] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   const canCreate = hasPermission(userRoles, 'transfer:create');
   const canUpdate = hasPermission(userRoles, 'transfer:update');
@@ -60,6 +62,19 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
         router.refresh();
       } else {
         setSubmitError(result.error ?? 'Не удалось отправить перемещение');
+      }
+    });
+  }
+
+  function handleCancel(transferId: string) {
+    setCancelError(null);
+    startTransition(async () => {
+      const result = await cancelGoodsTransferAction(transferId);
+      setCancelTransferId(null);
+      if (result.success) {
+        router.refresh();
+      } else {
+        setCancelError(result.error ?? 'Не удалось отменить перемещение');
       }
     });
   }
@@ -96,6 +111,7 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
         header: 'Действия',
         cell: ({ row }) => {
           const isDraft = row.original.status === 'DRAFT';
+          const canCancel = (row.original.status === 'DRAFT' || row.original.status === 'SUBMITTED') && canUpdate;
           return (
             <div className="flex items-center gap-2">
               {isDraft && canUpdate && (
@@ -124,6 +140,20 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
                   </Button>
                 </Link>
               )}
+              {canCancel && (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCancelTransferId(row.original.id);
+                    setCancelError(null);
+                  }}
+                  disabled={isPending}
+                >
+                  Отменить
+                </Button>
+              )}
               <Link href={`/transfers/${row.original.id}`}>
                 <Button variant="secondary" size="sm" onClick={(e) => e.stopPropagation()} disabled={isPending}>
                   Открыть
@@ -147,6 +177,17 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
   const selectedTransfer = submitTransferId
     ? transfers.find((t) => t.id === submitTransferId) ?? null
     : null;
+
+  const selectedCancelTransfer = cancelTransferId
+    ? transfers.find((t) => t.id === cancelTransferId) ?? null
+    : null;
+
+  const cancelDialogMessage = (transfer: TransferWithLines): string => {
+    if (transfer.status === 'DRAFT') {
+      return 'Отменить перемещение? Перемещение будет удалено из списка.';
+    }
+    return 'Отменить перемещение? Остатки ГП будут возвращены на Производственный склад. КСГП получит уведомление об отмене.';
+  };
 
   return (
     <div className="space-y-4 p-6">
@@ -260,6 +301,35 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
                 disabled={isPending}
               >
                 {isPending ? 'Отправка...' : 'Отправить'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedCancelTransfer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-md border border-mist-metal bg-graphite-surface p-6 shadow-lg">
+            <h3 className="mb-4 text-lg font-bold text-graphite">Отменить перемещение?</h3>
+            <p className="text-graphite">{cancelDialogMessage(selectedCancelTransfer)}</p>
+            {cancelError && <p className="mt-2 text-sm text-signal-amber">{cancelError}</p>}
+            <div className="mt-6 flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setCancelTransferId(null);
+                  setCancelError(null);
+                }}
+                disabled={isPending}
+              >
+                Не отменять
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => selectedCancelTransfer && handleCancel(selectedCancelTransfer.id)}
+                disabled={isPending}
+              >
+                {isPending ? 'Отмена...' : 'Отменить'}
               </Button>
             </div>
           </div>

@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Button, Card, Dialog } from '@prodtrack/ui';
 import { hasPermission } from '@prodtrack/contracts';
 import type { GoodsTransfer, TransferLine, Warehouse, Product, User } from '@prisma/client';
-import { transferStatusLabel, submitGoodsTransferAction } from '../actions';
+import { transferStatusLabel, submitGoodsTransferAction, cancelGoodsTransferAction } from '../actions';
 
 interface TransferCardProps {
   transfer: GoodsTransfer & {
@@ -37,10 +37,19 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
   const [isPending, startTransition] = useTransition();
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   const isDraft = transfer.status === 'DRAFT';
   const canSubmit = isDraft && hasPermission(userRoles, 'transfer:update');
   const canEdit = isDraft && hasPermission(userRoles, 'transfer:create');
+  const canCancel =
+    (transfer.status === 'DRAFT' || transfer.status === 'SUBMITTED') && hasPermission(userRoles, 'transfer:update');
+
+  const cancelDialogMessage =
+    transfer.status === 'DRAFT'
+      ? 'Отменить перемещение? Перемещение будет удалено из списка.'
+      : 'Отменить перемещение? Остатки ГП будут возвращены на Производственный склад. КСГП получит уведомление об отмене.';
 
   function handleSubmit() {
     setSubmitError(null);
@@ -51,6 +60,19 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
         router.refresh();
       } else {
         setSubmitError(result.error ?? 'Не удалось отправить перемещение');
+      }
+    });
+  }
+
+  function handleCancel() {
+    setCancelError(null);
+    startTransition(async () => {
+      const result = await cancelGoodsTransferAction(transfer.id);
+      setShowCancelDialog(false);
+      if (result.success) {
+        router.refresh();
+      } else {
+        setCancelError(result.error ?? 'Не удалось отменить перемещение');
       }
     });
   }
@@ -75,6 +97,11 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
           {canSubmit && (
             <Button variant="cta" onClick={() => setShowSubmitDialog(true)} disabled={isPending}>
               Отправить
+            </Button>
+          )}
+          {canCancel && (
+            <Button variant="danger" onClick={() => setShowCancelDialog(true)} disabled={isPending}>
+              Отменить перемещение
             </Button>
           )}
         </div>
@@ -161,6 +188,19 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
           </Button>
           <Button variant="cta" onClick={handleSubmit} disabled={isPending}>
             {isPending ? 'Отправка...' : 'Отправить'}
+          </Button>
+        </div>
+      </Dialog>
+
+      <Dialog open={showCancelDialog} onClose={() => setShowCancelDialog(false)} title="Отменить перемещение?">
+        <p className="text-graphite">{cancelDialogMessage}</p>
+        {cancelError && <p className="mt-2 text-sm text-signal-amber">{cancelError}</p>}
+        <div className="mt-6 flex justify-end gap-3">
+          <Button variant="secondary" onClick={() => setShowCancelDialog(false)} disabled={isPending}>
+            Не отменять
+          </Button>
+          <Button variant="danger" onClick={handleCancel} disabled={isPending}>
+            {isPending ? 'Отмена...' : 'Отменить'}
           </Button>
         </div>
       </Dialog>
