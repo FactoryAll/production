@@ -41,3 +41,22 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 export const config = {
   matcher: ['/((?!api|_next/static|_next/image|favicon.ico|public).*)'],
 };
+
+/**
+ * Returns the permission codes required for a given route.
+ * Full authorization (session + role) is enforced inside Server Actions
+ * and Server Components; middleware only uses this mapping for documentation
+ * and future route-level guards.
+ */
+export function getRoutePermissions(pathname: string): string[] {
+  if (pathname.includes('/transfers')) {
+    if (pathname.includes('/new') || pathname.includes('/edit')) {
+      return ['transfer:create', 'transfer:update'];
+    }
+    if (pathname.includes('/submit')) {
+      return ['transfer:update'];
+    }
+    return ['transfer:create', 'transfer:update', 'transfer:receive', 'transfer:reconcile'];
+  }
+  return [];
+}
