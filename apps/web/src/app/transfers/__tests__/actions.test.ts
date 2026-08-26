@@ -6,6 +6,7 @@ import {
   submitGoodsTransfer,
   updateGoodsTransfer,
   cancelGoodsTransfer,
+  receiveGoodsTransfer,
 } from '../actions';
 
 vi.mock('next/cache', () => ({
@@ -94,6 +95,17 @@ const npUser: User = {
   updatedAt: new Date(),
 } as User;
 
+const usgpUser: User = {
+  id: 'usgp-user-1',
+  login: 'usgp',
+  passwordHash: 'hash',
+  mustChangePassword: false,
+  active: true,
+  employeeId: null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+} as User;
+
 function buildMockTransfer(overrides: Partial<GoodsTransfer> = {}): GoodsTransfer {
   return {
     id: 'tr-1',
@@ -131,9 +143,13 @@ type MockTx = {
   transferLine: {
     createMany: ReturnType<typeof vi.fn>;
     deleteMany: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
   };
   user: {
     findMany: ReturnType<typeof vi.fn>;
+  };
+  discrepancy: {
+    create: ReturnType<typeof vi.fn>;
   };
 };
 
@@ -183,9 +199,13 @@ function buildMockPrisma(overrides: {
     transferLine: {
       createMany: vi.fn().mockResolvedValue(undefined),
       deleteMany: vi.fn().mockResolvedValue(undefined),
+      update: vi.fn().mockResolvedValue(undefined),
     },
     user: {
       findMany: vi.fn().mockResolvedValue([ksgpUser]),
+    },
+    discrepancy: {
+      create: vi.fn().mockResolvedValue({ id: 'disc-1' }),
     },
     $transaction: vi.fn(async (cb: (tx: MockTx) => Promise<unknown>) => {
       const tx: MockTx = {
@@ -210,9 +230,13 @@ function buildMockPrisma(overrides: {
         transferLine: {
           createMany: vi.fn().mockResolvedValue(undefined),
           deleteMany: vi.fn().mockResolvedValue(undefined),
+          update: vi.fn().mockResolvedValue(undefined),
         },
         user: {
           findMany: vi.fn().mockResolvedValue([ksgpUser, npUser]),
+        },
+        discrepancy: {
+          create: vi.fn().mockResolvedValue({ id: 'disc-1' }),
         },
       };
       return cb(tx);
@@ -272,6 +296,17 @@ function buildMockDeps(overrides: Parameters<typeof buildMockPrisma>[0] = {}) {
     applyStockMovements,
     buildTransferIssueMovements,
     buildTransferReturnMovements,
+    buildTransferReceiptMovements: vi.fn().mockReturnValue([
+      {
+        warehouseId: finishedGoodsWarehouse.id,
+        productId: gpProduct1.id,
+        stockCategory: 'GP',
+        type: 'RECEIPT',
+        quantity: new Decimal(10),
+        sourceType: 'GOODS_TRANSFER',
+        sourceId: 'tr-1',
+      },
+    ]),
     getStockBalance,
     requirePermission,
   };
@@ -738,5 +773,249 @@ describe('cancelGoodsTransfer', () => {
     const deps = buildMockDeps();
     deps.prisma.goodsTransfer.findUnique = vi.fn().mockResolvedValue(null);
     await expect(cancelGoodsTransfer('missing', deps)).rejects.toThrow('Перемещение не найдено');
+  });
+});
+
+describe('receiveGoodsTransfer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  let txRef: MockTx | undefined;
+
+  function buildReceiveDeps(overrides: Parameters<typeof buildMockPrisma>[0] = {}, expectedStatus: 'RECEIVED' | 'DISCREPANCY' = 'RECEIVED', recipients: User[] = []) {
+    const mockPrisma = buildMockPrisma(overrides);
+    const baseTx = (mockPrisma.$transaction as unknown as ReturnType<typeof vi.fn>).mock.results[0]?.value as MockTx | undefined;
+    mockPrisma.$transaction = vi.fn((cb: (tx: MockTx) => Promise<unknown>) => {
+      const tx: MockTx = {
+        ...(baseTx ?? {
+          goodsTransfer: {
+            create: vi.fn(),
+            findUnique: vi.fn().mockResolvedValue(null),
+            update: vi.fn().mockResolvedValue({ id: 'tr-1', status: expectedStatus }),
+          },
+          transferLine: {
+            createMany: vi.fn().mockResolvedValue(undefined),
+            deleteMany: vi.fn().mockResolvedValue(undefined),
+            update: vi.fn().mockResolvedValue(undefined),
+          },
+          user: {
+            findMany: vi.fn().mockResolvedValue(recipients),
+          },
+          discrepancy: {
+            create: vi.fn().mockResolvedValue({ id: 'disc-1' }),
+          },
+        }),
+        goodsTransfer: {
+          create: baseTx?.goodsTransfer.create ?? vi.fn(),
+          findUnique: baseTx?.goodsTransfer.findUnique ?? vi.fn().mockResolvedValue(null),
+          update: vi.fn().mockImplementation((args: { data?: { status?: string } }) =>
+            Promise.resolve({ id: 'tr-1', status: args.data?.status ?? expectedStatus }),
+          ),
+        },
+        user: {
+          findMany: vi.fn().mockResolvedValue(recipients),
+        },
+      };
+      txRef = tx;
+      return cb(tx);
+    }) as unknown as typeof mockPrisma.$transaction;
+    const deps = buildMockDeps(overrides);
+    deps.prisma = mockPrisma as unknown as typeof deps.prisma;
+    deps.requirePermission = vi.fn().mockResolvedValue({
+      userId: 'user-ksgp',
+      user: { roles: [{ role: { code: 'KSGP' } }] },
+    });
+    return { deps, mockPrisma };
+  }
+
+  it('receives without discrepancies and sets status RECEIVED, emits EV-05', async () => {
+    txRef = undefined;
+    const { deps } = buildReceiveDeps(
+      {
+        transfer: buildMockTransfer({ status: 'SUBMITTED', submittedAt: new Date(), submittedByUserId: 'user-1' }),
+        lines: [buildMockLine()],
+      },
+      'RECEIVED',
+      [npUser],
+    );
+
+    const line = buildMockLine();
+    const result = await receiveGoodsTransfer(
+      'tr-1',
+      { lines: [{ transferLineId: line.id, actualQuantity: 10 }] },
+      deps,
+    );
+
+    expect(result.status).toBe('RECEIVED');
+    expect(deps.buildTransferReceiptMovements).toHaveBeenCalled();
+    expect(deps.applyStockMovements).toHaveBeenCalled();
+
+    const auditCall = deps.writeAudit.mock.calls[0][1];
+    expect(auditCall.oldValue).toBe('SUBMITTED');
+    expect(auditCall.newValue).toBe('RECEIVED');
+
+    const timingCall = deps.writeTiming.mock.calls[0][1];
+    expect(timingCall.toStatus).toBe('RECEIVED');
+
+    expect(deps.emitEvent).toHaveBeenCalled();
+    const emitCall = deps.emitEvent.mock.calls[deps.emitEvent.mock.calls.length - 1][1];
+    expect(emitCall.eventCode).toBe('EV_05');
+    expect(emitCall.recipientIds).toEqual(['np-user-1']);
+  });
+
+  it('receives with discrepancy and sets status DISCREPANCY, creates Discrepancy records, emits EV-06', async () => {
+    txRef = undefined;
+    const { deps } = buildReceiveDeps(
+      {
+        transfer: buildMockTransfer({ status: 'SUBMITTED', submittedAt: new Date(), submittedByUserId: 'user-1' }),
+        lines: [buildMockLine()],
+      },
+      'DISCREPANCY',
+      [npUser, usgpUser],
+    );
+
+    const line = buildMockLine();
+    const result = await receiveGoodsTransfer(
+      'tr-1',
+      { lines: [{ transferLineId: line.id, actualQuantity: 12 }] },
+      deps,
+    );
+
+    expect(result.status).toBe('DISCREPANCY');
+    expect(deps.applyStockMovements).toHaveBeenCalled();
+
+    expect(txRef).toBeDefined();
+    const createdCall = txRef!.discrepancy.create;
+    expect(createdCall).toHaveBeenCalled();
+    const data = createdCall.mock.calls[0][0]?.data;
+    expect(data).toMatchObject({
+      goodsTransferId: 'tr-1',
+      transferLineId: line.id,
+      productId: gpProduct1.id,
+      plannedQuantity: new Decimal(10),
+      actualQuantity: new Decimal(12),
+    });
+    expect(data.difference.toNumber()).toBe(2);
+
+    expect(deps.emitEvent).toHaveBeenCalled();
+    const emitCall = deps.emitEvent.mock.calls[deps.emitEvent.mock.calls.length - 1][1];
+    expect(emitCall.eventCode).toBe('EV_06');
+    expect(emitCall.recipientIds).toEqual(['np-user-1', 'usgp-user-1']);
+    expect(emitCall.payload.discrepanciesCount).toBe(1);
+  });
+
+  it('receives with negative discrepancy (actual < planned) and stores negative difference', async () => {
+    txRef = undefined;
+    const { deps } = buildReceiveDeps(
+      {
+        transfer: buildMockTransfer({ status: 'SUBMITTED', submittedAt: new Date(), submittedByUserId: 'user-1' }),
+        lines: [buildMockLine()],
+      },
+      'DISCREPANCY',
+      [npUser, usgpUser],
+    );
+
+    const line = buildMockLine();
+    const result = await receiveGoodsTransfer(
+      'tr-1',
+      { lines: [{ transferLineId: line.id, actualQuantity: 8 }] },
+      deps,
+    );
+
+    expect(result.status).toBe('DISCREPANCY');
+    expect(txRef).toBeDefined();
+    const data = txRef!.discrepancy.create.mock.calls[0][0]?.data;
+    expect(data.difference.toNumber()).toBe(-2);
+  });
+
+  it('blocks receive from DRAFT', async () => {
+    const { deps } = buildReceiveDeps({ transfer: buildMockTransfer({ status: 'DRAFT' }) });
+    const line = buildMockLine();
+    await expect(
+      receiveGoodsTransfer('tr-1', { lines: [{ transferLineId: line.id, actualQuantity: 10 }] }, deps),
+    ).rejects.toThrow('Перемещение можно принять только из статуса Отправлено');
+  });
+
+  it('blocks receive from RECEIVED', async () => {
+    const { deps } = buildReceiveDeps({ transfer: buildMockTransfer({ status: 'RECEIVED' }) });
+    const line = buildMockLine();
+    await expect(
+      receiveGoodsTransfer('tr-1', { lines: [{ transferLineId: line.id, actualQuantity: 10 }] }, deps),
+    ).rejects.toThrow('Перемещение можно принять только из статуса Отправлено');
+  });
+
+  it('blocks receive from DISCREPANCY', async () => {
+    const { deps } = buildReceiveDeps({ transfer: buildMockTransfer({ status: 'DISCREPANCY' }) });
+    const line = buildMockLine();
+    await expect(
+      receiveGoodsTransfer('tr-1', { lines: [{ transferLineId: line.id, actualQuantity: 10 }] }, deps),
+    ).rejects.toThrow('Перемещение можно принять только из статуса Отправлено');
+  });
+
+  it('blocks receive from CANCELLED', async () => {
+    const { deps } = buildReceiveDeps({ transfer: buildMockTransfer({ status: 'CANCELLED' }) });
+    const line = buildMockLine();
+    await expect(
+      receiveGoodsTransfer('tr-1', { lines: [{ transferLineId: line.id, actualQuantity: 10 }] }, deps),
+    ).rejects.toThrow('Перемещение можно принять только из статуса Отправлено');
+  });
+
+  it('blocks receive when lines are missing', async () => {
+    const { deps } = buildReceiveDeps({
+      transfer: buildMockTransfer({ status: 'SUBMITTED', submittedAt: new Date(), submittedByUserId: 'user-1' }),
+      lines: [buildMockLine()],
+    });
+    await expect(receiveGoodsTransfer('tr-1', { lines: [] }, deps)).rejects.toThrow(
+      'Укажите фактическое количество для всех строк',
+    );
+  });
+
+  it('blocks receive when transferLineId is duplicated', async () => {
+    const { deps } = buildReceiveDeps({
+      transfer: buildMockTransfer({ status: 'SUBMITTED', submittedAt: new Date(), submittedByUserId: 'user-1' }),
+      lines: [buildMockLine()],
+    });
+    const line = buildMockLine();
+    await expect(
+      receiveGoodsTransfer(
+        'tr-1',
+        { lines: [{ transferLineId: line.id, actualQuantity: 10 }, { transferLineId: line.id, actualQuantity: 5 }] },
+        deps,
+      ),
+    ).rejects.toThrow('Строка в приёмке не может повторяться');
+  });
+
+  it('blocks receive when transferLineId is unknown', async () => {
+    const { deps } = buildReceiveDeps({
+      transfer: buildMockTransfer({ status: 'SUBMITTED', submittedAt: new Date(), submittedByUserId: 'user-1' }),
+      lines: [buildMockLine()],
+    });
+    await expect(
+      receiveGoodsTransfer('tr-1', { lines: [{ transferLineId: 'unknown-line', actualQuantity: 10 }] }, deps),
+    ).rejects.toThrow('Строка не найдена в перемещении');
+  });
+
+  it('blocks receive when actualQuantity is negative', async () => {
+    const { deps } = buildReceiveDeps({
+      transfer: buildMockTransfer({ status: 'SUBMITTED', submittedAt: new Date(), submittedByUserId: 'user-1' }),
+      lines: [buildMockLine()],
+    });
+    const line = buildMockLine();
+    await expect(
+      receiveGoodsTransfer('tr-1', { lines: [{ transferLineId: line.id, actualQuantity: -1 }] }, deps),
+    ).rejects.toThrow('Фактическое количество не может быть отрицательным');
+  });
+
+  it('blocks receive without transfer:receive permission', async () => {
+    const { deps } = buildReceiveDeps({
+      transfer: buildMockTransfer({ status: 'SUBMITTED', submittedAt: new Date(), submittedByUserId: 'user-1' }),
+      lines: [buildMockLine()],
+    });
+    deps.requirePermission.mockRejectedValue(new Error('Forbidden: insufficient permissions'));
+    const line = buildMockLine();
+    await expect(
+      receiveGoodsTransfer('tr-1', { lines: [{ transferLineId: line.id, actualQuantity: 10 }] }, deps),
+    ).rejects.toThrow('Forbidden: insufficient permissions');
   });
 });

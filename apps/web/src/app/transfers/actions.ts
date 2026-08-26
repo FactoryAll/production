@@ -10,6 +10,7 @@ import {
   applyStockMovements,
   buildTransferIssueMovements,
   buildTransferReturnMovements,
+  buildTransferReceiptMovements,
   getStockBalance,
 } from '@/lib/stock-service';
 
@@ -65,6 +66,25 @@ export interface CancelGoodsTransferDeps {
   requirePermission: typeof requirePermission;
   applyStockMovements: typeof applyStockMovements;
   buildTransferReturnMovements: typeof import('@/lib/stock-service').buildTransferReturnMovements;
+}
+
+export type ReceiveGoodsTransferResult =
+  | { success: true; status: 'RECEIVED' | 'DISCREPANCY' }
+  | { success: false; error: string };
+
+export interface ReceiveLineInput {
+  transferLineId: string;
+  actualQuantity: number;
+}
+
+export interface ReceiveGoodsTransferDeps {
+  prisma: typeof prisma;
+  writeAudit: typeof writeAudit;
+  writeTiming: typeof writeTiming;
+  emitEvent: typeof emitEvent;
+  requirePermission: typeof requirePermission;
+  applyStockMovements: typeof applyStockMovements;
+  buildTransferReceiptMovements: typeof buildTransferReceiptMovements;
 }
 
 function toDecimal(value: number | string): Prisma.Decimal {
@@ -702,6 +722,226 @@ export async function getTransferCreateData() {
   return { warehouses, products };
 }
 
+export async function receiveGoodsTransfer(
+  transferId: string,
+  input: { lines: ReceiveLineInput[] },
+  deps: ReceiveGoodsTransferDeps = {
+    prisma,
+    writeAudit,
+    writeTiming,
+    emitEvent,
+    requirePermission,
+    applyStockMovements,
+    buildTransferReceiptMovements,
+  },
+): Promise<GoodsTransfer & { lines: TransferLine[] }> {
+  const session = await deps.requirePermission('transfer:receive');
+  const userId = session.userId;
+  const roles = session.user.roles.map((ur) => ur.role.code);
+
+  const transfer = await deps.prisma.goodsTransfer.findUnique({
+    where: { id: transferId },
+    include: {
+      sourceWarehouse: true,
+      destinationWarehouse: true,
+      lines: {
+        include: {
+          product: true,
+        },
+      },
+    },
+  });
+
+  if (!transfer) {
+    throw new Error('Перемещение не найдено');
+  }
+
+  if (transfer.status !== 'SUBMITTED') {
+    throw new Error('Перемещение можно принять только из статуса Отправлено');
+  }
+
+  const lineIds = new Set(transfer.lines.map((line) => line.id));
+  const seenInputIds = new Set<string>();
+  const actualByLineId = new Map<string, Prisma.Decimal>();
+
+  for (const item of input.lines) {
+    if (!lineIds.has(item.transferLineId)) {
+      throw new Error('Строка не найдена в перемещении');
+    }
+    if (seenInputIds.has(item.transferLineId)) {
+      throw new Error('Строка в приёмке не может повторяться');
+    }
+    seenInputIds.add(item.transferLineId);
+
+    const actual = toDecimal(item.actualQuantity);
+    if (actual.lessThan(0)) {
+      throw new Error('Фактическое количество не может быть отрицательным');
+    }
+    actualByLineId.set(item.transferLineId, actual);
+  }
+
+  if (input.lines.length !== transfer.lines.length) {
+    throw new Error('Укажите фактическое количество для всех строк');
+  }
+
+  const receivedLines = transfer.lines.map((line) => ({
+    ...line,
+    actualQuantity: actualByLineId.get(line.id) ?? line.plannedQuantity,
+  }));
+
+  const hasDiscrepancy = receivedLines.some((line) =>
+    !line.actualQuantity.equals(line.plannedQuantity),
+  );
+  const nextStatus: 'RECEIVED' | 'DISCREPANCY' = hasDiscrepancy ? 'DISCREPANCY' : 'RECEIVED';
+
+  const products = transfer.lines.map((line) => ({
+    id: line.product.id,
+    category: line.product.category,
+    active: line.product.active,
+  }));
+
+  const receiptLines = receivedLines.map((line) => ({
+    productId: line.productId,
+    quantity: line.actualQuantity.toNumber(),
+    sourceId: transfer.id,
+  }));
+
+  const now = new Date();
+
+  const result = await deps.prisma.$transaction(async (tx) => {
+    for (const line of receivedLines) {
+      await tx.transferLine.update({
+        where: { id: line.id },
+        data: { actualQuantity: line.actualQuantity },
+      });
+    }
+
+    const updated = await tx.goodsTransfer.update({
+      where: { id: transferId },
+      data: {
+        status: nextStatus,
+        updatedAt: now,
+      },
+      include: { lines: true },
+    });
+
+    if (hasDiscrepancy) {
+      for (const line of receivedLines) {
+        const difference = line.actualQuantity.minus(line.plannedQuantity);
+        if (!difference.equals(0)) {
+          await tx.discrepancy.create({
+            data: {
+              goodsTransferId: transfer.id,
+              transferLineId: line.id,
+              productId: line.productId,
+              plannedQuantity: line.plannedQuantity,
+              actualQuantity: line.actualQuantity,
+              difference,
+              reconciled: false,
+            },
+          });
+        }
+      }
+    }
+
+    const receiptMovements = deps.buildTransferReceiptMovements(
+      transfer.destinationWarehouse.id,
+      receiptLines,
+      products,
+    );
+    await deps.applyStockMovements(tx, receiptMovements);
+
+    await deps.writeAudit(tx, {
+      action: 'UPDATE',
+      objectType: 'GoodsTransfer',
+      objectId: transfer.id,
+      field: 'status',
+      oldValue: 'SUBMITTED',
+      newValue: nextStatus,
+      userId,
+      userRoles: roles,
+      permission: 'transfer:receive',
+    });
+
+    await deps.writeTiming(tx, {
+      documentType: 'GOODS_TRANSFER',
+      documentId: transfer.id,
+      entityType: 'DOCUMENT',
+      entityId: transfer.id,
+      fromStatus: 'SUBMITTED',
+      toStatus: nextStatus,
+      transitionedAt: now,
+      initiatorRole: getAttributeRole(roles, 'transfer:receive') ?? undefined,
+      initiatorId: userId,
+    });
+
+    const recipientRoleCodes: Array<'NP' | 'USGP'> = nextStatus === 'RECEIVED' ? ['NP'] : ['NP', 'USGP'];
+    const notifyUsers = await tx.user.findMany({
+      where: {
+        roles: {
+          some: {
+            role: {
+              code: { in: recipientRoleCodes },
+            },
+          },
+        },
+      },
+      select: { id: true },
+    });
+    const recipientIds = notifyUsers.map((u) => u.id);
+
+    if (recipientIds.length > 0) {
+      const payload =
+        nextStatus === 'RECEIVED'
+          ? {
+              transferId: transfer.id,
+              sourceWarehouse: { id: transfer.sourceWarehouse.id, name: transfer.sourceWarehouse.name },
+              destinationWarehouse: { id: transfer.destinationWarehouse.id, name: transfer.destinationWarehouse.name },
+            }
+          : {
+              transferId: transfer.id,
+              sourceWarehouse: { id: transfer.sourceWarehouse.id, name: transfer.sourceWarehouse.name },
+              destinationWarehouse: { id: transfer.destinationWarehouse.id, name: transfer.destinationWarehouse.name },
+              discrepanciesCount: receivedLines.filter((line) =>
+                !line.actualQuantity.equals(line.plannedQuantity),
+              ).length,
+            };
+
+      await deps.emitEvent(tx, {
+        eventCode: nextStatus === 'RECEIVED' ? 'EV_05' : 'EV_06',
+        title: nextStatus === 'RECEIVED' ? 'Перемещение принято без расхождений' : 'Перемещение принято с расхождениями',
+        body: JSON.stringify(payload),
+        deepLink: '/transfers/' + transfer.id,
+        payload,
+        recipientIds,
+      });
+    }
+
+    return updated;
+  });
+
+  revalidatePath('/transfers');
+  revalidatePath('/transfers/' + transferId);
+  return result;
+}
+
+export async function receiveGoodsTransferAction(
+  transferId: string,
+  formData: FormData,
+): Promise<ReceiveGoodsTransferResult> {
+  try {
+    const linesRaw = formData.get('lines') as string;
+    const lines: ReceiveLineInput[] = linesRaw ? JSON.parse(linesRaw) : [];
+
+    const transfer = await receiveGoodsTransfer(transferId, { lines });
+    return { success: true, status: transfer.status as 'RECEIVED' | 'DISCREPANCY' };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Не удалось принять перемещение';
+    return { success: false, error: message };
+  }
+}
+
 export { transferStatusLabel };
 
-// TODO T-041: реализовать приёмку (RECEIVED/DISCREPANCY)
+// TODO T-042: реализовать согласование расхождений (RECONCILED)
+// TODO T-043: реализовать блокировку приёмки отменённого (Р-12)
