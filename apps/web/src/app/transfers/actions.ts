@@ -9,6 +9,7 @@ import { getAttributeRole } from '@prodtrack/contracts';
 import {
   applyStockMovements,
   buildTransferIssueMovements,
+  buildTransferReturnMovements,
   getStockBalance,
 } from '@/lib/stock-service';
 
@@ -50,6 +51,20 @@ export interface SubmitGoodsTransferDeps {
   applyStockMovements: typeof applyStockMovements;
   buildTransferIssueMovements: typeof buildTransferIssueMovements;
   getStockBalance: typeof getStockBalance;
+}
+
+export type CancelGoodsTransferResult =
+  | { success: true }
+  | { success: false; error: string };
+
+export interface CancelGoodsTransferDeps {
+  prisma: typeof prisma;
+  writeAudit: typeof writeAudit;
+  writeTiming: typeof writeTiming;
+  emitEvent: typeof emitEvent;
+  requirePermission: typeof requirePermission;
+  applyStockMovements: typeof applyStockMovements;
+  buildTransferReturnMovements: typeof import('@/lib/stock-service').buildTransferReturnMovements;
 }
 
 function toDecimal(value: number | string): Prisma.Decimal {
@@ -372,6 +387,162 @@ export async function submitGoodsTransferAction(transferId: string): Promise<Sub
   }
 }
 
+export async function cancelGoodsTransfer(
+  transferId: string,
+  deps: CancelGoodsTransferDeps = {
+    prisma,
+    writeAudit,
+    writeTiming,
+    emitEvent,
+    requirePermission,
+    applyStockMovements,
+    buildTransferReturnMovements,
+  },
+): Promise<GoodsTransfer & { lines: TransferLine[] }> {
+  const session = await deps.requirePermission('transfer:update');
+  const userId = session.userId;
+  const roles = session.user.roles.map((ur) => ur.role.code);
+
+  const transfer = await deps.prisma.goodsTransfer.findUnique({
+    where: { id: transferId },
+    include: {
+      sourceWarehouse: true,
+      destinationWarehouse: true,
+      lines: {
+        include: {
+          product: true,
+        },
+      },
+    },
+  });
+
+  if (!transfer) {
+    throw new Error('Перемещение не найдено');
+  }
+
+  if (transfer.status !== 'DRAFT' && transfer.status !== 'SUBMITTED') {
+    throw new Error('Перемещение нельзя отменить в этом статусе');
+  }
+
+  const oldStatus = transfer.status;
+  const now = new Date();
+
+  const result = await deps.prisma.$transaction(async (tx) => {
+    if (oldStatus === 'SUBMITTED') {
+      for (const line of transfer.lines) {
+        if (!line.product.active) {
+          throw new Error(`Продукт деактивирован: ${line.product.name}`);
+        }
+      }
+
+      if (!transfer.sourceWarehouse.active || !transfer.destinationWarehouse.active) {
+        throw new Error('Склад деактивирован');
+      }
+
+      const products = transfer.lines.map((line) => ({
+        id: line.product.id,
+        category: line.product.category,
+        active: line.product.active,
+      }));
+
+      const movementLines = transfer.lines.map((line) => ({
+        productId: line.productId,
+        quantity: line.plannedQuantity.toNumber(),
+        sourceId: transfer.id,
+      }));
+
+      const returnMovements = deps.buildTransferReturnMovements(
+        transfer.sourceWarehouse.id,
+        movementLines,
+        products,
+      );
+      await deps.applyStockMovements(tx, returnMovements);
+    }
+
+    const updated = await tx.goodsTransfer.update({
+      where: { id: transferId },
+      data: {
+        status: 'CANCELLED',
+        updatedAt: now,
+      },
+      include: { lines: true },
+    });
+
+    await deps.writeAudit(tx, {
+      action: 'UPDATE',
+      objectType: 'GoodsTransfer',
+      objectId: transfer.id,
+      field: 'status',
+      oldValue: oldStatus,
+      newValue: 'CANCELLED',
+      userId,
+      userRoles: roles,
+      permission: 'transfer:update',
+    });
+
+    await deps.writeTiming(tx, {
+      documentType: 'GOODS_TRANSFER',
+      documentId: transfer.id,
+      entityType: 'DOCUMENT',
+      entityId: transfer.id,
+      fromStatus: oldStatus,
+      toStatus: 'CANCELLED',
+      transitionedAt: now,
+      initiatorRole: getAttributeRole(roles, 'transfer:update') ?? undefined,
+      initiatorId: userId,
+    });
+
+    const npAndKsgpUsers = await tx.user.findMany({
+      where: {
+        roles: {
+          some: {
+            role: {
+              code: { in: ['NP', 'KSGP'] },
+            },
+          },
+        },
+      },
+      select: { id: true, roles: { select: { role: { select: { code: true } } } } },
+    });
+
+    const recipientIds = npAndKsgpUsers.map((u) => u.id);
+
+    if (recipientIds.length > 0) {
+      const payload = {
+        transferId: transfer.id,
+        sourceWarehouse: { id: transfer.sourceWarehouse.id, name: transfer.sourceWarehouse.name },
+        destinationWarehouse: { id: transfer.destinationWarehouse.id, name: transfer.destinationWarehouse.name },
+        status: 'CANCELLED',
+      };
+
+      await deps.emitEvent(tx, {
+        eventCode: 'EV_10',
+        title: 'Перемещение отменено',
+        body: JSON.stringify(payload),
+        deepLink: '/transfers/' + transfer.id,
+        payload,
+        recipientIds,
+      });
+    }
+
+    return updated;
+  });
+
+  revalidatePath('/transfers');
+  revalidatePath('/transfers/' + transferId);
+  return result;
+}
+
+export async function cancelGoodsTransferAction(transferId: string): Promise<CancelGoodsTransferResult> {
+  try {
+    await cancelGoodsTransfer(transferId);
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Не удалось отменить перемещение';
+    return { success: false, error: message };
+  }
+}
+
 export async function updateGoodsTransfer(
   transferId: string,
   input: {
@@ -533,5 +704,4 @@ export async function getTransferCreateData() {
 
 export { transferStatusLabel };
 
-// TODO T-040: реализовать отмену Перемещения (CANCELLED) с возвратом остатков
 // TODO T-041: реализовать приёмку (RECEIVED/DISCREPANCY)

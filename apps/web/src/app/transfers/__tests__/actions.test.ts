@@ -5,6 +5,7 @@ import {
   createGoodsTransfer,
   submitGoodsTransfer,
   updateGoodsTransfer,
+  cancelGoodsTransfer,
 } from '../actions';
 
 vi.mock('next/cache', () => ({
@@ -74,6 +75,17 @@ const inactiveGpProduct: Product = {
 const ksgpUser: User = {
   id: 'ksgp-user-1',
   login: 'ksgp',
+  passwordHash: 'hash',
+  mustChangePassword: false,
+  active: true,
+  employeeId: null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+} as User;
+
+const npUser: User = {
+  id: 'np-user-1',
+  login: 'np',
   passwordHash: 'hash',
   mustChangePassword: false,
   active: true,
@@ -164,7 +176,9 @@ function buildMockPrisma(overrides: {
         return Promise.resolve({ ...transferWithLines, lines: createdLines });
       }),
       findUnique: vi.fn().mockResolvedValue(transferWithLines),
-      update: vi.fn().mockResolvedValue({ ...transferWithLines, status: 'SUBMITTED', submittedAt: new Date(), submittedByUserId: 'user-1' }),
+      update: vi.fn().mockImplementation((args: { data?: { status?: string } }) =>
+        Promise.resolve({ ...transferWithLines, status: args.data?.status ?? transferWithLines.status, updatedAt: new Date() }),
+      ),
     },
     transferLine: {
       createMany: vi.fn().mockResolvedValue(undefined),
@@ -189,14 +203,16 @@ function buildMockPrisma(overrides: {
             return Promise.resolve({ ...transferWithLines, lines: createdLines });
           }),
           findUnique: vi.fn().mockResolvedValue(transferWithLines),
-          update: vi.fn().mockResolvedValue({ ...transferWithLines, status: 'SUBMITTED', submittedAt: new Date(), submittedByUserId: 'user-1' }),
+          update: vi.fn().mockImplementation((args: { data?: { status?: string } }) =>
+            Promise.resolve({ ...transferWithLines, status: args.data?.status ?? transferWithLines.status, updatedAt: new Date() }),
+          ),
         },
         transferLine: {
           createMany: vi.fn().mockResolvedValue(undefined),
           deleteMany: vi.fn().mockResolvedValue(undefined),
         },
         user: {
-          findMany: vi.fn().mockResolvedValue([ksgpUser]),
+          findMany: vi.fn().mockResolvedValue([ksgpUser, npUser]),
         },
       };
       return cb(tx);
@@ -217,6 +233,17 @@ function buildMockDeps(overrides: Parameters<typeof buildMockPrisma>[0] = {}) {
       type: 'ISSUE',
       quantity: new Decimal(10),
       sourceType: 'GOODS_TRANSFER',
+      sourceId: 'tr-1',
+    },
+  ]);
+  const buildTransferReturnMovements = vi.fn().mockReturnValue([
+    {
+      warehouseId: productionWarehouse.id,
+      productId: gpProduct1.id,
+      stockCategory: 'GP',
+      type: 'RETURN',
+      quantity: new Decimal(10),
+      sourceType: 'TRANSFER_CANCEL',
       sourceId: 'tr-1',
     },
   ]);
@@ -244,6 +271,7 @@ function buildMockDeps(overrides: Parameters<typeof buildMockPrisma>[0] = {}) {
     emitEvent,
     applyStockMovements,
     buildTransferIssueMovements,
+    buildTransferReturnMovements,
     getStockBalance,
     requirePermission,
   };
@@ -470,7 +498,7 @@ describe('submitGoodsTransfer', () => {
     expect(deps.emitEvent).toHaveBeenCalled();
     const emitCall = deps.emitEvent.mock.calls[0][1];
     expect(emitCall.eventCode).toBe('EV_04');
-    expect(emitCall.recipientIds).toEqual(['ksgp-user-1']);
+    expect(emitCall.recipientIds).toEqual(['ksgp-user-1', 'np-user-1']);
     expect(emitCall.title).toBe('Перемещение отправлено');
     const payload = emitCall.payload;
     expect(payload).toMatchObject({
@@ -573,5 +601,142 @@ describe('updateGoodsTransfer', () => {
         deps,
       ),
     ).rejects.toThrow('Редактирование доступно только в статусе Черновик');
+  });
+});
+
+describe('cancelGoodsTransfer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('cancels DRAFT transfer without stock movements and emits EV-10', async () => {
+    const deps = buildMockDeps({ transfer: buildMockTransfer({ status: 'DRAFT' }) });
+    const result = await cancelGoodsTransfer('tr-1', deps);
+
+    expect(result.status).toBe('CANCELLED');
+    expect(deps.buildTransferReturnMovements).not.toHaveBeenCalled();
+    expect(deps.applyStockMovements).not.toHaveBeenCalled();
+
+    expect(deps.writeAudit).toHaveBeenCalled();
+    const auditCall = deps.writeAudit.mock.calls[0][1];
+    expect(auditCall.action).toBe('UPDATE');
+    expect(auditCall.field).toBe('status');
+    expect(auditCall.oldValue).toBe('DRAFT');
+    expect(auditCall.newValue).toBe('CANCELLED');
+
+    expect(deps.writeTiming).toHaveBeenCalled();
+    const timingCall = deps.writeTiming.mock.calls[0][1];
+    expect(timingCall.fromStatus).toBe('DRAFT');
+    expect(timingCall.toStatus).toBe('CANCELLED');
+
+    expect(deps.emitEvent).toHaveBeenCalled();
+    const emitCall = deps.emitEvent.mock.calls[0][1];
+    expect(emitCall.eventCode).toBe('EV_10');
+    expect(emitCall.recipientIds).toEqual(['ksgp-user-1', 'np-user-1']);
+    expect(emitCall.payload.status).toBe('CANCELLED');
+  });
+
+  it('cancels SUBMITTED transfer with RETURN movements and emits EV-10', async () => {
+    const mockPrisma = buildMockPrisma({
+      transfer: buildMockTransfer({ status: 'SUBMITTED', submittedAt: new Date(), submittedByUserId: 'user-1' }),
+      lines: [buildMockLine()],
+    });
+    const deps = buildMockDeps({
+      transfer: buildMockTransfer({ status: 'SUBMITTED', submittedAt: new Date(), submittedByUserId: 'user-1' }),
+      lines: [buildMockLine()],
+    });
+    deps.prisma = mockPrisma as unknown as typeof deps.prisma;
+
+    mockPrisma.user.findMany = vi.fn().mockResolvedValue([ksgpUser, npUser]);
+
+    const result = await cancelGoodsTransfer('tr-1', deps);
+
+    expect(result.status).toBe('CANCELLED');
+    expect(deps.buildTransferReturnMovements).toHaveBeenCalled();
+    expect(deps.applyStockMovements).toHaveBeenCalled();
+
+    const movements = deps.applyStockMovements.mock.calls[0][1];
+    expect(movements).toHaveLength(1);
+    expect(movements[0]).toMatchObject({
+      warehouseId: productionWarehouse.id,
+      productId: gpProduct1.id,
+      stockCategory: 'GP',
+      type: 'RETURN',
+      sourceType: 'TRANSFER_CANCEL',
+      sourceId: 'tr-1',
+    });
+
+    const auditCall = deps.writeAudit.mock.calls[0][1];
+    expect(auditCall.oldValue).toBe('SUBMITTED');
+    expect(auditCall.newValue).toBe('CANCELLED');
+
+    const timingCall = deps.writeTiming.mock.calls[0][1];
+    expect(timingCall.fromStatus).toBe('SUBMITTED');
+    expect(timingCall.toStatus).toBe('CANCELLED');
+
+    const emitCall = deps.emitEvent.mock.calls[0][1];
+    expect(emitCall.eventCode).toBe('EV_10');
+    expect(emitCall.recipientIds).toEqual(['ksgp-user-1', 'np-user-1']);
+  });
+
+  it('emits EV-10 to NP and KSGP recipients when canceling DRAFT', async () => {
+    const mockPrisma = buildMockPrisma({ transfer: buildMockTransfer({ status: 'DRAFT' }) });
+    const deps = buildMockDeps({ transfer: buildMockTransfer({ status: 'DRAFT' }) });
+    deps.prisma = mockPrisma as unknown as typeof deps.prisma;
+    mockPrisma.user.findMany = vi.fn().mockResolvedValue([ksgpUser, npUser]);
+
+    await cancelGoodsTransfer('tr-1', deps);
+
+    const emitCall = deps.emitEvent.mock.calls[0][1];
+    expect(emitCall.eventCode).toBe('EV_10');
+    expect(emitCall.recipientIds).toEqual(['ksgp-user-1', 'np-user-1']);
+  });
+
+  it('blocks cancel from RECEIVED', async () => {
+    const deps = buildMockDeps({ transfer: buildMockTransfer({ status: 'RECEIVED' }) });
+    await expect(cancelGoodsTransfer('tr-1', deps)).rejects.toThrow('Перемещение нельзя отменить в этом статусе');
+  });
+
+  it('blocks cancel from DISCREPANCY', async () => {
+    const deps = buildMockDeps({ transfer: buildMockTransfer({ status: 'DISCREPANCY' }) });
+    await expect(cancelGoodsTransfer('tr-1', deps)).rejects.toThrow('Перемещение нельзя отменить в этом статусе');
+  });
+
+  it('blocks cancel from RECONCILED', async () => {
+    const deps = buildMockDeps({ transfer: buildMockTransfer({ status: 'RECONCILED' }) });
+    await expect(cancelGoodsTransfer('tr-1', deps)).rejects.toThrow('Перемещение нельзя отменить в этом статусе');
+  });
+
+  it('blocks cancel from CANCELLED', async () => {
+    const deps = buildMockDeps({ transfer: buildMockTransfer({ status: 'CANCELLED' }) });
+    await expect(cancelGoodsTransfer('tr-1', deps)).rejects.toThrow('Перемещение нельзя отменить в этом статусе');
+  });
+
+  it('blocks cancel without transfer:update permission', async () => {
+    const deps = buildMockDeps({ transfer: buildMockTransfer({ status: 'DRAFT' }) });
+    deps.requirePermission.mockRejectedValue(new Error('Forbidden: insufficient permissions'));
+    await expect(cancelGoodsTransfer('tr-1', deps)).rejects.toThrow('Forbidden: insufficient permissions');
+  });
+
+  it('blocks cancel when product deactivated after submit', async () => {
+    const deps = buildMockDeps({
+      transfer: buildMockTransfer({ status: 'SUBMITTED', submittedAt: new Date(), submittedByUserId: 'user-1' }),
+      lines: [buildMockLine({ product: inactiveGpProduct })],
+    });
+    await expect(cancelGoodsTransfer('tr-1', deps)).rejects.toThrow('Продукт деактивирован');
+  });
+
+  it('blocks cancel when warehouse deactivated', async () => {
+    const deps = buildMockDeps({
+      transfer: buildMockTransfer({ status: 'SUBMITTED', submittedAt: new Date(), submittedByUserId: 'user-1' }),
+      warehouses: [{ ...productionWarehouse, active: false }, finishedGoodsWarehouse],
+    });
+    await expect(cancelGoodsTransfer('tr-1', deps)).rejects.toThrow('Склад деактивирован');
+  });
+
+  it('blocks cancel for non-existing transfer', async () => {
+    const deps = buildMockDeps();
+    deps.prisma.goodsTransfer.findUnique = vi.fn().mockResolvedValue(null);
+    await expect(cancelGoodsTransfer('missing', deps)).rejects.toThrow('Перемещение не найдено');
   });
 });
