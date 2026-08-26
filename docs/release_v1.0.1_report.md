@@ -69,7 +69,27 @@
   - Версия в футере: `ProdTrack v1.0.1`
 - Примечание: образ пересобирался с `--no-cache`, так как `VERSION` должен быть зашит в runtime; `docker-compose.yml` и `.env` обновлены для использования переменной `VERSION`.
 
+## Восстановление тестового покрытия
+
+Проведена диагностика по файлам сравнением `v1.0.0` (коммит `65b24d5`) и текущего `main`.
+
+| Файл | v1.0.0 it() | v1.0.1 it() | Δ | Причина |
+|------|-------------|-------------|---|---------|
+| `apps/web/src/app/nsi/shifts/__tests__/shifts.test.ts` | 6 | 7 | +1 | добавлен тест `findUnique` lookup для timezone-исправления (hotfix BR-4) |
+| `apps/web/src/app/production-orders/__tests__/actions.test.ts` | 64 | 65 | +1 | переименование сценария подстановки + добавлен `blocks substitute without output` (hotfix Р-11/Р-13) |
+| `packages/contracts/src/access.test.ts` | 12 | 15 | +3 | добавлены тесты `getPrimaryRole` (hotfix auth) |
+| `packages/db/src/seed.test.ts` | 7 | 8 | +1 | добавлены константы `test_s1c` (hotfix EV-09) |
+| `packages/ui/src/button.test.tsx` | 2 | 4 | +2 | добавлены тесты цветов, радиуса и отступов кнопок (hotfix UI) |
+| **ИТОГО** | **367** | **375** | **+8** | **покрытие увеличилось** |
+
+Фактические результаты `pnpm test -- --run --reporter=verbose`:
+- v1.0.0: contracts 34 + ui 2 + db 14 + web 317 = **367**
+- v1.0.1: contracts 37 + ui 4 + db 15 + web 319 = **375**
+
+Требование ПРОЦ-05 §5.4 («число тестов не должно уменьшаться») выполнено.
+
 ## Проблемы и действия
 
 - `tracker.factoryall.ru` возвращает 502 Bad Gateway — соседний сервис, не связан с ProdTrack. Вне зоны ответственности релиза.
 - Версия в футере не отображалась после первого деплоя: выяснилось, что `VERSION` передавался только на этапе `builder`, а не в финальный `runner`-контейнер. Добавлен `ARG VERSION` и `ENV VERSION` в `runner` stage Dockerfile; футер нормализован против двойного `v`.
+- Ложное ощущение регрессии тестов: предыдущий отчёт ошибочно привёл только `@prodtrack/web` (319), но полное число тестов на `main` — 375, что больше 367.
