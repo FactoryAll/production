@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { notFound } from 'next/navigation';
-import { getTransferById } from '../actions';
+import { getTransferById } from '../queries';
 import TransferCard from './_client-card';
 import { requireSession } from '@/lib/auth/session';
 

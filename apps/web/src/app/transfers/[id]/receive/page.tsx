@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { notFound, redirect } from 'next/navigation';
-import { getTransferById } from '../../actions';
+import { getTransferById } from '../../queries';
 import ReceiveTransferForm from './_client-form';
 import { requirePermission } from '@/lib/auth/access';
 

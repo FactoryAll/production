@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 
-import { getTransfers } from './actions';
+import { getTransfers } from './queries';
 import TransfersPage from './_client-page';
 import { requireSession } from '@/lib/auth/session';
 

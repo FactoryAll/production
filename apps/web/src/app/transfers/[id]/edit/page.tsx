@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { notFound } from 'next/navigation';
-import { getTransferById, getTransferCreateData } from '../../actions';
+import { getTransferById, getTransferCreateData } from '../../queries';
 import TransferEditForm from './_client-form';
 
 interface EditTransferPageProps {

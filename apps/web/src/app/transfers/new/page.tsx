@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 
-import { getTransferCreateData } from '../actions';
+import { getTransferCreateData } from '../queries';
 import TransferForm from './_client-form';
 
 export default async function NewTransferPage() {
