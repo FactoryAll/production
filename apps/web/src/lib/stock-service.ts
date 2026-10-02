@@ -60,10 +60,6 @@ export function consumptionProductCategoryToStockCategory(
 }
 
 function movementSign(type: StockMovementType): number {
-  // TODO T-039: при submitGoodsTransfer вызвать buildTransferIssueMovements
-  //   + applyStockMovements в транзакции (Р-03 — списание при SUBMITTED)
-  // TODO T-040: при cancelGoodsTransfer в статусе SUBMITTED вызвать
-  //   buildTransferReturnMovements + applyStockMovements (Р-12 — возврат)
   return type === 'RECEIPT' || type === 'RETURN' ? 1 : -1;
 }
 
@@ -315,7 +311,6 @@ function validateTransferLines(
 
 /**
  * Builds ISSUE movements for a submitted goods transfer (Р-03).
- * TODO T-039: call this from submitGoodsTransfer inside the transaction.
  */
 export function buildTransferIssueMovements(
   warehouseId: string,
@@ -337,7 +332,6 @@ export function buildTransferIssueMovements(
 
 /**
  * Builds RETURN movements for a cancelled goods transfer (Р-12).
- * TODO T-040: call this from cancelGoodsTransfer inside the transaction.
  */
 export function buildTransferReturnMovements(
   warehouseId: string,
@@ -359,7 +353,6 @@ export function buildTransferReturnMovements(
 
 /**
  * Builds RECEIPT movements for a received goods transfer (Р-03).
- * TODO T-041: call this from receiveGoodsTransfer inside the transaction.
  */
 export function buildTransferReceiptMovements(
   warehouseId: string,

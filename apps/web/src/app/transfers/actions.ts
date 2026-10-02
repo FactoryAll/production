@@ -775,8 +775,16 @@ export async function receiveGoodsTransfer(
     throw new Error('Перемещение не найдено');
   }
 
+  const statusMessages: Record<GoodsTransfer['status'], string> = {
+    DRAFT: 'Перемещение ещё не отправлено',
+    SUBMITTED: '',
+    RECEIVED: 'Перемещение уже принято',
+    DISCREPANCY: 'Перемещение уже принято с расхождениями',
+    RECONCILED: 'Расхождения уже согласованы',
+    CANCELLED: 'Приёмка отменённого Перемещения невозможна',
+  };
   if (transfer.status !== 'SUBMITTED') {
-    throw new Error('Перемещение можно принять только из статуса Отправлено');
+    throw new Error(statusMessages[transfer.status] ?? 'Перемещение можно принять только из статуса Отправлено');
   }
 
   const lineIds = new Set(transfer.lines.map((line) => line.id));
@@ -1153,5 +1161,3 @@ export async function reconcileDiscrepanciesAction(
 }
 
 export { transferStatusLabel };
-
-// TODO T-043: реализовать блокировку приёмки отменённого (Р-12)

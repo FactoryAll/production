@@ -938,12 +938,14 @@ describe('receiveGoodsTransfer', () => {
     expect(data.difference.toNumber()).toBe(-2);
   });
 
+
+
   it('blocks receive from DRAFT', async () => {
     const { deps } = buildReceiveDeps({ transfer: buildMockTransfer({ status: 'DRAFT' }) });
     const line = buildMockLine();
     await expect(
       receiveGoodsTransfer('tr-1', { lines: [{ transferLineId: line.id, actualQuantity: 10 }] }, deps),
-    ).rejects.toThrow('Перемещение можно принять только из статуса Отправлено');
+    ).rejects.toThrow('Перемещение ещё не отправлено');
   });
 
   it('blocks receive from RECEIVED', async () => {
@@ -951,7 +953,7 @@ describe('receiveGoodsTransfer', () => {
     const line = buildMockLine();
     await expect(
       receiveGoodsTransfer('tr-1', { lines: [{ transferLineId: line.id, actualQuantity: 10 }] }, deps),
-    ).rejects.toThrow('Перемещение можно принять только из статуса Отправлено');
+    ).rejects.toThrow('Перемещение уже принято');
   });
 
   it('blocks receive from DISCREPANCY', async () => {
@@ -959,7 +961,15 @@ describe('receiveGoodsTransfer', () => {
     const line = buildMockLine();
     await expect(
       receiveGoodsTransfer('tr-1', { lines: [{ transferLineId: line.id, actualQuantity: 10 }] }, deps),
-    ).rejects.toThrow('Перемещение можно принять только из статуса Отправлено');
+    ).rejects.toThrow('Перемещение уже принято с расхождениями');
+  });
+
+  it('blocks receive from RECONCILED', async () => {
+    const { deps } = buildReceiveDeps({ transfer: buildMockTransfer({ status: 'RECONCILED' }) });
+    const line = buildMockLine();
+    await expect(
+      receiveGoodsTransfer('tr-1', { lines: [{ transferLineId: line.id, actualQuantity: 10 }] }, deps),
+    ).rejects.toThrow('Расхождения уже согласованы');
   });
 
   it('blocks receive from CANCELLED', async () => {
@@ -967,7 +977,7 @@ describe('receiveGoodsTransfer', () => {
     const line = buildMockLine();
     await expect(
       receiveGoodsTransfer('tr-1', { lines: [{ transferLineId: line.id, actualQuantity: 10 }] }, deps),
-    ).rejects.toThrow('Перемещение можно принять только из статуса Отправлено');
+    ).rejects.toThrow('Приёмка отменённого Перемещения невозможна');
   });
 
   it('blocks receive when lines are missing', async () => {

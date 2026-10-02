@@ -47,6 +47,7 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
 
   const canCreate = hasPermission(userRoles, 'transfer:create');
   const canUpdate = hasPermission(userRoles, 'transfer:update');
+  const canReceive = hasPermission(userRoles, 'transfer:receive');
 
   const filteredTransfers = useMemo(() => {
     if (statusFilter === 'ALL') return transfers;
@@ -111,6 +112,7 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
         header: 'Действия',
         cell: ({ row }) => {
           const isDraft = row.original.status === 'DRAFT';
+          const isSubmitted = row.original.status === 'SUBMITTED';
           const canCancel = (row.original.status === 'DRAFT' || row.original.status === 'SUBMITTED') && canUpdate;
           return (
             <div className="flex items-center gap-2">
@@ -154,6 +156,18 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
                   Отменить
                 </Button>
               )}
+              {isSubmitted && canReceive && (
+                <Link href={`/transfers/${row.original.id}/receive`}>
+                  <Button
+                    variant="cta"
+                    size="sm"
+                    onClick={(e) => e.stopPropagation()}
+                    disabled={isPending}
+                  >
+                    Принять
+                  </Button>
+                </Link>
+              )}
               <Link href={`/transfers/${row.original.id}`}>
                 <Button variant="secondary" size="sm" onClick={(e) => e.stopPropagation()} disabled={isPending}>
                   Открыть
@@ -164,7 +178,7 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
         },
       },
     ],
-    [canCreate, canUpdate, isPending],
+    [canCreate, canUpdate, canReceive, isPending],
   );
 
   const table = useReactTable({
