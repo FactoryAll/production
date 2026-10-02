@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button, Card, Dialog } from '@prodtrack/ui';
@@ -36,7 +36,7 @@ function formatDate(value: Date | null): string {
 
 export default function TransferCard({ transfer, userRoles }: TransferCardProps) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [isPending, setIsPending] = useState(false);
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
@@ -59,9 +59,10 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
       ? 'Отменить перемещение? Перемещение будет удалено из списка.'
       : 'Отменить перемещение? Остатки ГП будут возвращены на Производственный склад. КСГП получит уведомление об отмене.';
 
-  function handleSubmit() {
+  async function handleSubmit() {
     setSubmitError(null);
-    startTransition(async () => {
+    setIsPending(true);
+    try {
       const result = await submitGoodsTransferAction(transfer.id);
       setShowSubmitDialog(false);
       if (result.success) {
@@ -69,12 +70,15 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
       } else {
         setSubmitError(result.error ?? 'Не удалось отправить перемещение');
       }
-    });
+    } finally {
+      setIsPending(false);
+    }
   }
 
-  function handleCancel() {
+  async function handleCancel() {
     setCancelError(null);
-    startTransition(async () => {
+    setIsPending(true);
+    try {
       const result = await cancelGoodsTransferAction(transfer.id);
       setShowCancelDialog(false);
       if (result.success) {
@@ -82,7 +86,9 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
       } else {
         setCancelError(result.error ?? 'Не удалось отменить перемещение');
       }
-    });
+    } finally {
+      setIsPending(false);
+    }
   }
 
   return (

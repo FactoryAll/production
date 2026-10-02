@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useTransition } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -38,7 +38,7 @@ const STATUS_FILTERS: Array<{ value: GoodsTransfer['status'] | 'ALL'; label: str
 
 export default function TransfersPage({ transfers, userRoles }: TransfersPageProps) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [isPending, setIsPending] = useState(false);
   const [statusFilter, setStatusFilter] = useState<GoodsTransfer['status'] | 'ALL'>('ALL');
   const [submitTransferId, setSubmitTransferId] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -54,9 +54,10 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
     return transfers.filter((t) => t.status === statusFilter);
   }, [transfers, statusFilter]);
 
-  function handleSubmit(transferId: string) {
+  async function handleSubmit(transferId: string) {
     setSubmitError(null);
-    startTransition(async () => {
+    setIsPending(true);
+    try {
       const result = await submitGoodsTransferAction(transferId);
       setSubmitTransferId(null);
       if (result.success) {
@@ -64,12 +65,15 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
       } else {
         setSubmitError(result.error ?? 'Не удалось отправить перемещение');
       }
-    });
+    } finally {
+      setIsPending(false);
+    }
   }
 
-  function handleCancel(transferId: string) {
+  async function handleCancel(transferId: string) {
     setCancelError(null);
-    startTransition(async () => {
+    setIsPending(true);
+    try {
       const result = await cancelGoodsTransferAction(transferId);
       setCancelTransferId(null);
       if (result.success) {
@@ -77,7 +81,9 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
       } else {
         setCancelError(result.error ?? 'Не удалось отменить перемещение');
       }
-    });
+    } finally {
+      setIsPending(false);
+    }
   }
 
   const columns = useMemo<ColumnDef<TransferWithLines>[]>(
