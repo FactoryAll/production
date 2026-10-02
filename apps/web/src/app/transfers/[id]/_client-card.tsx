@@ -7,13 +7,15 @@ import { Button, Card, Dialog } from '@prodtrack/ui';
 import { hasPermission } from '@prodtrack/contracts';
 import type { GoodsTransfer, TransferLine, Warehouse, Product, User } from '@prisma/client';
 import { transferStatusLabel, submitGoodsTransferAction, cancelGoodsTransferAction } from '../actions';
+import type { Discrepancy } from '@prisma/client';
 
 interface TransferCardProps {
   transfer: GoodsTransfer & {
     sourceWarehouse: Warehouse;
     destinationWarehouse: Warehouse;
     submittedBy: Pick<User, 'id' | 'login'> | null;
-    lines: Array<TransferLine & { product: Product }>;
+    lines: Array<TransferLine & { product: Product; discrepancies: Discrepancy[] }>;
+    discrepancies?: Array<Discrepancy & { product: Product; transferLine: TransferLine }>;
   };
   userRoles: string[];
 }
@@ -42,11 +44,14 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
 
   const isDraft = transfer.status === 'DRAFT';
   const isSubmitted = transfer.status === 'SUBMITTED';
+  const isDiscrepancy = transfer.status === 'DISCREPANCY';
+  const isReconciled = transfer.status === 'RECONCILED';
   const canSubmit = isDraft && hasPermission(userRoles, 'transfer:update');
   const canEdit = isDraft && hasPermission(userRoles, 'transfer:create');
   const canCancel =
     (transfer.status === 'DRAFT' || transfer.status === 'SUBMITTED') && hasPermission(userRoles, 'transfer:update');
   const canReceive = isSubmitted && hasPermission(userRoles, 'transfer:receive');
+  const canReconcile = isDiscrepancy && hasPermission(userRoles, 'transfer:reconcile');
 
   const cancelDialogMessage =
     transfer.status === 'DRAFT'
@@ -111,6 +116,11 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
               <Button variant="cta" disabled={isPending}>Принять перемещение</Button>
             </Link>
           )}
+          {canReconcile && (
+            <Link href={`/transfers/${transfer.id}/reconcile`}>
+              <Button variant="cta" disabled={isPending}>Согласовать расхождения</Button>
+            </Link>
+          )}
         </div>
       </div>
 
@@ -159,22 +169,46 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
               <tr>
                 <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Продукт</th>
                 <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Плановое количество</th>
+                {isDiscrepancy || isReconciled ? (
+                  <>
+                    <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Фактическое</th>
+                    <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Разница</th>
+                    <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Согласовано</th>
+                  </>
+                ) : null}
               </tr>
             </thead>
             <tbody>
-              {transfer.lines.map((line) => (
-                <tr key={line.id} className="hover:bg-neutral-100">
-                  <td className="border-b border-mist-metal px-4 py-3 text-graphite">
-                    {line.product.code} — {line.product.name} ({line.product.unit})
-                  </td>
-                  <td className="border-b border-mist-metal px-4 py-3 text-graphite">
-                    {line.plannedQuantity.toString()}
-                  </td>
-                </tr>
-              ))}
+              {transfer.lines.map((line) => {
+                const discrepancy = line.discrepancies?.[0];
+                const showDiscrepancy = isDiscrepancy || isReconciled;
+                return (
+                  <tr key={line.id} className="hover:bg-neutral-100">
+                    <td className="border-b border-mist-metal px-4 py-3 text-graphite">
+                      {line.product.code} — {line.product.name} ({line.product.unit})
+                    </td>
+                    <td className="border-b border-mist-metal px-4 py-3 text-graphite">
+                      {line.plannedQuantity.toString()}
+                    </td>
+                    {showDiscrepancy ? (
+                      <>
+                        <td className="border-b border-mist-metal px-4 py-3 text-graphite">
+                          {discrepancy ? discrepancy.actualQuantity.toString() : '—'}
+                        </td>
+                        <td className="border-b border-mist-metal px-4 py-3 text-graphite">
+                          {discrepancy ? discrepancy.difference.toString() : '—'}
+                        </td>
+                        <td className="border-b border-mist-metal px-4 py-3 text-graphite">
+                          {discrepancy?.reconciled ? 'Да' : 'Нет'}
+                        </td>
+                      </>
+                    ) : null}
+                  </tr>
+                );
+              })}
               {transfer.lines.length === 0 && (
                 <tr>
-                  <td colSpan={2} className="px-4 py-6 text-center text-neutral-500">
+                  <td colSpan={isDiscrepancy || isReconciled ? 5 : 2} className="px-4 py-6 text-center text-neutral-500">
                     Нет строк
                   </td>
                 </tr>

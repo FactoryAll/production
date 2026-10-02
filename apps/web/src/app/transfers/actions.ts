@@ -87,6 +87,24 @@ export interface ReceiveGoodsTransferDeps {
   buildTransferReceiptMovements: typeof buildTransferReceiptMovements;
 }
 
+export type ReconcileDiscrepanciesResult =
+  | { success: true }
+  | { success: false; error: string };
+
+export interface ReconcileDiscrepancyInput {
+  discrepancyId: string;
+  reconciledQuantity: number;
+}
+
+export interface ReconcileDiscrepanciesDeps {
+  prisma: typeof prisma;
+  writeAudit: typeof writeAudit;
+  writeTiming: typeof writeTiming;
+  emitEvent: typeof emitEvent;
+  requirePermission: typeof requirePermission;
+  applyStockMovements: typeof applyStockMovements;
+}
+
 function toDecimal(value: number | string): Prisma.Decimal {
   return new Prisma.Decimal(value);
 }
@@ -705,6 +723,7 @@ export async function getTransferById(id: string) {
       lines: {
         include: {
           product: true,
+          discrepancies: true,
         },
       },
     },
@@ -941,7 +960,198 @@ export async function receiveGoodsTransferAction(
   }
 }
 
+export async function reconcileDiscrepancies(
+  transferId: string,
+  input: { discrepancies: ReconcileDiscrepancyInput[] },
+  deps: ReconcileDiscrepanciesDeps = {
+    prisma,
+    writeAudit,
+    writeTiming,
+    emitEvent,
+    requirePermission,
+    applyStockMovements,
+  },
+): Promise<GoodsTransfer & { lines: TransferLine[] }> {
+  const session = await deps.requirePermission('transfer:reconcile');
+  const userId = session.userId;
+  const roles = session.user.roles.map((ur) => ur.role.code);
+
+  const transfer = await deps.prisma.goodsTransfer.findUnique({
+    where: { id: transferId },
+    include: {
+      sourceWarehouse: true,
+      destinationWarehouse: true,
+      lines: {
+        include: {
+          product: true,
+          discrepancies: true,
+        },
+      },
+    },
+  });
+
+  if (!transfer) {
+    throw new Error('Перемещение не найдено');
+  }
+
+  if (transfer.status !== 'DISCREPANCY') {
+    throw new Error('Согласование доступно только для Перемещения с расхождениями');
+  }
+
+  const openDiscrepancies = transfer.lines
+    .flatMap((line) => line.discrepancies)
+    .filter((d) => !d.reconciled);
+
+  const discrepancyById = new Map(openDiscrepancies.map((d) => [d.id, d]));
+  const seenInputIds = new Set<string>();
+  const reconciledQuantityById = new Map<string, Prisma.Decimal>();
+
+  for (const item of input.discrepancies) {
+    const discrepancy = discrepancyById.get(item.discrepancyId);
+    if (!discrepancy) {
+      throw new Error('Расхождение не найдено в перемещении');
+    }
+    if (seenInputIds.has(item.discrepancyId)) {
+      throw new Error('Расхождение в согласовании не может повторяться');
+    }
+    seenInputIds.add(item.discrepancyId);
+
+    const reconciledQuantity = toDecimal(item.reconciledQuantity);
+    if (reconciledQuantity.lessThan(0)) {
+      throw new Error('Согласованное количество не может быть отрицательным');
+    }
+    reconciledQuantityById.set(item.discrepancyId, reconciledQuantity);
+  }
+
+  if (input.discrepancies.length !== openDiscrepancies.length) {
+    throw new Error('Укажите согласованное количество для всех расхождений');
+  }
+
+  const lineById = new Map(transfer.lines.map((line) => [line.id, line]));
+  const now = new Date();
+
+  const result = await deps.prisma.$transaction(async (tx) => {
+    for (const discrepancy of openDiscrepancies) {
+      const reconciledQuantity = reconciledQuantityById.get(discrepancy.id)!;
+      const line = lineById.get(discrepancy.transferLineId)!;
+
+      await tx.discrepancy.update({
+        where: { id: discrepancy.id },
+        data: {
+          reconciled: true,
+          reconciledAt: now,
+          reconciledByUserId: userId,
+        },
+      });
+
+      const delta = reconciledQuantity.minus(discrepancy.actualQuantity);
+      if (!delta.equals(0)) {
+        const movement = {
+          warehouseId: transfer.destinationWarehouse.id,
+          productId: discrepancy.productId,
+          stockCategory: 'GP' as const,
+          type: delta.greaterThan(0) ? ('RECEIPT' as const) : ('ISSUE' as const),
+          quantity: Math.abs(delta.toNumber()),
+          sourceType: 'DISCREPANCY_RECONCILIATION',
+          sourceId: transfer.id,
+        };
+        await deps.applyStockMovements(tx, [movement]);
+      }
+
+      await tx.transferLine.update({
+        where: { id: line.id },
+        data: { actualQuantity: reconciledQuantity },
+      });
+    }
+
+    const updated = await tx.goodsTransfer.update({
+      where: { id: transferId },
+      data: {
+        status: 'RECONCILED',
+        updatedAt: now,
+      },
+      include: { lines: true },
+    });
+
+    await deps.writeAudit(tx, {
+      action: 'UPDATE',
+      objectType: 'GoodsTransfer',
+      objectId: transfer.id,
+      field: 'status',
+      oldValue: 'DISCREPANCY',
+      newValue: 'RECONCILED',
+      userId,
+      userRoles: roles,
+      permission: 'transfer:reconcile',
+    });
+
+    await deps.writeTiming(tx, {
+      documentType: 'GOODS_TRANSFER',
+      documentId: transfer.id,
+      entityType: 'DOCUMENT',
+      entityId: transfer.id,
+      fromStatus: 'DISCREPANCY',
+      toStatus: 'RECONCILED',
+      transitionedAt: now,
+      initiatorRole: getAttributeRole(roles, 'transfer:reconcile') ?? undefined,
+      initiatorId: userId,
+    });
+
+    const notifyUsers = await tx.user.findMany({
+      where: {
+        roles: {
+          some: {
+            role: {
+              code: 'KSGP',
+            },
+          },
+        },
+      },
+      select: { id: true },
+    });
+    const recipientIds = notifyUsers.map((u) => u.id);
+
+    if (recipientIds.length > 0) {
+      const payload = {
+        transferId: transfer.id,
+        discrepanciesCount: openDiscrepancies.length,
+        reconciledByUserId: userId,
+      };
+
+      await deps.emitEvent(tx, {
+        eventCode: 'EV_07',
+        title: 'Расхождения согласованы',
+        body: JSON.stringify(payload),
+        deepLink: '/transfers/' + transfer.id,
+        payload,
+        recipientIds,
+      });
+    }
+
+    return updated;
+  });
+
+  revalidatePath('/transfers');
+  revalidatePath('/transfers/' + transferId);
+  return result;
+}
+
+export async function reconcileDiscrepanciesAction(
+  transferId: string,
+  formData: FormData,
+): Promise<ReconcileDiscrepanciesResult> {
+  try {
+    const discrepanciesRaw = formData.get('discrepancies') as string;
+    const discrepancies: ReconcileDiscrepancyInput[] = discrepanciesRaw ? JSON.parse(discrepanciesRaw) : [];
+
+    await reconcileDiscrepancies(transferId, { discrepancies });
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Не удалось согласовать расхождения';
+    return { success: false, error: message };
+  }
+}
+
 export { transferStatusLabel };
 
-// TODO T-042: реализовать согласование расхождений (RECONCILED)
 // TODO T-043: реализовать блокировку приёмки отменённого (Р-12)
