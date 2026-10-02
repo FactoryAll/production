@@ -22,7 +22,7 @@
 mkdir -p /opt/prodtrack
 cd /opt/prodtrack
 git clone https://github.com/FactoryAll/production.git .
-git checkout v1.0.0
+git checkout v1.1.0
 ```
 
 ### 2. Переменные окружения
@@ -89,7 +89,7 @@ curl -sI http://127.0.0.1:3000/login
 curl -sI https://prodtracker.factoryall.ru/login
 ```
 
-Проверьте, что в HTML есть `ProdTrack v1.0.0`.
+Проверьте, что в HTML есть `ProdTrack v1.1.0`.
 
 ## Проверка соседей
 

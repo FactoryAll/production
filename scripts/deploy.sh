@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ProdTrack v1.0.0 Deploy Script (T-062)
+# ProdTrack v1.1.0 Deploy Script (T-062)
 # Run from /opt/prodtrack on the VPS.
 
 APP_DIR="/opt/prodtrack"
-GIT_TAG="v1.0.0"
+GIT_TAG="v1.1.0"
 COMPOSE_PROJECT_NAME="prodtrack"
 
 cd "${APP_DIR}"
@@ -73,10 +73,10 @@ fi
 
 # Check version in footer
 echo "[deploy] Checking version in footer..."
-if curl -s --max-time 10 "http://127.0.0.1:3000/login" | grep -q "v1.0.0"; then
-    echo "[deploy] Version v1.0.0 found in page."
+if curl -s --max-time 10 "http://127.0.0.1:3000/login" | grep -q "v1.1.0"; then
+    echo "[deploy] Version v1.1.0 found in page."
 else
-    echo "[deploy] WARNING: version v1.0.0 NOT found in page."
+    echo "[deploy] WARNING: version v1.1.0 NOT found in page."
 fi
 
 echo "[deploy] Done."
