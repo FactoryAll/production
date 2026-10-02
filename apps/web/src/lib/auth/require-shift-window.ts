@@ -1,5 +1,3 @@
-'use server';
-
 import { isWithinShiftWindow } from './shift-window';
 import { requireSession, type SessionWithUser } from './session';
 

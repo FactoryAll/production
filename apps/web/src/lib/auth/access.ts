@@ -3,7 +3,6 @@
 // NOTE: Middleware проверяет только доступ к роуту. Фильтрация данных на уровне "свой РЦ"
 // (production_order:read_own) ДОЛЖНА быть реализована в самом server action / Prisma-запросе
 // через where: { workCenterId: user.workCenterId }.
-'use server';
 
 import { hasPermission, requirePermission as requirePermissionSync, type PermissionCode } from '@prodtrack/contracts';
 import { requireSession, type SessionWithUser } from './session';

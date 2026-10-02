@@ -1,5 +1,3 @@
-'use server';
-
 import { requirePermission } from './access';
 
 /**

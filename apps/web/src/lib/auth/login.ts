@@ -1,5 +1,3 @@
-'use server';
-
 import { AuditAction, prisma, writeAudit } from '@prodtrack/db';
 import { getPrimaryRole, type RoleCode } from '@prodtrack/contracts';
 import { verifyPassword } from './password';

@@ -1,5 +1,3 @@
-'use server';
-
 import { prisma } from '@prodtrack/db';
 import type { Session, User, Role } from '@prisma/client';
 
