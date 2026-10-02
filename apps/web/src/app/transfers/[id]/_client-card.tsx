@@ -46,6 +46,7 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
   const isSubmitted = transfer.status === 'SUBMITTED';
   const isDiscrepancy = transfer.status === 'DISCREPANCY';
   const isReconciled = transfer.status === 'RECONCILED';
+  const isCancelled = transfer.status === 'CANCELLED';
   const canSubmit = isDraft && hasPermission(userRoles, 'transfer:update');
   const canEdit = isDraft && hasPermission(userRoles, 'transfer:create');
   const canCancel =
@@ -147,7 +148,7 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
           <span className="text-sm text-neutral-500">Дата создания</span>
           <p className="text-graphite">{formatDate(transfer.createdAt)}</p>
         </div>
-        {transfer.status === 'SUBMITTED' && (
+        {(transfer.status === 'SUBMITTED' || isCancelled) && (
           <>
             <div>
               <span className="text-sm text-neutral-500">Отправлено</span>
