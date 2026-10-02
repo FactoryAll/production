@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Prisma, type Warehouse, type Product, type User, type GoodsTransfer, type TransferLine } from '@prisma/client';
+import { Prisma, type Warehouse, type Product, type User, type GoodsTransfer, type TransferLine, type Discrepancy } from '@prisma/client';
 const Decimal = Prisma.Decimal;
 import {
   createGoodsTransfer,
@@ -7,6 +7,7 @@ import {
   updateGoodsTransfer,
   cancelGoodsTransfer,
   receiveGoodsTransfer,
+  reconcileDiscrepancies,
 } from '../actions';
 
 vi.mock('next/cache', () => ({
@@ -150,6 +151,7 @@ type MockTx = {
   };
   discrepancy: {
     create: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
   };
 };
 
@@ -206,6 +208,7 @@ function buildMockPrisma(overrides: {
     },
     discrepancy: {
       create: vi.fn().mockResolvedValue({ id: 'disc-1' }),
+      update: vi.fn().mockResolvedValue(undefined),
     },
     $transaction: vi.fn(async (cb: (tx: MockTx) => Promise<unknown>) => {
       const tx: MockTx = {
@@ -237,6 +240,7 @@ function buildMockPrisma(overrides: {
         },
         discrepancy: {
           create: vi.fn().mockResolvedValue({ id: 'disc-1' }),
+          update: vi.fn().mockResolvedValue(undefined),
         },
       };
       return cb(tx);
@@ -804,6 +808,7 @@ describe('receiveGoodsTransfer', () => {
           },
           discrepancy: {
             create: vi.fn().mockResolvedValue({ id: 'disc-1' }),
+            update: vi.fn().mockResolvedValue(undefined),
           },
         }),
         goodsTransfer: {
@@ -812,6 +817,10 @@ describe('receiveGoodsTransfer', () => {
           update: vi.fn().mockImplementation((args: { data?: { status?: string } }) =>
             Promise.resolve({ id: 'tr-1', status: args.data?.status ?? expectedStatus }),
           ),
+        },
+        discrepancy: {
+          create: baseTx?.discrepancy.create ?? vi.fn().mockResolvedValue({ id: 'disc-1' }),
+          update: baseTx?.discrepancy.update ?? vi.fn().mockResolvedValue(undefined),
         },
         user: {
           findMany: vi.fn().mockResolvedValue(recipients),
@@ -1016,6 +1025,279 @@ describe('receiveGoodsTransfer', () => {
     const line = buildMockLine();
     await expect(
       receiveGoodsTransfer('tr-1', { lines: [{ transferLineId: line.id, actualQuantity: 10 }] }, deps),
+    ).rejects.toThrow('Forbidden: insufficient permissions');
+  });
+});
+
+describe('reconcileDiscrepancies', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function buildMockDiscrepancy(
+    overrides: Partial<Discrepancy> = {},
+    line: TransferLine & { product: Product } = buildMockLine(),
+  ): Discrepancy {
+    return {
+      id: 'disc-1',
+      goodsTransferId: 'tr-1',
+      transferLineId: line.id,
+      productId: line.productId,
+      plannedQuantity: new Decimal(10),
+      actualQuantity: new Decimal(8),
+      difference: new Decimal(-2),
+      reconciled: false,
+      reconciledAt: null,
+      reconciledByUserId: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ...overrides,
+    } as Discrepancy;
+  }
+
+  function buildReconcileDeps(
+    overrides: Parameters<typeof buildMockPrisma>[0] = {},
+    discrepancies: Discrepancy[] = [buildMockDiscrepancy()],
+    recipients: User[] = [],
+  ) {
+    const lines = overrides.lines ?? [buildMockLine()];
+    const linesWithDiscrepancies = lines.map((line) => ({
+      ...line,
+      discrepancies: discrepancies.filter((d) => d.transferLineId === line.id),
+    }));
+    const mockPrisma = buildMockPrisma({ ...overrides, lines: linesWithDiscrepancies });
+    const baseTx = (mockPrisma.$transaction as unknown as ReturnType<typeof vi.fn>).mock.results[0]?.value as MockTx | undefined;
+    mockPrisma.$transaction = vi.fn((cb: (tx: MockTx) => Promise<unknown>) => {
+      const tx: MockTx = {
+        ...(baseTx ?? {
+          goodsTransfer: {
+            create: vi.fn(),
+            findUnique: vi.fn().mockResolvedValue(null),
+            update: vi.fn().mockResolvedValue({ id: 'tr-1', status: 'RECONCILED' }),
+          },
+          transferLine: {
+            createMany: vi.fn().mockResolvedValue(undefined),
+            deleteMany: vi.fn().mockResolvedValue(undefined),
+            update: vi.fn().mockResolvedValue(undefined),
+          },
+          user: {
+            findMany: vi.fn().mockResolvedValue(recipients),
+          },
+          discrepancy: {
+            create: vi.fn().mockResolvedValue({ id: 'disc-1' }),
+            update: vi.fn().mockResolvedValue(undefined),
+          },
+        }),
+        goodsTransfer: {
+          create: baseTx?.goodsTransfer.create ?? vi.fn(),
+          findUnique: baseTx?.goodsTransfer.findUnique ?? vi.fn().mockResolvedValue(null),
+          update: vi.fn().mockImplementation((args: { data?: { status?: string } }) =>
+            Promise.resolve({ id: 'tr-1', status: args.data?.status ?? 'RECONCILED' }),
+          ),
+        },
+        discrepancy: {
+          create: baseTx?.discrepancy.create ?? vi.fn().mockResolvedValue({ id: 'disc-1' }),
+          update: vi.fn().mockResolvedValue(undefined),
+        },
+        user: {
+          findMany: vi.fn().mockResolvedValue(recipients),
+        },
+      };
+      return cb(tx);
+    }) as unknown as typeof mockPrisma.$transaction;
+    const deps = buildMockDeps({ ...overrides, lines: linesWithDiscrepancies });
+    deps.prisma = mockPrisma as unknown as typeof deps.prisma;
+    deps.requirePermission = vi.fn().mockResolvedValue({
+      userId: 'user-usgp',
+      user: { roles: [{ role: { code: 'USGP' } }] },
+    });
+    return { deps, mockPrisma };
+  }
+
+  it('reconciles without adjustments and sets status RECONCILED, emits EV-07', async () => {
+    const discrepancy = buildMockDiscrepancy({ actualQuantity: new Decimal(8), difference: new Decimal(-2) });
+    const { deps } = buildReconcileDeps(
+      { transfer: buildMockTransfer({ status: 'DISCREPANCY' }) },
+      [discrepancy],
+      [ksgpUser],
+    );
+
+    const result = await reconcileDiscrepancies('tr-1', {
+      discrepancies: [{ discrepancyId: discrepancy.id, reconciledQuantity: 8 }],
+    }, deps);
+
+    expect(result.status).toBe('RECONCILED');
+    expect(deps.applyStockMovements).not.toHaveBeenCalled();
+
+    const auditCall = deps.writeAudit.mock.calls[0][1];
+    expect(auditCall.oldValue).toBe('DISCREPANCY');
+    expect(auditCall.newValue).toBe('RECONCILED');
+
+    const timingCall = deps.writeTiming.mock.calls[0][1];
+    expect(timingCall.toStatus).toBe('RECONCILED');
+
+    expect(deps.emitEvent).toHaveBeenCalled();
+    const emitCall = deps.emitEvent.mock.calls[deps.emitEvent.mock.calls.length - 1][1];
+    expect(emitCall.eventCode).toBe('EV_07');
+    expect(emitCall.recipientIds).toEqual(['ksgp-user-1']);
+    expect(emitCall.payload.discrepanciesCount).toBe(1);
+  });
+
+  it('reconciles with increase and applies additional RECEIPT movement', async () => {
+    const discrepancy = buildMockDiscrepancy({ actualQuantity: new Decimal(8), difference: new Decimal(-2) });
+    const { deps } = buildReconcileDeps(
+      { transfer: buildMockTransfer({ status: 'DISCREPANCY' }) },
+      [discrepancy],
+      [ksgpUser],
+    );
+
+    await reconcileDiscrepancies('tr-1', {
+      discrepancies: [{ discrepancyId: discrepancy.id, reconciledQuantity: 10 }],
+    }, deps);
+
+    expect(deps.applyStockMovements).toHaveBeenCalled();
+    const movement = deps.applyStockMovements.mock.calls[0][1][0];
+    expect(movement.type).toBe('RECEIPT');
+    expect(movement.quantity).toBe(2);
+    expect(movement.sourceType).toBe('DISCREPANCY_RECONCILIATION');
+  });
+
+  it('reconciles with decrease and applies ISSUE movement', async () => {
+    const discrepancy = buildMockDiscrepancy({ actualQuantity: new Decimal(12), difference: new Decimal(2) });
+    const { deps } = buildReconcileDeps(
+      { transfer: buildMockTransfer({ status: 'DISCREPANCY' }) },
+      [discrepancy],
+      [ksgpUser],
+    );
+
+    await reconcileDiscrepancies('tr-1', {
+      discrepancies: [{ discrepancyId: discrepancy.id, reconciledQuantity: 9 }],
+    }, deps);
+
+    const movement = deps.applyStockMovements.mock.calls[0][1][0];
+    expect(movement.type).toBe('ISSUE');
+    expect(movement.quantity).toBe(3);
+    expect(movement.sourceType).toBe('DISCREPANCY_RECONCILIATION');
+  });
+
+  it('reconciles mixed discrepancies and applies two compensating movements', async () => {
+    const line1 = buildMockLine({ id: 'tl-1' });
+    const line2 = buildMockLine({ id: 'tl-2', productId: gpProduct2.id, product: gpProduct2 });
+    const disc1 = buildMockDiscrepancy({ id: 'disc-1', transferLineId: line1.id, productId: gpProduct1.id, actualQuantity: new Decimal(8) }, line1);
+    const disc2 = buildMockDiscrepancy({ id: 'disc-2', transferLineId: line2.id, productId: gpProduct2.id, actualQuantity: new Decimal(12) }, line2);
+    const { deps } = buildReconcileDeps(
+      { transfer: buildMockTransfer({ status: 'DISCREPANCY' }), lines: [line1, line2] },
+      [disc1, disc2],
+      [ksgpUser],
+    );
+
+    await reconcileDiscrepancies('tr-1', {
+      discrepancies: [
+        { discrepancyId: disc1.id, reconciledQuantity: 10 },
+        { discrepancyId: disc2.id, reconciledQuantity: 9 },
+      ],
+    }, deps);
+
+    expect(deps.applyStockMovements).toHaveBeenCalledTimes(2);
+  });
+
+  it('blocks reconcile from DRAFT', async () => {
+    const discrepancy = buildMockDiscrepancy();
+    const { deps } = buildReconcileDeps({ transfer: buildMockTransfer({ status: 'DRAFT' }) }, [discrepancy]);
+    await expect(
+      reconcileDiscrepancies('tr-1', { discrepancies: [{ discrepancyId: discrepancy.id, reconciledQuantity: 10 }] }, deps),
+    ).rejects.toThrow('Согласование доступно только для Перемещения с расхождениями');
+  });
+
+  it('blocks reconcile from SUBMITTED', async () => {
+    const discrepancy = buildMockDiscrepancy();
+    const { deps } = buildReconcileDeps({ transfer: buildMockTransfer({ status: 'SUBMITTED' }) }, [discrepancy]);
+    await expect(
+      reconcileDiscrepancies('tr-1', { discrepancies: [{ discrepancyId: discrepancy.id, reconciledQuantity: 10 }] }, deps),
+    ).rejects.toThrow('Согласование доступно только для Перемещения с расхождениями');
+  });
+
+  it('blocks reconcile from RECEIVED', async () => {
+    const discrepancy = buildMockDiscrepancy();
+    const { deps } = buildReconcileDeps({ transfer: buildMockTransfer({ status: 'RECEIVED' }) }, [discrepancy]);
+    await expect(
+      reconcileDiscrepancies('tr-1', { discrepancies: [{ discrepancyId: discrepancy.id, reconciledQuantity: 10 }] }, deps),
+    ).rejects.toThrow('Согласование доступно только для Перемещения с расхождениями');
+  });
+
+  it('blocks reconcile from RECONCILED', async () => {
+    const discrepancy = buildMockDiscrepancy();
+    const { deps } = buildReconcileDeps({ transfer: buildMockTransfer({ status: 'RECONCILED' }) }, [discrepancy]);
+    await expect(
+      reconcileDiscrepancies('tr-1', { discrepancies: [{ discrepancyId: discrepancy.id, reconciledQuantity: 10 }] }, deps),
+    ).rejects.toThrow('Согласование доступно только для Перемещения с расхождениями');
+  });
+
+  it('blocks reconcile from CANCELLED', async () => {
+    const discrepancy = buildMockDiscrepancy();
+    const { deps } = buildReconcileDeps({ transfer: buildMockTransfer({ status: 'CANCELLED' }) }, [discrepancy]);
+    await expect(
+      reconcileDiscrepancies('tr-1', { discrepancies: [{ discrepancyId: discrepancy.id, reconciledQuantity: 10 }] }, deps),
+    ).rejects.toThrow('Согласование доступно только для Перемещения с расхождениями');
+  });
+
+  it('blocks reconcile when discrepancies are missing', async () => {
+    const discrepancy = buildMockDiscrepancy();
+    const { deps } = buildReconcileDeps(
+      { transfer: buildMockTransfer({ status: 'DISCREPANCY' }) },
+      [discrepancy],
+    );
+    await expect(reconcileDiscrepancies('tr-1', { discrepancies: [] }, deps)).rejects.toThrow(
+      'Укажите согласованное количество для всех расхождений',
+    );
+  });
+
+  it('blocks reconcile when discrepancyId is duplicated', async () => {
+    const discrepancy = buildMockDiscrepancy();
+    const { deps } = buildReconcileDeps(
+      { transfer: buildMockTransfer({ status: 'DISCREPANCY' }) },
+      [discrepancy],
+    );
+    await expect(
+      reconcileDiscrepancies(
+        'tr-1',
+        { discrepancies: [{ discrepancyId: discrepancy.id, reconciledQuantity: 10 }, { discrepancyId: discrepancy.id, reconciledQuantity: 5 }] },
+        deps,
+      ),
+    ).rejects.toThrow('Расхождение в согласовании не может повторяться');
+  });
+
+  it('blocks reconcile when discrepancyId is unknown', async () => {
+    const discrepancy = buildMockDiscrepancy();
+    const { deps } = buildReconcileDeps(
+      { transfer: buildMockTransfer({ status: 'DISCREPANCY' }) },
+      [discrepancy],
+    );
+    await expect(
+      reconcileDiscrepancies('tr-1', { discrepancies: [{ discrepancyId: 'unknown-disc', reconciledQuantity: 10 }] }, deps),
+    ).rejects.toThrow('Расхождение не найдено в перемещении');
+  });
+
+  it('blocks reconcile when reconciledQuantity is negative', async () => {
+    const discrepancy = buildMockDiscrepancy();
+    const { deps } = buildReconcileDeps(
+      { transfer: buildMockTransfer({ status: 'DISCREPANCY' }) },
+      [discrepancy],
+    );
+    await expect(
+      reconcileDiscrepancies('tr-1', { discrepancies: [{ discrepancyId: discrepancy.id, reconciledQuantity: -1 }] }, deps),
+    ).rejects.toThrow('Согласованное количество не может быть отрицательным');
+  });
+
+  it('blocks reconcile without transfer:reconcile permission', async () => {
+    const discrepancy = buildMockDiscrepancy();
+    const { deps } = buildReconcileDeps(
+      { transfer: buildMockTransfer({ status: 'DISCREPANCY' }) },
+      [discrepancy],
+    );
+    deps.requirePermission.mockRejectedValue(new Error('Forbidden: insufficient permissions'));
+    await expect(
+      reconcileDiscrepancies('tr-1', { discrepancies: [{ discrepancyId: discrepancy.id, reconciledQuantity: 10 }] }, deps),
     ).rejects.toThrow('Forbidden: insufficient permissions');
   });
 });
