@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: ./apps/web/Dockerfile
       args:
-        VERSION: v1.1.0
+        VERSION: v1.1.1
     container_name: prodtrack_web
     restart: unless-stopped
     ports:
@@ -15,7 +15,7 @@ services:
       - .env
     environment:
       - NODE_ENV=production
-      - VERSION=v1.1.0
+      - VERSION=v1.1.1
       - TZ=Europe/Moscow
     depends_on:
       postgres:
