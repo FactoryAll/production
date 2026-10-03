@@ -17,6 +17,7 @@ export type PermissionCode =
   | 'dashboard:read'
   | 'dashboard:read_own'
   | 'audit:read'
+  | 'timing:read'
   | 'onec:read'
   | 'onec:process'
   | 'nsi:manage'
@@ -42,6 +43,7 @@ export const ALL_PERMISSIONS: PermissionCode[] = [
   'dashboard:read',
   'dashboard:read_own',
   'audit:read',
+  'timing:read',
   'onec:read',
   'onec:process',
   'nsi:manage',
@@ -64,12 +66,14 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     'shift_report:read',
     'dashboard:read',
     'audit:read',
+    'timing:read',
     'nsi:read',
     // Ведение справочников (смены, номенклатура, сотрудники, РЦ, причины).
     // Склады остаются за АДМ — см. 'nsi:manage_warehouses' (Р-19).
     'nsi:manage',
   ],
   OPR: [
+    'timing:read',
     'production_order:read_own',
     'production_order:accept',
     'production_order:report',
@@ -79,6 +83,7 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     'nsi:read',
   ],
   KSGP: [
+    'timing:read',
     'transfer:receive',
     'transfer:reconcile',
     'stock:read',
@@ -86,12 +91,14 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     'nsi:read',
   ],
   USGP: [
+    'timing:read',
     'transfer:reconcile',
     'stock:read',
     'dashboard:read',
     'nsi:read',
   ],
   S1C: [
+    'timing:read',
     'onec:read',
     'onec:process',
     'stock:read',

@@ -49,6 +49,9 @@ export function getNavItems(userRoles: string[]): NavItem[] {
     items.push({ label: 'Перемещения', href: '/transfers' });
   }
 
+  // Хронометраж M10 доступен всем ролям (M10 §3); ОПР видит только свой РЦ.
+  items.push({ label: 'Хронометраж', href: '/timing' });
+
   // Пункт «Отчёты» не выводится: страницы-списка /shift-reports нет,
   // по M06 отчёт за смену открывается из карточки ПЗ.
 

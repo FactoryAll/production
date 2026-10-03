@@ -30,6 +30,7 @@ describe('nav-items', () => {
       '/production-orders',
       '/stock',
       '/transfers',
+      '/timing',
     ]);
   });
 
@@ -39,6 +40,7 @@ describe('nav-items', () => {
       '/notifications',
       '/stock',
       '/transfers',
+      '/timing',
     ]);
   });
 
@@ -48,6 +50,7 @@ describe('nav-items', () => {
       '/notifications',
       '/shift-execution',
       '/stock',
+      '/timing',
     ]);
   });
 
@@ -59,6 +62,7 @@ describe('nav-items', () => {
       '/shift-execution',
       '/stock',
       '/transfers',
+      '/timing',
     ]);
   });
 
@@ -77,6 +81,12 @@ describe('nav-items', () => {
   it('shows Уведомления for every role (M09 §3: просмотр своих уведомлений — R для всех)', () => {
     for (const role of ['NP', 'OPR', 'KSGP', 'USGP', 'S1C', 'ADM']) {
       expect(hrefsFor([role])).toContain('/notifications');
+    }
+  });
+
+  it('shows Хронометраж for every role (M10 §3: просмотр хронометража — R для всех)', () => {
+    for (const role of ['NP', 'OPR', 'KSGP', 'USGP', 'S1C', 'ADM']) {
+      expect(hrefsFor([role])).toContain('/timing');
     }
   });
 

@@ -122,3 +122,24 @@ describe('access matrix v1.1.1: ведение НСИ и согласовани�
     expect(ROLE_PERMISSIONS[RoleCode.NP]).toContain('transfer:reconcile');
   });
 });
+
+describe('access matrix v1.2.0: просмотр хронометража (M10 §3)', () => {
+  it('все роли могут открыть хронометраж', () => {
+    for (const role of [
+      RoleCode.NP,
+      RoleCode.OPR,
+      RoleCode.KSGP,
+      RoleCode.USGP,
+      RoleCode.S1C,
+      RoleCode.ADM,
+    ]) {
+      expect(hasPermission([role], 'timing:read')).toBe(true);
+      expect(ROLE_PERMISSIONS[role]).toContain('timing:read');
+    }
+  });
+
+  it('право входит в перечень всех прав (для сида экрана «Роли»)', () => {
+    expect(ALL_PERMISSIONS).toContain('timing:read');
+  });
+});
+

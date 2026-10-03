@@ -1,0 +1,175 @@
+// Read-side хронометража M10 (T-046) поверх kernel-записей `StageTiming` (T-059).
+//
+// Записи создаются бизнес-логикой модулей; здесь только чтение, фильтры и
+// расчёт длительностей этапов (UC-M10-2).
+
+import { prisma } from '@prodtrack/db';
+import type { DocumentType, EntityType } from '@prisma/client';
+
+export interface TimingRecordItem {
+  id: string;
+  documentType: DocumentType;
+  documentId: string;
+  entityType: EntityType;
+  entityId: string;
+  fromStatus: string;
+  toStatus: string;
+  transitionedAt: string;
+  initiatorRole: string | null;
+  initiatorId: string | null;
+}
+
+export interface TimingFilter {
+  documentType?: DocumentType;
+  /** Фрагмент идентификатора документа (фильтр «по документу», M10 §8). */
+  documentId?: string;
+  /** Ограничение видимости набором документов (ОПР — свой РЦ, M10 §3). */
+  documentIds?: string[];
+  limit?: number;
+}
+
+/** Терминальные статусы документов (00 §3): после них текущий этап не открывается. */
+export const TERMINAL_STATUSES: Record<string, string[]> = {
+  PRODUCTION_ORDER: ['COMPLETED', 'CANCELLED'],
+  GOODS_TRANSFER: ['RECEIVED', 'RECONCILED', 'CANCELLED'],
+};
+
+export interface StageDuration {
+  fromStatus: string;
+  toStatus: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  durationMs: number | null;
+  /** true — этап ещё продолжается (документ в этом статусе). */
+  isCurrent: boolean;
+}
+
+export const TIMING_PAGE_SIZE = 200;
+
+export function timingWhere(filter: TimingFilter) {
+  const where: Record<string, unknown> = {};
+  if (filter.documentType) {
+    where.documentType = filter.documentType;
+  }
+  if (filter.documentIds) {
+    where.documentId = { in: filter.documentIds };
+  } else if (filter.documentId) {
+    where.documentId = { contains: filter.documentId };
+  }
+  return where;
+}
+
+/**
+ * Длительности этапов по документу (UC-M10-2).
+ * Каждый переход закрывает предыдущий этап; незавершённый этап считается до `now`.
+ */
+export function buildStageDurations(
+  records: TimingRecordItem[],
+  now: Date = new Date(),
+): StageDuration[] {
+  if (records.length === 0) {
+    return [];
+  }
+
+  const sorted = [...records].sort(
+    (a, b) => new Date(a.transitionedAt).getTime() - new Date(b.transitionedAt).getTime(),
+  );
+
+  const stages: StageDuration[] = [
+    {
+      fromStatus: sorted[0].fromStatus,
+      toStatus: sorted[0].toStatus,
+      startedAt: null,
+      endedAt: sorted[0].transitionedAt,
+      durationMs: null,
+      isCurrent: false,
+    },
+  ];
+
+  for (let index = 1; index < sorted.length; index += 1) {
+    const previous = sorted[index - 1];
+    const current = sorted[index];
+    stages.push({
+      fromStatus: previous.toStatus,
+      toStatus: current.toStatus,
+      startedAt: previous.transitionedAt,
+      endedAt: current.transitionedAt,
+      durationMs:
+        new Date(current.transitionedAt).getTime() - new Date(previous.transitionedAt).getTime(),
+      isCurrent: false,
+    });
+  }
+
+  const last = sorted[sorted.length - 1];
+  const terminal = TERMINAL_STATUSES[last.documentType] ?? [];
+  // Текущий этап открывается только у документа: статус строки ПЗ (REPORTED)
+  // конечен, для строки «текущего этапа» не существует (M10 §4/§6).
+  if (last.entityType === 'DOCUMENT' && !terminal.includes(last.toStatus)) {
+    stages.push({
+      fromStatus: last.toStatus,
+      toStatus: null,
+      startedAt: last.transitionedAt,
+      endedAt: null,
+      durationMs: Math.max(0, now.getTime() - new Date(last.transitionedAt).getTime()),
+      isCurrent: true,
+    });
+  }
+
+  return stages;
+}
+
+function toItem(record: {
+  id: string;
+  documentType: DocumentType;
+  documentId: string;
+  entityType: EntityType;
+  entityId: string;
+  fromStatus: string;
+  toStatus: string;
+  transitionedAt: Date;
+  initiatorRole: string | null;
+  initiatorId: string | null;
+}): TimingRecordItem {
+  return {
+    id: record.id,
+    documentType: record.documentType,
+    documentId: record.documentId,
+    entityType: record.entityType,
+    entityId: record.entityId,
+    fromStatus: record.fromStatus,
+    toStatus: record.toStatus,
+    transitionedAt: record.transitionedAt.toISOString(),
+    initiatorRole: record.initiatorRole,
+    initiatorId: record.initiatorId,
+  };
+}
+
+export async function getTimingRecords(filter: TimingFilter = {}): Promise<TimingRecordItem[]> {
+  const records = await prisma.stageTiming.findMany({
+    where: timingWhere(filter),
+    orderBy: [{ transitionedAt: 'desc' }],
+    take: filter.limit ?? TIMING_PAGE_SIZE,
+  });
+  return records.map(toItem);
+}
+
+/** Записи одного документа в порядке времени — основа расчёта длительностей. */
+export async function getDocumentTimingRecords(
+  documentType: DocumentType,
+  documentId: string,
+): Promise<TimingRecordItem[]> {
+  const records = await prisma.stageTiming.findMany({
+    where: { documentType, documentId },
+    orderBy: [{ transitionedAt: 'asc' }],
+  });
+  return records.map(toItem);
+}
+
+/** Документы (ПЗ), в которых у оператора есть строка своего РЦ — область видимости ОПР (M10 §3). */
+export async function getOwnDocumentIds(employeeId: string): Promise<string[]> {
+  const lines = await prisma.productionOrderLine.findMany({
+    where: { operatorId: employeeId },
+    select: { orderId: true },
+  });
+  return [...new Set(lines.map((line) => line.orderId))];
+}
