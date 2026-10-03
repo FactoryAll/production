@@ -155,8 +155,9 @@ describe('contracts enums', () => {
     expect(AuditAction.DELETE).toBe('DELETE');
     expect(AuditAction.LOGIN).toBe('LOGIN');
     expect(AuditAction.LOGOUT).toBe('LOGOUT');
+    expect(AuditAction.LOGIN_FAILED).toBe('LOGIN_FAILED');
     expect(AuditAction.CANCEL).toBe('CANCEL');
-    expect(AUDIT_ACTIONS).toHaveLength(6);
+    expect(AUDIT_ACTIONS).toHaveLength(7);
   });
 
   it('type guards accept valid enum values', () => {

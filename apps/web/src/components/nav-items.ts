@@ -49,6 +49,11 @@ export function getNavItems(userRoles: string[]): NavItem[] {
     items.push({ label: 'Перемещения', href: '/transfers' });
   }
 
+  // Аудит M13 доступен НП и АДМ (M13 §3, BR-3).
+  if (hasPermission(userRoles, 'audit:read')) {
+    items.push({ label: 'Аудит', href: '/audit' });
+  }
+
   // Хронометраж M10 доступен всем ролям (M10 §3); ОПР видит только свой РЦ.
   items.push({ label: 'Хронометраж', href: '/timing' });
 

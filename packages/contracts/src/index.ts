@@ -113,6 +113,7 @@ export enum AuditAction {
   DELETE = 'DELETE',
   LOGIN = 'LOGIN',
   LOGOUT = 'LOGOUT',
+  LOGIN_FAILED = 'LOGIN_FAILED',
   CANCEL = 'CANCEL',
 }
 

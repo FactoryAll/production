@@ -30,6 +30,7 @@ describe('nav-items', () => {
       '/production-orders',
       '/stock',
       '/transfers',
+      '/audit',
       '/timing',
     ]);
   });
@@ -62,6 +63,7 @@ describe('nav-items', () => {
       '/shift-execution',
       '/stock',
       '/transfers',
+      '/audit',
       '/timing',
     ]);
   });
@@ -87,6 +89,14 @@ describe('nav-items', () => {
   it('shows Хронометраж for every role (M10 §3: просмотр хронометража — R для всех)', () => {
     for (const role of ['NP', 'OPR', 'KSGP', 'USGP', 'S1C', 'ADM']) {
       expect(hrefsFor([role])).toContain('/timing');
+    }
+  });
+
+  it('shows Аудит only for НП и АДМ (M13 §3, BR-3)', () => {
+    expect(hrefsFor(['NP'])).toContain('/audit');
+    expect(hrefsFor(['ADM'])).toContain('/audit');
+    for (const role of ['OPR', 'KSGP', 'USGP', 'S1C']) {
+      expect(hrefsFor([role])).not.toContain('/audit');
     }
   });
 
