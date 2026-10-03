@@ -1,9 +1,11 @@
 export const dynamic = 'force-dynamic';
 
+import { AccessDenied } from '@/components/access-denied';
+import { checkPageAccess } from '@/lib/auth/page-guard';
+
 import { notFound } from 'next/navigation';
 import { getProductionOrderById, getProductionOrderCreateData } from '../../actions';
 import ProductionOrderEditForm from './_client-form';
-import { requirePermission } from '@/lib/auth/access';
 import type { ProductionOrderStatus } from '@prisma/client';
 
 interface ProductionOrderEditPageProps {
@@ -11,7 +13,10 @@ interface ProductionOrderEditPageProps {
 }
 
 export default async function ProductionOrderEditPage({ params }: ProductionOrderEditPageProps) {
-  await requirePermission('production_order:update');
+  const access = await checkPageAccess('production_order:update');
+  if (!access.allowed) {
+    return <AccessDenied action="корректировка производственного задания" allowedRoles={['NP', 'ADM']} requiredPermission='production_order:update' />;
+  }
   const [{ order }, createData] = await Promise.all([
     getProductionOrderById(params.id),
     getProductionOrderCreateData(),

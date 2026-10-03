@@ -99,6 +99,7 @@ export default function ProductionOrderCard({ order, defectReasons, userRoles }:
   const [correctStops, setCorrectStops] = useState('');
   const [correctReason, setCorrectReason] = useState('');
   const [correctError, setCorrectError] = useState<string | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
   const isDraft = order.status === 'DRAFT';
   const canConfirm = isDraft && hasPermission(userRoles, 'production_order:confirm');
   const editableStatuses: ProductionOrderStatus[] = ['DRAFT', 'CONFIRMED', 'IN_PROGRESS'];
@@ -119,11 +120,15 @@ export default function ProductionOrderCard({ order, defectReasons, userRoles }:
   const totalCount = order.lines.length;
 
   function handleConfirm() {
+    setConfirmError(null);
     startTransition(async () => {
       const result = await confirmProductionOrderAction(order.id);
-      setShowConfirmDialog(false);
       if (result.success) {
+        setShowConfirmDialog(false);
         router.refresh();
+      } else {
+        // Диалог остаётся открытым, иначе сообщение об ошибке не увидеть (T-065).
+        setConfirmError(result.error ?? 'Не удалось подтвердить ПЗ');
       }
     });
   }
@@ -495,6 +500,7 @@ export default function ProductionOrderCard({ order, defectReasons, userRoles }:
         <p className="text-graphite">
           Операторы получат уведомления. После подтверждения корректировка будет возможна только до первого отчёта Оператора.
         </p>
+        {confirmError && <p className="mt-2 text-sm text-signal-amber">{confirmError}</p>}
         <div className="mt-6 flex justify-end gap-3">
           <Button variant="secondary" onClick={() => setShowConfirmDialog(false)} disabled={isPending}>
             Отмена

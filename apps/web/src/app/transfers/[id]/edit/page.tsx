@@ -1,5 +1,8 @@
 export const dynamic = 'force-dynamic';
 
+import { AccessDenied } from '@/components/access-denied';
+import { checkPageAccess } from '@/lib/auth/page-guard';
+
 import { notFound, redirect } from 'next/navigation';
 import { getTransferById, getTransferCreateData } from '../../queries';
 import TransferEditForm from './_client-form';
@@ -9,6 +12,10 @@ interface EditTransferPageProps {
 }
 
 export default async function EditTransferPage({ params }: EditTransferPageProps) {
+  const access = await checkPageAccess('transfer:create');
+  if (!access.allowed) {
+    return <AccessDenied action="корректировка перемещения" allowedRoles={['NP', 'ADM']} requiredPermission='transfer:create' />;
+  }
   const [transfer, createData] = await Promise.all([
     getTransferById(params.id),
     getTransferCreateData(),

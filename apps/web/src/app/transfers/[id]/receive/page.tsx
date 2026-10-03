@@ -1,16 +1,21 @@
 export const dynamic = 'force-dynamic';
 
+import { AccessDenied } from '@/components/access-denied';
+import { checkPageAccess } from '@/lib/auth/page-guard';
+
 import { notFound, redirect } from 'next/navigation';
 import { getTransferById } from '../../queries';
 import ReceiveTransferForm from './_client-form';
-import { requirePermission } from '@/lib/auth/access';
 
 interface ReceiveTransferPageProps {
   params: { id: string };
 }
 
 export default async function ReceiveTransferPage({ params }: ReceiveTransferPageProps) {
-  await requirePermission('transfer:receive');
+  const access = await checkPageAccess('transfer:receive');
+  if (!access.allowed) {
+    return <AccessDenied action="приёмка перемещения" allowedRoles={['KSGP', 'ADM']} requiredPermission='transfer:receive' />;
+  }
 
   const transfer = await getTransferById(params.id);
   if (!transfer) {

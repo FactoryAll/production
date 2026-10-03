@@ -5,11 +5,18 @@ import { UserForm } from '../../_components/user-form';
 
 export const dynamic = 'force-dynamic';
 
+import { AccessDenied } from '@/components/access-denied';
+import { checkPageAccess } from '@/lib/auth/page-guard';
+
 interface EditUserPageProps {
   params: { id: string };
 }
 
 export default async function EditUserPage({ params }: EditUserPageProps) {
+  const access = await checkPageAccess('users:manage');
+  if (!access.allowed) {
+    return <AccessDenied action="редактирование пользователя" allowedRoles={['ADM']} requiredPermission='users:manage' />;
+  }
   const [user, employees] = await Promise.all([
     getUserWithRoles(params.id),
     listEmployeesForSelect(),

@@ -4,7 +4,14 @@ import { UserForm } from '../_components/user-form';
 
 export const dynamic = 'force-dynamic';
 
+import { AccessDenied } from '@/components/access-denied';
+import { checkPageAccess } from '@/lib/auth/page-guard';
+
 export default async function NewUserPage() {
+  const access = await checkPageAccess('users:manage');
+  if (!access.allowed) {
+    return <AccessDenied action="создание пользователя" allowedRoles={['ADM']} requiredPermission='users:manage' />;
+  }
   const employees = await listEmployeesForSelect();
   return (
     <main className="p-6">

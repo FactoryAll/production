@@ -1,12 +1,17 @@
 import { prisma } from '@prodtrack/db';
-import { requirePermission } from '@/lib/auth/access';
 import { getStockBalance } from '@/lib/stock-service';
 import { StockTable } from './_components/stock-table';
 
 export const dynamic = 'force-dynamic';
 
+import { AccessDenied } from '@/components/access-denied';
+import { checkPageAccess } from '@/lib/auth/page-guard';
+
 export default async function StockPage() {
-  await requirePermission('stock:read');
+  const access = await checkPageAccess('stock:read');
+  if (!access.allowed) {
+    return <AccessDenied action="просмотр остатков" allowedRoles={['NP', 'OPR', 'KSGP', 'USGP', 'S1C', 'ADM']} requiredPermission='stock:read' />;
+  }
   const balances = await getStockBalance(prisma, {});
 
   return (

@@ -4,7 +4,14 @@ import { UsersTable, type UsersSearchParams } from './_components/users-table';
 
 export const dynamic = 'force-dynamic';
 
+import { AccessDenied } from '@/components/access-denied';
+import { checkPageAccess } from '@/lib/auth/page-guard';
+
 export default async function UsersPage({ searchParams }: { searchParams: UsersSearchParams }) {
+  const access = await checkPageAccess('users:manage');
+  if (!access.allowed) {
+    return <AccessDenied action="управление пользователями" allowedRoles={['ADM']} requiredPermission='users:manage' />;
+  }
   const q = typeof searchParams.q === 'string' ? searchParams.q : undefined;
   const activeFilter =
     searchParams.active === 'true' ? true : searchParams.active === 'false' ? false : undefined;

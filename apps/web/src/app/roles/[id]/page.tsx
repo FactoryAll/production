@@ -5,11 +5,18 @@ import { ROLE_PERMISSIONS } from '@prodtrack/contracts';
 
 export const dynamic = 'force-dynamic';
 
+import { AccessDenied } from '@/components/access-denied';
+import { checkPageAccess } from '@/lib/auth/page-guard';
+
 interface RolePageProps {
   params: { id: string };
 }
 
 export default async function RolePage({ params }: RolePageProps) {
+  const access = await checkPageAccess('roles:manage');
+  if (!access.allowed) {
+    return <AccessDenied action="просмотр роли" allowedRoles={['ADM']} requiredPermission='roles:manage' />;
+  }
   const role = await getRoleWithPermissions(params.id);
   if (!role) notFound();
 

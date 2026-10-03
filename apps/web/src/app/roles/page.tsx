@@ -4,7 +4,14 @@ import type { Role } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
 
+import { AccessDenied } from '@/components/access-denied';
+import { checkPageAccess } from '@/lib/auth/page-guard';
+
 export default async function RolesPage() {
+  const access = await checkPageAccess('roles:manage');
+  if (!access.allowed) {
+    return <AccessDenied action="управление ролями" allowedRoles={['ADM']} requiredPermission='roles:manage' />;
+  }
   const roles = await listRolesWithPermissionCounts();
 
   return (

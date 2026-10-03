@@ -56,14 +56,19 @@ export default function ProductionOrdersPage({ orders, userRoles }: ProductionOr
   const [cancelOrderId, setCancelOrderId] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
   const canConfirm = hasPermission(userRoles, 'production_order:confirm');
 
   function handleConfirm(orderId: string) {
+    setConfirmError(null);
     startTransition(async () => {
       const result = await confirmProductionOrderAction(orderId);
-      setConfirmOrderId(null);
       if (result.success) {
+        setConfirmOrderId(null);
         router.refresh();
+      } else {
+        // Окно остаётся открытым, иначе сообщение об ошибке не увидеть (T-065).
+        setConfirmError(result.error ?? 'Не удалось подтвердить ПЗ');
       }
     });
   }
@@ -261,6 +266,7 @@ export default function ProductionOrdersPage({ orders, userRoles }: ProductionOr
         <p className="text-graphite">
           Операторы получат уведомления. После подтверждения корректировка будет возможна только до первого отчёта Оператора.
         </p>
+        {confirmError && <p className="mt-2 text-sm text-signal-amber">{confirmError}</p>}
         <div className="mt-6 flex justify-end gap-3">
           <Button variant="secondary" onClick={() => setConfirmOrderId(null)} disabled={isPending}>
             Отмена
