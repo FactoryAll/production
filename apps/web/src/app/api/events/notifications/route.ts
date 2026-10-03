@@ -3,7 +3,9 @@ import { getSession } from '@/lib/auth/session';
 import {
   isNotificationStreamChanged,
   NOTIFICATION_STREAM_INTERVAL_MS,
+  NOTIFICATION_STREAM_PING_MS,
   notificationStreamFrame,
+  notificationStreamPing,
   type NotificationStreamPayload,
 } from '@/lib/events/stream';
 
@@ -15,6 +17,10 @@ export const dynamic = 'force-dynamic';
  * Сервер опрашивает БД и пушит клиенту только изменения (счётчик непрочитанных и
  * идентификатор последнего уведомления). Канал отдаёт данные только владельцу
  * сессии — уведомления пользователя никому больше не видны (M09 BR-5).
+ *
+ * Простой канал переживает за счёт keep-alive-комментариев (см.
+ * NOTIFICATION_STREAM_PING_MS), иначе nginx закрыл бы соединение по своему
+ * proxy_read_timeout (по умолчанию 60 с).
  */
 export async function GET(): Promise<Response> {
   const session = await getSession();
@@ -24,7 +30,8 @@ export async function GET(): Promise<Response> {
 
   const recipientId = session.userId;
   const encoder = new TextEncoder();
-  let timer: ReturnType<typeof setInterval> | undefined;
+  let pollTimer: ReturnType<typeof setInterval> | undefined;
+  let pingTimer: ReturnType<typeof setInterval> | undefined;
   let previous: NotificationStreamPayload | null = null;
   let closed = false;
 
@@ -62,16 +69,30 @@ export async function GET(): Promise<Response> {
         // Первый кадр не критичен: клиент повторит запрос при переподключении.
       }
 
-      timer = setInterval(() => {
+      pollTimer = setInterval(() => {
         void push().catch(() => {
           // Ошибка опроса не должна закрывать канал — ждём следующего тика.
         });
       }, NOTIFICATION_STREAM_INTERVAL_MS);
+
+      pingTimer = setInterval(() => {
+        if (closed) {
+          return;
+        }
+        try {
+          controller.enqueue(encoder.encode(notificationStreamPing()));
+        } catch {
+          // Соединение уже закрыто — таймеры снимет cancel().
+        }
+      }, NOTIFICATION_STREAM_PING_MS);
     },
     cancel() {
       closed = true;
-      if (timer) {
-        clearInterval(timer);
+      if (pollTimer) {
+        clearInterval(pollTimer);
+      }
+      if (pingTimer) {
+        clearInterval(pingTimer);
       }
     },
   });
@@ -81,6 +102,7 @@ export async function GET(): Promise<Response> {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
+      // Отключает буферизацию ответа в nginx (иначе кадры копятся в буфере прокси).
       'X-Accel-Buffering': 'no',
     },
   });

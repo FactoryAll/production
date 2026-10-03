@@ -148,6 +148,33 @@ docker compose logs --tail=10 web
    в справочнике на экране «Роли». При плановом деплое полезно выполнить `pnpm db:seed` или
    `bash scripts/deploy.sh`.
 
+### SSE-канал уведомлений и nginx (с v1.2.0)
+
+Центр уведомлений использует Server-Sent Events: `/api/events/notifications`. Приложение отдаёт
+заголовок `X-Accel-Buffering: no` и keep-alive-кадр каждые 15 секунд, но надёжнее явно отключить
+буферизацию в nginx — иначе кадры могут копиться в буфере прокси и real-time перестанет работать.
+
+Действия при первом деплое релиза с SSE (один раз):
+
+```bash
+cp -r /etc/nginx/sites-enabled /root/nginx-backup-$(date +%F)
+cd /opt/prodtrack
+cp docs/nginx/prodtracker.factoryall.ru.conf /etc/nginx/sites-available/
+nginx -t
+systemctl reload nginx
+```
+
+Проверка, что канал открыт и не буферизуется (в заголовках должен быть `text/event-stream`):
+
+```bash
+curl -sS -N -D - -o /dev/null --max-time 6 \
+  -H "Cookie: session=<значение cookie сессии>" \
+  https://prodtracker.factoryall.ru/api/events/notifications | head -12
+```
+
+> Cookie сессии берётся из браузера (DevTools → Application → Cookies → `session`). Без cookie
+> канал отвечает `401` — это ожидаемое поведение (M09 BR-5).
+
 ### Регулярная архивация аудита (Р-16, с v1.2.0)
 
 Аудит-записи старше 12 месяцев не удаляются, а помечаются `archived = true` (M13 BR-6).

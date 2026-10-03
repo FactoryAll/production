@@ -40,7 +40,19 @@ curl -sI https://mes-midex.factoryall.ru || echo "mes-midex DOWN"
 curl -sI https://tracker.factoryall.ru || echo "tracker DOWN"
 ```
 
-### 0.3. Проверка пункта H: выгрузка уведомлений и расхождений из БД
+### 0.3. Обновление конфига nginx для SSE (обязательно для real-time)
+
+```bash
+cp -r /etc/nginx/sites-enabled /root/nginx-backup-$(date +%F)
+cd /opt/prodtrack
+cp docs/nginx/prodtracker.factoryall.ru.conf /etc/nginx/sites-available/
+nginx -t
+systemctl reload nginx
+```
+
+Без этого шага канал уведомлений может буферизоваться прокси и обновление в реальном времени (сценарий 2) работать не будет.
+
+### 0.4. Проверка пункта H: выгрузка уведомлений и расхождений из БД
 
 ```bash
 cd /opt/prodtrack
@@ -171,7 +183,7 @@ docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB
 ## Часть 3. Что прислать по итогам
 
 1. Скриншоты по шагам (достаточно по одному на сценарий, критичные — по шагам).
-2. Вывод команд из 0.1–0.3 (деплой, сид, SQL-выгрузка).
+2. Вывод команд из 0.1–0.4 (деплой, сид, обновление nginx, SQL-выгрузка).
 3. Найденные дефекты: шаг, что произошло, ожидаемое поведение, критичность (критичный/некритичный).
 4. Ответы по открытым вопросам из самопроверки: переход по уведомлению для роли С1С (п. 5) и объём пагинации/поиска (п. 6).
 
