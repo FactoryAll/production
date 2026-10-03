@@ -214,3 +214,4 @@ export function isStockCategory(value: unknown): value is StockCategory {
   return typeof value === 'string' && STOCK_CATEGORIES.includes(value as StockCategory);
 }
 export * from './access';
+export * from './events';
