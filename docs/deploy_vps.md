@@ -101,12 +101,60 @@ curl -sI https://tracker.factoryall.ru || echo "tracker DOWN"
 
 ## Обновление
 
-Для обновления на новый тег:
+### Проверенная процедура редеплоя (использовать именно её)
+
+Выполняется **на VPS пользователем** (владельцем продукта) — у агента доступа к серверу нет.
+Агент присылает эти команды, пользователь выполняет и возвращает вывод.
+
+```bash
+cd /opt/prodtrack
+git pull origin main
+git log -1 --oneline            # убедиться, что подтянулся нужный коммит
+docker compose down
+docker compose build --no-cache
+docker compose up -d
+sleep 20
+docker compose logs --tail=10 web
+```
+
+После деплоя — смоук: открыть https://prodtracker.factoryall.ru/login и проверить версию в футере
+(должна совпадать со значением `VERSION` в `docker-compose.yml`).
+
+### Важные особенности (проверено на практике)
+
+1. **Версия в футере задаётся в `docker-compose.yml`** (build arg `VERSION` и переменная окружения),
+   а не в `.env` и не git-тегом автоматически. Чтобы футер показал новую версию, нужно:
+   - поднять значение в `docker-compose.yml` (и `.env.example`),
+   - пересобрать образ (`docker compose build --no-cache`).
+2. **`docker build -t … .` из корня репозитория не работает** — Dockerfile лежит в `apps/web/Dockerfile`
+   и используется только через `docker compose`. Собирать нужно через compose.
+3. **`docker compose down` удаляет контейнеры вместе с их логами.** Если нужно разобрать ошибку —
+   снять лог **до** перезапуска:
+   ```bash
+   docker compose logs --tail=50 web
+   ```
+   Либо использовать `docker compose restart` (логи сохраняются) вместо `down` + `up`.
+4. **`scripts/deploy.sh` может не иметь бита выполнения** («Permission denied»). Тогда:
+   `bash scripts/deploy.sh`. Скрипт дополнительно выполняет `prisma migrate deploy`, идемпотентный
+   `pnpm db:seed` и смоук; при ручном редеплое через `docker compose` сид не запускается.
+5. **Сервер общий.** Кроме ProdTrack на нём работают `mes-midex.factoryall.ru` и `tracker.factoryall.ru`.
+   Ничего, кроме конфигурации ProdTrack, не трогать. После деплоя проверять соседей:
+   ```bash
+   curl -sI https://mes-midex.factoryall.ru || echo "mes-midex DOWN"
+   curl -sI https://tracker.factoryall.ru || echo "tracker DOWN"
+   ```
+6. **Сид после изменений матрицы прав.** Права проверяются кодом (`packages/contracts`), поэтому
+   работоспособность от сида не зависит. Сид нужен только чтобы новые коды прав появились
+   в справочнике на экране «Роли». При плановом деплое полезно выполнить `pnpm db:seed` или
+   `bash scripts/deploy.sh`.
+
+### Обновление на конкретный тег (альтернатива)
+
 ```bash
 cd /opt/prodtrack
 git fetch origin
 git checkout vX.Y.Z
-./scripts/deploy.sh
+bash scripts/deploy.sh
 ```
 
 ## Рекомендуемый харденинг после стабилизации
