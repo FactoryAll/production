@@ -111,4 +111,16 @@ describe('getObjectHistory (M13 §8: вкладка «История»)', () => 
       }),
     );
   });
+
+  it('АДМ видит в истории объекта и архивные записи (BR-6)', async () => {
+    (prisma.auditRecord.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    await getObjectHistory('GoodsTransfer', 'tr-1', true);
+
+    expect(prisma.auditRecord.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { objectType: 'GoodsTransfer', objectId: 'tr-1' },
+      }),
+    );
+  });
 });

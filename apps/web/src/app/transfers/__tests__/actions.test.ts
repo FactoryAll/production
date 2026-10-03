@@ -747,7 +747,8 @@ describe('cancelGoodsTransfer', () => {
 
     expect(deps.writeAudit).toHaveBeenCalled();
     const auditCall = deps.writeAudit.mock.calls[0][1];
-    expect(auditCall.action).toBe('UPDATE');
+    // Р-09: отмена документа фиксируется действием CANCEL.
+    expect(auditCall.action).toBe('CANCEL');
     expect(auditCall.field).toBe('status');
     expect(auditCall.oldValue).toBe('DRAFT');
     expect(auditCall.newValue).toBe('CANCELLED');
@@ -949,9 +950,24 @@ describe('receiveGoodsTransfer', () => {
     expect(deps.buildTransferReceiptMovements).toHaveBeenCalled();
     expect(deps.applyStockMovements).toHaveBeenCalled();
 
-    const auditCall = deps.writeAudit.mock.calls[0][1];
-    expect(auditCall.oldValue).toBe('SUBMITTED');
-    expect(auditCall.newValue).toBe('RECEIVED');
+    const auditInputs = deps.writeAudit.mock.calls.map((call) =>
+      call[1] as {
+        field?: string | null;
+        objectType?: string;
+        oldValue?: string | null;
+        newValue?: string | null;
+      },
+    );
+    const auditCall = auditInputs.find((input) => input.field === 'status');
+    expect(auditCall?.oldValue).toBe('SUBMITTED');
+    expect(auditCall?.newValue).toBe('RECEIVED');
+
+    // Р-09: изменение количества по строке пишется отдельной записью (старое → новое).
+    const quantityAudit = auditInputs.find(
+      (input) => input.field === 'actualQuantity' && (input as { objectType?: string }).objectType === 'TransferLine',
+    ) as { oldValue: string | null; newValue: string } | undefined;
+    expect(quantityAudit).toBeDefined();
+    expect(quantityAudit?.newValue).toBe('10');
 
     const timingCall = deps.writeTiming.mock.calls[0][1];
     expect(timingCall.toStatus).toBe('RECEIVED');
@@ -1228,9 +1244,27 @@ describe('reconcileDiscrepancies', () => {
     expect(result.status).toBe('RECONCILED');
     expect(deps.applyStockMovements).not.toHaveBeenCalled();
 
-    const auditCall = deps.writeAudit.mock.calls[0][1];
-    expect(auditCall.oldValue).toBe('DISCREPANCY');
-    expect(auditCall.newValue).toBe('RECONCILED');
+    const auditInputs = deps.writeAudit.mock.calls.map((call) =>
+      call[1] as {
+        field?: string | null;
+        objectType?: string;
+        oldValue?: string | null;
+        newValue?: string | null;
+      },
+    );
+    const auditCall = auditInputs.find((input) => input.field === 'status');
+    expect(auditCall?.oldValue).toBe('DISCREPANCY');
+    expect(auditCall?.newValue).toBe('RECONCILED');
+
+    // Р-09: согласование расхождения фиксируется отдельной аудит-записью.
+    const discrepancyAudit = auditInputs.find(
+      (input) => (input as { objectType?: string }).objectType === 'Discrepancy',
+    ) as { field: string | null; oldValue: string | null; newValue: string | null } | undefined;
+    expect(discrepancyAudit).toMatchObject({
+      field: 'reconciled',
+      oldValue: 'false',
+      newValue: 'true',
+    });
 
     const timingCall = deps.writeTiming.mock.calls[0][1];
     expect(timingCall.toStatus).toBe('RECONCILED');

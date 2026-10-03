@@ -488,7 +488,8 @@ export async function cancelGoodsTransfer(
     });
 
     await deps.writeAudit(tx, {
-      action: 'UPDATE',
+      // Р-09: отмена документа — отдельное действие (как у ПЗ, Р-12).
+      action: 'CANCEL',
       objectType: 'GoodsTransfer',
       objectId: transfer.id,
       field: 'status',
@@ -839,6 +840,14 @@ export async function receiveGoodsTransfer(
     actualQuantity: actualByLineId.get(line.id) ?? line.plannedQuantity,
   }));
 
+  // Предыдущие значения количеств — для обязательного лога «старое → новое» (Р-09).
+  const previousActualByLineId = new Map(
+    transfer.lines.map((line) => [
+      line.id,
+      line.actualQuantity ? line.actualQuantity.toString() : undefined,
+    ]),
+  );
+
   const hasDiscrepancy = receivedLines.some((line) =>
     !line.actualQuantity.equals(line.plannedQuantity),
   );
@@ -864,6 +873,19 @@ export async function receiveGoodsTransfer(
         where: { id: line.id },
         data: { actualQuantity: line.actualQuantity },
       });
+
+      // Р-09: изменение количества по строке — кто, когда, старое → новое.
+      await deps.writeAudit(tx, {
+        action: 'UPDATE',
+        objectType: 'TransferLine',
+        objectId: line.id,
+        field: 'actualQuantity',
+        oldValue: previousActualByLineId.get(line.id),
+        newValue: line.actualQuantity.toString(),
+        userId,
+        userRoles: roles,
+        permission: 'transfer:receive',
+      });
     }
 
     const updated = await tx.goodsTransfer.update({
@@ -879,7 +901,7 @@ export async function receiveGoodsTransfer(
       for (const line of receivedLines) {
         const difference = line.actualQuantity.minus(line.plannedQuantity);
         if (!difference.equals(0)) {
-          await tx.discrepancy.create({
+          const discrepancy = await tx.discrepancy.create({
             data: {
               goodsTransferId: transfer.id,
               transferLineId: line.id,
@@ -889,6 +911,22 @@ export async function receiveGoodsTransfer(
               difference,
               reconciled: false,
             },
+          });
+
+          // Р-09: расхождение — отдельная аудит-запись с количеством и разницей.
+          await deps.writeAudit(tx, {
+            action: 'CREATE',
+            objectType: 'Discrepancy',
+            objectId: discrepancy.id,
+            newValue: JSON.stringify({
+              transferLineId: line.id,
+              plannedQuantity: line.plannedQuantity.toString(),
+              actualQuantity: line.actualQuantity.toString(),
+              difference: difference.toString(),
+            }),
+            userId,
+            userRoles: roles,
+            permission: 'transfer:receive',
           });
         }
       }
@@ -1055,6 +1093,19 @@ export async function reconcileDiscrepancies(
         },
       });
 
+      // Р-09: согласование расхождения — отдельная аудит-запись.
+      await deps.writeAudit(tx, {
+        action: 'UPDATE',
+        objectType: 'Discrepancy',
+        objectId: discrepancy.id,
+        field: 'reconciled',
+        oldValue: 'false',
+        newValue: 'true',
+        userId,
+        userRoles: roles,
+        permission: 'transfer:reconcile',
+      });
+
       const delta = reconciledQuantity.minus(discrepancy.actualQuantity);
       if (!delta.equals(0)) {
         const movement = {
@@ -1073,6 +1124,21 @@ export async function reconcileDiscrepancies(
         where: { id: line.id },
         data: { actualQuantity: reconciledQuantity },
       });
+
+      // Р-09: согласованное количество — старое (фактическое) → новое (согласованное).
+      if (!reconciledQuantity.equals(discrepancy.actualQuantity)) {
+        await deps.writeAudit(tx, {
+          action: 'UPDATE',
+          objectType: 'TransferLine',
+          objectId: line.id,
+          field: 'actualQuantity',
+          oldValue: discrepancy.actualQuantity.toString(),
+          newValue: reconciledQuantity.toString(),
+          userId,
+          userRoles: roles,
+          permission: 'transfer:reconcile',
+        });
+      }
     }
 
     const updated = await tx.goodsTransfer.update({

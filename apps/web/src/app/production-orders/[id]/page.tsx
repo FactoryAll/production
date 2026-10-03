@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { notFound } from 'next/navigation';
 import { getProductionOrderById } from '../actions';
 import ProductionOrderCard from './_client-card';
+import { ObjectHistory } from '@/components/object-history';
 import { requireSession } from '@/lib/auth/session';
 
 interface ProductionOrderPageProps {
@@ -18,5 +19,15 @@ export default async function ProductionOrderPage({ params }: ProductionOrderPag
     notFound();
   }
   const userRoles = session.user.roles.map((ur) => ur.role.code);
-  return <ProductionOrderCard order={order} defectReasons={defectReasons} userRoles={userRoles} />;
+  return (
+    <>
+      <ProductionOrderCard order={order} defectReasons={defectReasons} userRoles={userRoles} />
+      {/* Вкладка «История» карточки объекта (M13 §8). */}
+      <ObjectHistory
+        objectType="ProductionOrder"
+        objectId={order.id}
+        canShowArchived={userRoles.includes('ADM')}
+      />
+    </>
+  );
 }

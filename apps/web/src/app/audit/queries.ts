@@ -121,5 +121,8 @@ export async function getObjectHistory(
   objectId: string,
   canShowArchived: boolean,
 ): Promise<AuditRecordItem[]> {
-  return getAuditRecords({ objectType, objectId }, canShowArchived);
+  return getAuditRecords(
+    { objectType, objectId, showArchived: canShowArchived },
+    canShowArchived,
+  );
 }
