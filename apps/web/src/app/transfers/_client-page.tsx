@@ -60,10 +60,11 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
     setIsPending(true);
     try {
       const result = await submitGoodsTransferAction(transferId);
-      setSubmitTransferId(null);
       if (result.success) {
+        setSubmitTransferId(null);
         router.refresh();
       } else {
+        // Окно подтверждения остаётся открытым, иначе сообщение об ошибке не увидеть.
         setSubmitError(result.error ?? 'Не удалось отправить перемещение');
       }
     } finally {
@@ -76,10 +77,11 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
     setIsPending(true);
     try {
       const result = await cancelGoodsTransferAction(transferId);
-      setCancelTransferId(null);
       if (result.success) {
+        setCancelTransferId(null);
         router.refresh();
       } else {
+        // Окно подтверждения остаётся открытым, иначе сообщение об ошибке не увидеть.
         setCancelError(result.error ?? 'Не удалось отменить перемещение');
       }
     } finally {
@@ -210,6 +212,13 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
     return 'Отменить перемещение? Остатки ГП будут возвращены на Производственный склад. КСГП получит уведомление об отмене.';
   };
 
+  const visibleError =
+    submitError && !selectedTransfer
+      ? submitError
+      : cancelError && !selectedCancelTransfer
+        ? cancelError
+        : null;
+
   return (
     <div className="space-y-4 p-6">
       <div className="flex items-center justify-between">
@@ -220,6 +229,10 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
           </Link>
         )}
       </div>
+
+      {visibleError && (
+        <p className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">{visibleError}</p>
+      )}
 
       <div className="flex flex-wrap gap-2">
         {STATUS_FILTERS.map((filter) => (

@@ -60,15 +60,23 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
       ? 'Отменить перемещение? Перемещение будет удалено из списка.'
       : 'Отменить перемещение? Остатки ГП будут возвращены на Производственный склад. КСГП получит уведомление об отмене.';
 
+  const visibleError =
+    submitError && !showSubmitDialog
+      ? submitError
+      : cancelError && !showCancelDialog
+        ? cancelError
+        : null;
+
   async function handleSubmit() {
     setSubmitError(null);
     setIsPending(true);
     try {
       const result = await submitGoodsTransferAction(transfer.id);
-      setShowSubmitDialog(false);
       if (result.success) {
+        setShowSubmitDialog(false);
         router.refresh();
       } else {
+        // Диалог остаётся открытым, иначе сообщение об ошибке не увидеть.
         setSubmitError(result.error ?? 'Не удалось отправить перемещение');
       }
     } finally {
@@ -81,10 +89,11 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
     setIsPending(true);
     try {
       const result = await cancelGoodsTransferAction(transfer.id);
-      setShowCancelDialog(false);
       if (result.success) {
+        setShowCancelDialog(false);
         router.refresh();
       } else {
+        // Диалог остаётся открытым, иначе сообщение об ошибке не увидеть.
         setCancelError(result.error ?? 'Не удалось отменить перемещение');
       }
     } finally {
@@ -141,6 +150,10 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
           {transferStatusLabel(transfer.status)}
         </span>
       </div>
+
+      {visibleError && (
+        <p className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">{visibleError}</p>
+      )}
 
       <Card className="grid gap-4 sm:grid-cols-2">
         <div>
