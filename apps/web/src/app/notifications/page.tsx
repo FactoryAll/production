@@ -2,9 +2,17 @@ export const dynamic = 'force-dynamic';
 
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth/session';
+import { Pagination } from '@/components/pagination';
 
 import NotificationsPage from './_client-page';
-import { getNotifications } from './queries';
+import { getNotificationsPage, getUnreadNotificationCount, type NotificationFilter } from './queries';
+
+interface NotificationsServerPageProps {
+  searchParams: {
+    filter?: string;
+    page?: string;
+  };
+}
 
 /**
  * Центр уведомлений M09 (T-045).
@@ -13,14 +21,23 @@ import { getNotifications } from './queries';
  * (M09 §3), поэтому проверяется только наличие сессии, а выборка всегда
  * ограничена текущим пользователем (BR-5).
  */
-export default async function NotificationsServerPage() {
+export default async function NotificationsServerPage({
+  searchParams,
+}: NotificationsServerPageProps) {
   const session = await getSession();
   if (!session) {
     redirect('/login');
   }
 
-  const notifications = await getNotifications(session.userId, 'ALL');
-  const unreadCount = notifications.filter((item) => !item.readAt).length;
+  const filter: NotificationFilter =
+    searchParams.filter === 'UNREAD' || searchParams.filter === 'READ'
+      ? searchParams.filter
+      : 'ALL';
+
+  const [result, unreadCount] = await Promise.all([
+    getNotificationsPage(session.userId, filter, searchParams.page),
+    getUnreadNotificationCount(session.userId),
+  ]);
 
   return (
     <main className="p-6">
@@ -31,7 +48,19 @@ export default async function NotificationsServerPage() {
           {unreadCount > 0 ? ', непрочитанных: ' + unreadCount : ''}.
         </p>
       </div>
-      <NotificationsPage notifications={notifications} />
+
+      <NotificationsPage
+        notifications={result.items}
+        filter={filter}
+        unreadCount={unreadCount}
+      />
+
+      <Pagination
+        pathname="/notifications"
+        searchParams={searchParams}
+        page={result.page}
+        hasNextPage={result.hasNextPage}
+      />
     </main>
   );
 }

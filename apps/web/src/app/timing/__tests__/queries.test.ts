@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { prisma } from '@prodtrack/db';
 import {
   buildStageDurations,
+  getTimingPage,
   getTimingRecords,
   TERMINAL_STATUSES,
   TIMING_PAGE_SIZE,
@@ -165,6 +166,23 @@ describe('buildStageDurations (UC-M10-2)', () => {
   it('перечень терминальных статусов покрывает ПЗ и Перемещение (00 §3)', () => {
     expect(TERMINAL_STATUSES.PRODUCTION_ORDER).toEqual(['COMPLETED', 'CANCELLED']);
     expect(TERMINAL_STATUSES.GOODS_TRANSFER).toEqual(['RECEIVED', 'RECONCILED', 'CANCELLED']);
+  });
+});
+
+describe('getTimingPage (T-057)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('берёт страницу с skip по номеру и одной записью сверх размера', async () => {
+    (prisma.stageTiming.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    const result = await getTimingPage({}, '2');
+
+    expect(prisma.stageTiming.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: TIMING_PAGE_SIZE, take: TIMING_PAGE_SIZE + 1 }),
+    );
+    expect(result).toMatchObject({ page: 2, pageSize: TIMING_PAGE_SIZE, hasNextPage: false });
   });
 });
 

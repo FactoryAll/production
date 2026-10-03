@@ -3,9 +3,11 @@ export const dynamic = 'force-dynamic';
 import { AccessDenied } from '@/components/access-denied';
 import { checkPageAccess } from '@/lib/auth/page-guard';
 
+import { Pagination } from '@/components/pagination';
+
 import ArchiveAuditButton from './_archive-button';
 import { auditActionLabel, auditChangeLabel, auditObjectLabel, auditRoleLabel } from './labels';
-import { getAuditRecords, type AuditFilter } from './queries';
+import { getAuditPage, type AuditFilter } from './queries';
 
 interface AuditPageProps {
   searchParams: {
@@ -15,6 +17,7 @@ interface AuditPageProps {
     from?: string;
     to?: string;
     showArchived?: string;
+    page?: string;
   };
 }
 
@@ -50,7 +53,8 @@ export default async function AuditServerPage({ searchParams }: AuditPageProps) 
     showArchived,
   };
 
-  const records = await getAuditRecords(filter, canShowArchived);
+  const result = await getAuditPage(filter, canShowArchived, searchParams.page);
+  const records = result.items;
 
   return (
     <main className="p-6">
@@ -183,6 +187,13 @@ export default async function AuditServerPage({ searchParams }: AuditPageProps) 
           </tbody>
         </table>
       )}
+
+      <Pagination
+        pathname="/audit"
+        searchParams={searchParams}
+        page={result.page}
+        hasNextPage={result.hasNextPage}
+      />
     </main>
   );
 }

@@ -4,6 +4,7 @@
 // (урок Фазы 3 — запросы не держать в 'use server'-файлах).
 
 import { prisma } from '@prodtrack/db';
+import { parsePageParam, toPageResult, type PageResult } from '@/lib/pagination';
 
 export type NotificationFilter = 'ALL' | 'UNREAD' | 'READ';
 
@@ -58,6 +59,9 @@ function toItem(notification: {
   };
 }
 
+/** Размер страницы центра уведомлений (T-057). */
+export const NOTIFICATIONS_PAGE_SIZE = 20;
+
 /** Уведомления пользователя (только свои — M09 BR-5). */
 export async function getNotifications(
   recipientId: string,
@@ -70,6 +74,27 @@ export async function getNotifications(
     take: limit,
   });
   return notifications.map(toItem);
+}
+
+/**
+ * Страница уведомлений пользователя (T-057): `skip`/`take` без отдельного `count` —
+ * признак следующей страницы берётся из «лишней» записи.
+ */
+export async function getNotificationsPage(
+  recipientId: string,
+  filter: NotificationFilter = 'ALL',
+  pageParam?: string,
+): Promise<PageResult<NotificationItem>> {
+  const params = parsePageParam(pageParam, NOTIFICATIONS_PAGE_SIZE);
+
+  const notifications = await prisma.notification.findMany({
+    where: { recipientId, ...notificationFilterWhere(filter) },
+    orderBy: notificationOrderBy(filter),
+    skip: params.skip,
+    take: params.take,
+  });
+
+  return toPageResult(notifications.map(toItem), params);
 }
 
 /** Количество непрочитанных — для счётчика в шапке приложения (M09 §8). */

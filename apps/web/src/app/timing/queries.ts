@@ -5,6 +5,7 @@
 
 import { prisma } from '@prodtrack/db';
 import type { DocumentType, EntityType } from '@prisma/client';
+import { parsePageParam, toPageResult, type PageResult } from '@/lib/pagination';
 
 export interface TimingRecordItem {
   id: string;
@@ -44,7 +45,8 @@ export interface StageDuration {
   isCurrent: boolean;
 }
 
-export const TIMING_PAGE_SIZE = 200;
+/** Размер страницы списка записей хронометража (T-057). */
+export const TIMING_PAGE_SIZE = 50;
 
 export function timingWhere(filter: TimingFilter) {
   const where: Record<string, unknown> = {};
@@ -151,6 +153,26 @@ export async function getTimingRecords(filter: TimingFilter = {}): Promise<Timin
     take: filter.limit ?? TIMING_PAGE_SIZE,
   });
   return records.map(toItem);
+}
+
+/**
+ * Страница списка переходов (T-057): `skip`/`take` без отдельного `count` —
+ * признак следующей страницы берётся из «лишней» записи.
+ */
+export async function getTimingPage(
+  filter: TimingFilter,
+  pageParam?: string,
+): Promise<PageResult<TimingRecordItem>> {
+  const params = parsePageParam(pageParam, TIMING_PAGE_SIZE);
+
+  const records = await prisma.stageTiming.findMany({
+    where: timingWhere(filter),
+    orderBy: [{ transitionedAt: 'desc' }],
+    skip: params.skip,
+    take: params.take,
+  });
+
+  return toPageResult(records.map(toItem), params);
 }
 
 /** Записи одного документа в порядке времени — основа расчёта длительностей. */

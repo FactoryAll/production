@@ -4,6 +4,7 @@
 // (M13 BR-2). Архивные записи скрыты от всех, кроме АДМ (Р-16, BR-6).
 
 import { prisma } from '@prodtrack/db';
+import { parsePageParam, toPageResult, type PageResult } from '@/lib/pagination';
 
 export interface AuditRecordItem {
   id: string;
@@ -34,7 +35,11 @@ export interface AuditFilter {
   limit?: number;
 }
 
-export const AUDIT_PAGE_SIZE = 200;
+/** Размер страницы списка аудита (T-057). */
+export const AUDIT_PAGE_SIZE = 50;
+
+/** Предел выборки истории одного объекта. */
+export const AUDIT_HISTORY_LIMIT = 200;
 
 /**
  * Условие выборки аудита.
@@ -107,9 +112,31 @@ export async function getAuditRecords(
     where: auditWhere(filter, canShowArchived),
     orderBy: [{ createdAt: 'desc' }],
     include: { user: { select: { login: true } } },
-    take: filter.limit ?? AUDIT_PAGE_SIZE,
+    take: filter.limit ?? AUDIT_HISTORY_LIMIT,
   });
   return records.map(toItem);
+}
+
+/**
+ * Страница журнала аудита (T-057): выборка с `skip`/`take` без отдельного `count`
+ * — наличие следующей страницы определяется по «лишней» записи.
+ */
+export async function getAuditPage(
+  filter: AuditFilter,
+  canShowArchived: boolean,
+  pageParam?: string,
+): Promise<PageResult<AuditRecordItem>> {
+  const params = parsePageParam(pageParam, AUDIT_PAGE_SIZE);
+
+  const records = await prisma.auditRecord.findMany({
+    where: auditWhere(filter, canShowArchived),
+    orderBy: [{ createdAt: 'desc' }],
+    include: { user: { select: { login: true } } },
+    skip: params.skip,
+    take: params.take,
+  });
+
+  return toPageResult(records.map(toItem), params);
 }
 
 /**

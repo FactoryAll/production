@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { prisma } from '@prodtrack/db';
 import {
   getNotifications,
+  getNotificationsPage,
   getUnreadNotificationCount,
+  NOTIFICATIONS_PAGE_SIZE,
   notificationFilterWhere,
   notificationOrderBy,
 } from '../queries';
@@ -91,6 +93,27 @@ describe('getNotifications', () => {
       orderBy: [{ createdAt: 'desc' }],
       take: 100,
     });
+  });
+});
+
+describe('getNotificationsPage (T-057)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('берёт страницу уведомлений пользователя с skip по номеру', async () => {
+    (prisma.notification.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    const result = await getNotificationsPage('user-1', 'UNREAD', '3');
+
+    expect(prisma.notification.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { recipientId: 'user-1', readAt: null },
+        skip: NOTIFICATIONS_PAGE_SIZE * 2,
+        take: NOTIFICATIONS_PAGE_SIZE + 1,
+      }),
+    );
+    expect(result).toMatchObject({ page: 3, hasNextPage: false });
   });
 });
 

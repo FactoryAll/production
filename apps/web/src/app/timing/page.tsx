@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { DocumentType } from '@prodtrack/contracts';
 import { AccessDenied } from '@/components/access-denied';
+import { Pagination } from '@/components/pagination';
 import { checkPageAccess } from '@/lib/auth/page-guard';
 import { formatDuration } from '@/lib/format';
 
@@ -15,7 +16,7 @@ import {
   buildStageDurations,
   getDocumentTimingRecords,
   getOwnDocumentIds,
-  getTimingRecords,
+  getTimingPage,
   type TimingFilter,
 } from './queries';
 import { timingScope } from './scope';
@@ -24,6 +25,7 @@ interface TimingPageProps {
   searchParams: {
     documentType?: string;
     documentId?: string;
+    page?: string;
   };
 }
 
@@ -65,7 +67,8 @@ export default async function TimingServerPage({ searchParams }: TimingPageProps
     filter.documentType = DocumentType.PRODUCTION_ORDER;
   }
 
-  const records = await getTimingRecords(filter);
+  const result = await getTimingPage(filter, searchParams.page);
+  const records = result.items;
 
   // Длительности этапов показываем, когда выбран конкретный документ (M10 §8).
   const stages = documentId
@@ -208,6 +211,13 @@ export default async function TimingServerPage({ searchParams }: TimingPageProps
             </tbody>
           </table>
         )}
+
+        <Pagination
+          pathname="/timing"
+          searchParams={searchParams}
+          page={result.page}
+          hasNextPage={result.hasNextPage}
+        />
       </section>
     </main>
   );

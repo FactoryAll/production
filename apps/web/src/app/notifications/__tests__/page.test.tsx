@@ -14,7 +14,7 @@ vi.mock('../actions', () => ({
 }));
 
 import NotificationsPage from '../_client-page';
-import type { NotificationItem } from '../labels';
+import type { NotificationFilter, NotificationItem } from '../labels';
 
 function buildItem(partial: Partial<NotificationItem>): NotificationItem {
   return {
@@ -33,6 +33,21 @@ function buildItem(partial: Partial<NotificationItem>): NotificationItem {
   };
 }
 
+function renderPage(
+  notifications: NotificationItem[],
+  filter: NotificationFilter = 'ALL',
+  unreadCount: number = notifications.filter((item) => !item.readAt).length,
+) {
+  return render(
+    <NotificationsPage
+      notifications={notifications}
+      filter={filter}
+      unreadCount={unreadCount}
+      refreshIntervalMs={0}
+    />,
+  );
+}
+
 describe('Центр уведомлений: переход и прочитанность (M09 BR-2, BR-4)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -40,7 +55,7 @@ describe('Центр уведомлений: переход и прочитан�
   });
 
   it('по клику отмечает уведомление прочитанным и открывает целевой объект', async () => {
-    render(<NotificationsPage notifications={[buildItem({})]} refreshIntervalMs={0} />);
+    renderPage([buildItem({})]);
 
     fireEvent.click(screen.getByRole('button', { name: /Перемещение отправлено/ }));
 
@@ -53,12 +68,7 @@ describe('Центр уведомлений: переход и прочитан�
   });
 
   it('для прочитанного уведомления не вызывает отметку, но ведёт по ссылке', async () => {
-    render(
-      <NotificationsPage
-        notifications={[buildItem({ id: 'n-2', readAt: '2026-10-03T11:00:00.000Z' })]}
-        refreshIntervalMs={0}
-      />,
-    );
+    renderPage([buildItem({ id: 'n-2', readAt: '2026-10-03T11:00:00.000Z' })]);
 
     fireEvent.click(screen.getByRole('button', { name: /Перемещение отправлено/ }));
 
@@ -74,43 +84,42 @@ describe('Центр уведомлений: переход и прочитан�
       error: 'Уведомление принадлежит другому пользователю',
     });
 
-    render(<NotificationsPage notifications={[buildItem({})]} refreshIntervalMs={0} />);
+    renderPage([buildItem({})]);
     fireEvent.click(screen.getByRole('button', { name: /Перемещение отправлено/ }));
 
     await waitFor(() => {
-      expect(
-        screen.getByText('Уведомление принадлежит другому пользователю'),
-      ).toBeTruthy();
+      expect(screen.getByText('Уведомление принадлежит другому пользователю')).toBeTruthy();
     });
     expect(push).not.toHaveBeenCalled();
   });
 
-  it('фильтр «Непрочитанные» скрывает прочитанные уведомления', async () => {
-    render(
-      <NotificationsPage
-        notifications={[
-          buildItem({ id: 'n-1' }),
-          buildItem({
-            id: 'n-2',
-            title: 'Перемещение отменено',
-            eventCode: 'EV_10',
-            readAt: '2026-10-03T11:00:00.000Z',
-          }),
-        ]}
-        refreshIntervalMs={0}
-      />,
-    );
+  it('фильтр «Непрочитанные» перезапрашивает список с сервера (T-057)', async () => {
+    renderPage([buildItem({})]);
 
     fireEvent.click(screen.getByRole('button', { name: /^Непрочитанные/ }));
 
     await waitFor(() => {
-      expect(screen.queryByText('Перемещение отменено')).toBeNull();
+      expect(push).toHaveBeenCalledWith('/notifications?filter=UNREAD');
     });
-    expect(screen.getByText('Перемещение отправлено')).toBeTruthy();
+  });
+
+  it('фильтр «Все» возвращает список без параметра фильтра', async () => {
+    renderPage([buildItem({})], 'UNREAD');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Все/ }));
+
+    await waitFor(() => {
+      expect(push).toHaveBeenCalledWith('/notifications');
+    });
   });
 
   it('показывает маршрут складов из payload (M09 §8)', () => {
-    render(<NotificationsPage notifications={[buildItem({})]} refreshIntervalMs={0} />);
+    renderPage([buildItem({})]);
     expect(screen.getByText('Производственный склад → Склад ГП')).toBeTruthy();
+  });
+
+  it('показывает счётчик непрочитанных на кнопке фильтра', () => {
+    renderPage([buildItem({})], 'ALL', 3);
+    expect(screen.getByRole('button', { name: 'Непрочитанные (3)' })).toBeTruthy();
   });
 });

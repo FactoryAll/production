@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { dbCodeToEventCode } from '@prodtrack/contracts';
 import { Card } from '@prodtrack/ui';
@@ -14,26 +14,23 @@ import {
 
 interface NotificationsPageProps {
   notifications: NotificationItem[];
+  /** Текущий фильтр прочитанности (M09 §8), задаётся строкой запроса. */
+  filter: NotificationFilter;
+  /** Количество непрочитанных уведомлений — для кнопки фильтра и шапки. */
+  unreadCount: number;
   /** Интервал опроса SSE-канала, мс (0 — отключить real-time). */
   refreshIntervalMs?: number;
 }
 
 export default function NotificationsPage({
   notifications,
+  filter,
+  unreadCount,
   refreshIntervalMs = 10000,
 }: NotificationsPageProps) {
   const router = useRouter();
-  const [filter, setFilter] = useState<NotificationFilter>('ALL');
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
-
-  const unreadCount = notifications.filter((item) => !item.readAt).length;
-
-  const visible = useMemo(() => {
-    if (filter === 'UNREAD') return notifications.filter((item) => !item.readAt);
-    if (filter === 'READ') return notifications.filter((item) => item.readAt);
-    return notifications;
-  }, [notifications, filter]);
 
   // Real-time: SSE-канал M09 обновляет список и счётчик без перезагрузки страницы.
   useEffect(() => {
@@ -85,6 +82,11 @@ export default function NotificationsPage({
     }
   }
 
+  function handleFilterChange(value: NotificationFilter) {
+    const query = value === 'ALL' ? '' : '?filter=' + value;
+    router.push('/notifications' + query);
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -92,7 +94,7 @@ export default function NotificationsPage({
           <button
             key={option.value}
             type="button"
-            onClick={() => setFilter(option.value)}
+            onClick={() => handleFilterChange(option.value)}
             className={
               'h-[var(--button-height-sm)] rounded-md border px-4 text-sm font-medium transition-colors ' +
               (filter === option.value
@@ -112,11 +114,11 @@ export default function NotificationsPage({
         </div>
       )}
 
-      {visible.length === 0 ? (
+      {notifications.length === 0 ? (
         <Card className="p-6 text-sm text-machine-gray">Уведомлений нет.</Card>
       ) : (
         <ul className="space-y-2">
-          {visible.map((item) => {
+          {notifications.map((item) => {
             const isUnread = !item.readAt;
             const specCode = dbCodeToEventCode(item.eventCode) ?? item.eventCode;
 
