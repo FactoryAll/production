@@ -152,6 +152,17 @@ docker compose logs --tail=10 web
    в справочнике на экране «Роли». При плановом деплое полезно выполнить `pnpm db:seed` или
    `bash scripts/deploy.sh`.
 
+### Последеплойная проверка одним скриптом (с v1.2.0)
+
+```bash
+cd /opt/prodtrack
+bash scripts/postdeploy-check.sh
+```
+
+Скрипт проверяет коммит и контейнеры, смоук `/login` и версию в футере, прогоняет `db:migrate` и `db:seed` ×2
+(идемпотентность), выгружает счётчики `notifications`/`discrepancies`/`audit_records`/`stage_timings`,
+проверяет ответ канала уведомлений (401 без cookie) и доступность соседних сервисов, печатает последние логи.
+
 ### SSE-канал уведомлений и nginx (с v1.2.0)
 
 Центр уведомлений использует Server-Sent Events: `/api/events/notifications`. Приложение отдаёт
