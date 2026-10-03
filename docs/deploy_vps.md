@@ -148,6 +148,28 @@ docker compose logs --tail=10 web
    в справочнике на экране «Роли». При плановом деплое полезно выполнить `pnpm db:seed` или
    `bash scripts/deploy.sh`.
 
+### Регулярная архивация аудита (Р-16, с v1.2.0)
+
+Аудит-записи старше 12 месяцев не удаляются, а помечаются `archived = true` (M13 BR-6).
+Архивация идемпотентна: повторный запуск ничего не меняет.
+
+Ручной запуск (внутри контейнера, как `db:migrate` в `scripts/deploy.sh`):
+
+```bash
+cd /opt/prodtrack
+docker compose exec -T web pnpm --filter @prodtrack/db db:archive-audit
+```
+
+По расписанию (cron, ежедневно в 03:00):
+
+```bash
+crontab -e
+# добавить строку:
+0 3 * * * cd /opt/prodtrack && docker compose exec -T web pnpm --filter @prodtrack/db db:archive-audit >> /var/log/prodtrack-archive.log 2>&1
+```
+
+Альтернатива для АДМ: кнопка «Архивировать старые записи» на экране «Аудит» — та же операция.
+
 ### Обновление на конкретный тег (альтернатива)
 
 ```bash

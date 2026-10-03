@@ -65,7 +65,6 @@ export interface CreateProductionOrderDeps {
 
 export type PrismaLike = CreateProductionOrderDeps['prisma'];
 
-// TODO T-031: реализовать подтверждение получения (EV-02)
 export async function createProductionOrder(
   input: { shiftId: string; lines: ProductionOrderLineInput[] },
   deps: CreateProductionOrderDeps = { prisma, writeAudit, writeTiming, requirePermission },

@@ -9,7 +9,6 @@ export interface LoginFormState {
   error: string | null;
 }
 
-// TODO T-019: redirect to /change-password when mustChangePassword is true
 export async function login(
   _prevState: LoginFormState,
   formData: FormData,
