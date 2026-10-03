@@ -6,10 +6,8 @@ export interface NavItem {
 }
 
 /**
- * Просмотр Перемещений (M07 §3 / M08 §3) разрешён ролям НП, КСГП, УСГП и АДМ.
- * У ОПР прав на перемещения нет, поэтому пункт меню ему не показывается.
- * Отдельного права `transfer:read` в матрице нет — просмотр покрывается
- * любым из четырёх прав на перемещение.
+ * Права, покрывающие просмотр Перемещений (M07 §3 / M08 §3).
+ * Отдельного права `transfer:read` в матрице нет.
  */
 const TRANSFER_VIEW_PERMISSIONS: PermissionCode[] = [
   'transfer:create',
@@ -22,19 +20,33 @@ export function canViewTransfers(userRoles: string[]): boolean {
   return TRANSFER_VIEW_PERMISSIONS.some((permission) => hasPermission(userRoles, permission));
 }
 
+/**
+ * Пункты главного меню видимы только тем ролям, у которых есть право
+ * открыть соответствующую страницу (матрица доступа 00 §4.2).
+ * Иначе пользователь попадает на страницу, падающую с ошибкой доступа.
+ */
 export function getNavItems(userRoles: string[]): NavItem[] {
-  const items: NavItem[] = [
-    { label: 'Дашборд', href: '/dashboard' },
-    { label: 'ПЗ', href: '/production-orders' },
-    { label: 'Исполнение', href: '/shift-execution' },
-    { label: 'Остатки', href: '/stock' },
-  ];
+  const items: NavItem[] = [{ label: 'Дашборд', href: '/dashboard' }];
+
+  if (hasPermission(userRoles, 'production_order:read')) {
+    items.push({ label: 'ПЗ', href: '/production-orders' });
+  }
+
+  if (hasPermission(userRoles, 'production_order:accept')) {
+    items.push({ label: 'Исполнение', href: '/shift-execution' });
+  }
+
+  if (hasPermission(userRoles, 'stock:read')) {
+    items.push({ label: 'Остатки', href: '/stock' });
+  }
 
   if (canViewTransfers(userRoles)) {
     items.push({ label: 'Перемещения', href: '/transfers' });
   }
 
-  items.push({ label: 'Отчёты', href: '/shift-reports' });
+  if (hasPermission(userRoles, 'shift_report:read')) {
+    items.push({ label: 'Отчёты', href: '/shift-reports' });
+  }
 
   return items;
 }

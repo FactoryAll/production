@@ -1,27 +1,48 @@
 import { describe, it, expect } from 'vitest';
 import { canViewTransfers, getNavItems } from '../nav-items';
 
+const hrefsFor = (roles: string[]) => getNavItems(roles).map((item) => item.href);
+
 describe('nav-items', () => {
   it('shows Перемещения for NP, KSGP, USGP and ADM (M07 §3)', () => {
     for (const role of ['NP', 'KSGP', 'USGP', 'ADM']) {
       expect(canViewTransfers([role])).toBe(true);
-      expect(getNavItems([role]).map((item) => item.href)).toContain('/transfers');
+      expect(hrefsFor([role])).toContain('/transfers');
     }
   });
 
-  it('hides Перемещения from OPR (no transfer permissions)', () => {
-    expect(canViewTransfers(['OPR'])).toBe(false);
-    expect(getNavItems(['OPR']).map((item) => item.href)).not.toContain('/transfers');
+  it('hides Перемещения from OPR and S1C (no transfer permissions)', () => {
+    for (const role of ['OPR', 'S1C']) {
+      expect(canViewTransfers([role])).toBe(false);
+      expect(hrefsFor([role])).not.toContain('/transfers');
+    }
   });
 
   it('shows Перемещения when any of the multiple roles grants access (Р-23)', () => {
     expect(canViewTransfers(['OPR', 'KSGP'])).toBe(true);
-    expect(getNavItems(['OPR', 'KSGP']).map((item) => item.href)).toContain('/transfers');
+    expect(hrefsFor(['OPR', 'KSGP'])).toContain('/transfers');
   });
 
-  it('keeps Перемещения between Остатки and Отчёты', () => {
-    const hrefs = getNavItems(['NP']).map((item) => item.href);
-    expect(hrefs).toEqual([
+  it('builds the NP menu in a stable order', () => {
+    expect(hrefsFor(['NP'])).toEqual([
+      '/dashboard',
+      '/production-orders',
+      '/stock',
+      '/transfers',
+      '/shift-reports',
+    ]);
+  });
+
+  it('builds the KSGP menu without pages the role cannot open', () => {
+    expect(hrefsFor(['KSGP'])).toEqual(['/dashboard', '/stock', '/transfers']);
+  });
+
+  it('builds the OPR menu without Перемещения and without ПЗ', () => {
+    expect(hrefsFor(['OPR'])).toEqual(['/dashboard', '/shift-execution', '/stock']);
+  });
+
+  it('builds the full menu for ADM', () => {
+    expect(hrefsFor(['ADM'])).toEqual([
       '/dashboard',
       '/production-orders',
       '/shift-execution',
@@ -31,10 +52,15 @@ describe('nav-items', () => {
     ]);
   });
 
-  it('always keeps the base navigation entries', () => {
-    const hrefs = getNavItems([]).map((item) => item.href);
-    expect(hrefs).toContain('/dashboard');
-    expect(hrefs).toContain('/production-orders');
-    expect(hrefs).toContain('/shift-reports');
+  it('hides the production orders page from roles lacking production_order:read', () => {
+    for (const role of ['KSGP', 'USGP', 'S1C']) {
+      expect(hrefsFor([role])).not.toContain('/production-orders');
+    }
+  });
+
+  it('always keeps the dashboard entry', () => {
+    for (const role of ['NP', 'OPR', 'KSGP', 'USGP', 'S1C', 'ADM']) {
+      expect(hrefsFor([role])).toContain('/dashboard');
+    }
   });
 });
