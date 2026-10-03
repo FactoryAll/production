@@ -627,19 +627,108 @@ describe('updateGoodsTransfer', () => {
     expect(deps.writeAudit).toHaveBeenCalled();
   });
 
-  it('blocks update when status is not DRAFT', async () => {
-    const deps = buildMockDeps({ transfer: buildMockTransfer({ status: 'SUBMITTED' }) });
+  it('allows editing a SUBMITTED transfer and issues only the delta (M07 §4.2)', async () => {
+    const deps = buildMockDeps({
+      transfer: buildMockTransfer({ status: 'SUBMITTED' }),
+      lines: [buildMockLine({ plannedQuantity: new Decimal(10) })],
+    });
+
+    await updateGoodsTransfer(
+      'tr-1',
+      {
+        sourceWarehouseId: productionWarehouse.id,
+        destinationWarehouseId: finishedGoodsWarehouse.id,
+        lines: [{ productId: gpProduct1.id, plannedQuantity: 15 }],
+      },
+      deps,
+    );
+
+    expect(deps.applyStockMovements).toHaveBeenCalledTimes(1);
+    const issuedLines = deps.buildTransferIssueMovements.mock.calls[0][1];
+    expect(issuedLines).toEqual([{ productId: gpProduct1.id, quantity: 5, sourceId: 'tr-1' }]);
+  });
+
+  it('returns stock to the production warehouse when the quantity is reduced', async () => {
+    const deps = buildMockDeps({
+      transfer: buildMockTransfer({ status: 'SUBMITTED' }),
+      lines: [buildMockLine({ plannedQuantity: new Decimal(10) })],
+    });
+
+    await updateGoodsTransfer(
+      'tr-1',
+      {
+        sourceWarehouseId: productionWarehouse.id,
+        destinationWarehouseId: finishedGoodsWarehouse.id,
+        lines: [{ productId: gpProduct1.id, plannedQuantity: 4 }],
+      },
+      deps,
+    );
+
+    expect(deps.applyStockMovements).toHaveBeenCalledTimes(1);
+    const movements = deps.applyStockMovements.mock.calls[0][1];
+    expect(movements).toHaveLength(1);
+    expect(movements[0]).toMatchObject({
+      type: 'RETURN',
+      sourceType: 'TRANSFER_EDIT',
+      warehouseId: productionWarehouse.id,
+      productId: gpProduct1.id,
+    });
+    expect(movements[0].quantity.toNumber()).toBe(6);
+  });
+
+  it('blocks editing a SUBMITTED transfer when the additional issue exceeds the balance (BR-1)', async () => {
+    const deps = buildMockDeps({
+      transfer: buildMockTransfer({ status: 'SUBMITTED' }),
+      lines: [buildMockLine({ plannedQuantity: new Decimal(10) })],
+    });
+
     await expect(
       updateGoodsTransfer(
         'tr-1',
         {
           sourceWarehouseId: productionWarehouse.id,
           destinationWarehouseId: finishedGoodsWarehouse.id,
-          lines: [{ productId: gpProduct1.id, plannedQuantity: 1 }],
+          lines: [{ productId: gpProduct1.id, plannedQuantity: 500 }],
         },
         deps,
       ),
-    ).rejects.toThrow('Редактирование доступно только в статусе Черновик');
+    ).rejects.toThrow('Недостаточно остатка');
+    expect(deps.applyStockMovements).not.toHaveBeenCalled();
+  });
+
+  it('does not touch stock when editing a DRAFT transfer', async () => {
+    const deps = buildMockDeps();
+
+    await updateGoodsTransfer(
+      'tr-1',
+      {
+        sourceWarehouseId: productionWarehouse.id,
+        destinationWarehouseId: finishedGoodsWarehouse.id,
+        lines: [{ productId: gpProduct1.id, plannedQuantity: 20 }],
+      },
+      deps,
+    );
+
+    expect(deps.applyStockMovements).not.toHaveBeenCalled();
+  });
+
+  it('blocks update after КСГП confirmation (BR-2)', async () => {
+    const blockedStatuses: Array<GoodsTransfer['status']> = ['RECEIVED', 'DISCREPANCY', 'RECONCILED', 'CANCELLED'];
+
+    for (const status of blockedStatuses) {
+      const deps = buildMockDeps({ transfer: buildMockTransfer({ status }) });
+      await expect(
+        updateGoodsTransfer(
+          'tr-1',
+          {
+            sourceWarehouseId: productionWarehouse.id,
+            destinationWarehouseId: finishedGoodsWarehouse.id,
+            lines: [{ productId: gpProduct1.id, plannedQuantity: 1 }],
+          },
+          deps,
+        ),
+      ).rejects.toThrow('Корректировка недоступна после подтверждения КСГП');
+    }
   });
 });
 

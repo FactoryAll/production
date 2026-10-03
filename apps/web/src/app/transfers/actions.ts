@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { Prisma } from '@prisma/client';
-import type { GoodsTransfer, TransferLine, Warehouse, Product } from '@prisma/client';
+import type { GoodsTransfer, TransferLine, Warehouse, Product, StockCategory, StockMovementType } from '@prisma/client';
 import { prisma, writeAudit, writeTiming, emitEvent } from '@prodtrack/db';
 import { requirePermission } from '@/lib/auth/access';
 import { getAttributeRole } from '@prodtrack/contracts';
@@ -41,6 +41,9 @@ export interface UpdateGoodsTransferDeps {
   prisma: typeof prisma;
   writeAudit: typeof writeAudit;
   requirePermission: typeof requirePermission;
+  applyStockMovements?: typeof applyStockMovements;
+  buildTransferIssueMovements?: typeof buildTransferIssueMovements;
+  getStockBalance?: typeof getStockBalance;
 }
 
 export interface SubmitGoodsTransferDeps {
@@ -590,11 +593,27 @@ export async function updateGoodsTransfer(
   if (!transfer) {
     throw new Error('Перемещение не найдено');
   }
-  if (transfer.status !== 'DRAFT') {
-    throw new Error('Редактирование доступно только в статусе Черновик');
+
+  const isDraft = transfer.status === 'DRAFT';
+  const isSubmitted = transfer.status === 'SUBMITTED';
+  if (!isDraft && !isSubmitted) {
+    // BR-2: корректировка запрещена после подтверждения КСГП.
+    throw new Error('Корректировка недоступна после подтверждения КСГП');
   }
 
-  const { parsedLines } = await validateCreateInput(input, deps.prisma);
+  const { products, parsedLines } = await validateCreateInput(input, deps.prisma);
+
+  const productNameById = new Map<string, string>();
+  for (const line of transfer.lines) {
+    productNameById.set(line.productId, line.product.name);
+  }
+  for (const product of products) {
+    productNameById.set(product.id, product.name);
+  }
+
+  const oldByProduct = new Map(transfer.lines.map((line) => [line.productId, line.plannedQuantity]));
+  const newByProduct = new Map(parsedLines.map((line) => [line.productId, line.plannedQuantity]));
+  const sourceChanged = input.sourceWarehouseId !== transfer.sourceWarehouseId;
 
   const oldLines = transfer.lines.map((line) => ({
     productId: line.productId,
@@ -605,7 +624,88 @@ export async function updateGoodsTransfer(
     plannedQuantity: line.plannedQuantity.toString(),
   }));
 
+  // Списание уже произошло при отправке (Р-03), поэтому правка отправленного
+  // Перемещения должна скорректировать остатки склада-источника и не превысить BR-1.
+  const issueAdjustments: Array<{ productId: string; quantity: Prisma.Decimal }> = [];
+  const returnAdjustments: Array<{ productId: string; quantity: Prisma.Decimal }> = [];
+
+  if (isSubmitted) {
+    if (sourceChanged) {
+      for (const line of transfer.lines) {
+        returnAdjustments.push({ productId: line.productId, quantity: line.plannedQuantity });
+      }
+      for (const line of parsedLines) {
+        issueAdjustments.push({ productId: line.productId, quantity: line.plannedQuantity });
+      }
+    } else {
+      for (const productId of new Set([...oldByProduct.keys(), ...newByProduct.keys()])) {
+        const oldQuantity = oldByProduct.get(productId) ?? new Prisma.Decimal(0);
+        const newQuantity = newByProduct.get(productId) ?? new Prisma.Decimal(0);
+        const delta = newQuantity.minus(oldQuantity);
+        if (delta.greaterThan(0)) {
+          issueAdjustments.push({ productId, quantity: delta });
+        } else if (delta.lessThan(0)) {
+          returnAdjustments.push({ productId, quantity: delta.abs() });
+        }
+      }
+    }
+
+    const getBalance = deps.getStockBalance ?? getStockBalance;
+    for (const adjustment of issueAdjustments) {
+      const balances = await getBalance(deps.prisma, {
+        warehouseType: 'PRODUCTION',
+        productId: adjustment.productId,
+        stockCategory: 'GP',
+      });
+      const balance = balances[0]?.quantity ?? new Prisma.Decimal(0);
+      if (balance.lessThan(adjustment.quantity)) {
+        throw new Error(
+          `Недостаточно остатка для продукта ${productNameById.get(adjustment.productId) ?? ''}: требуется ${adjustment.quantity.toFixed(2)}, доступно ${balance.toFixed(2)}`,
+        );
+      }
+    }
+  }
+
+  const productById = new Map(products.map((product) => [product.id, product]));
+
   const result = await deps.prisma.$transaction(async (tx) => {
+    if (isSubmitted) {
+      const applyMovements = deps.applyStockMovements ?? applyStockMovements;
+      const buildIssue = deps.buildTransferIssueMovements ?? buildTransferIssueMovements;
+
+      if (issueAdjustments.length > 0) {
+        const issueLines = issueAdjustments.map((adjustment) => ({
+          productId: adjustment.productId,
+          quantity: adjustment.quantity.toNumber(),
+          sourceId: transfer.id,
+        }));
+        const issueProducts = issueAdjustments.map((adjustment) => {
+          const product = productById.get(adjustment.productId);
+          return {
+            id: adjustment.productId,
+            category: product?.category ?? ('GP' as Product['category']),
+            active: product?.active ?? true,
+          };
+        });
+        await applyMovements(tx, buildIssue(input.sourceWarehouseId, issueLines, issueProducts));
+      }
+
+      if (returnAdjustments.length > 0) {
+        // Возврат оформляется напрямую: продукт может быть деактивирован,
+        // но по Р-22 остаётся применимым в незавершённых документах.
+        const returnLines = returnAdjustments.map((adjustment) => ({
+          warehouseId: transfer.sourceWarehouseId,
+          productId: adjustment.productId,
+          stockCategory: 'GP' as StockCategory,
+          type: 'RETURN' as StockMovementType,
+          quantity: adjustment.quantity,
+          sourceType: 'TRANSFER_EDIT',
+          sourceId: transfer.id,
+        }));
+        await applyMovements(tx, returnLines);
+      }
+    }
+
     await tx.goodsTransfer.update({
       where: { id: transferId },
       data: {
@@ -645,6 +745,28 @@ export async function updateGoodsTransfer(
       userRoles: roles,
       permission: 'transfer:create',
     });
+
+    if (isSubmitted && (issueAdjustments.length > 0 || returnAdjustments.length > 0)) {
+      await deps.writeAudit(tx, {
+        action: 'UPDATE',
+        objectType: 'GoodsTransfer',
+        objectId: transfer.id,
+        field: 'stockAdjustment',
+        oldValue: JSON.stringify(
+          [...oldByProduct.entries()].map(([productId, quantity]) => ({
+            productId,
+            plannedQuantity: quantity.toString(),
+          })),
+        ),
+        newValue: JSON.stringify({
+          issued: issueAdjustments.map((a) => ({ productId: a.productId, quantity: a.quantity.toString() })),
+          returned: returnAdjustments.map((a) => ({ productId: a.productId, quantity: a.quantity.toString() })),
+        }),
+        userId,
+        userRoles: roles,
+        permission: 'transfer:create',
+      });
+    }
 
     return updated;
   });

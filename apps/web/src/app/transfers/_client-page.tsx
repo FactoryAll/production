@@ -139,7 +139,7 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
                   Отправить
                 </Button>
               )}
-              {isDraft && canCreate && (
+              {(isDraft || isSubmitted) && canCreate && (
                 <Link href={`/transfers/${row.original.id}/edit`}>
                   <Button
                     variant="secondary"

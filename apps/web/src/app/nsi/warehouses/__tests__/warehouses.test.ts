@@ -68,7 +68,7 @@ describe('updateWarehouse', () => {
     expect(writeAudit).toHaveBeenCalled();
     const auditCall = (writeAudit as ReturnType<typeof vi.fn>).mock.calls[0][1];
     expect(auditCall.userRoles).toEqual(['ADM']);
-    expect(auditCall.permission).toBe('nsi:manage');
+    expect(auditCall.permission).toBe('nsi:manage_warehouses');
     expect(auditCall.action).toBe('UPDATE');
   });
 });

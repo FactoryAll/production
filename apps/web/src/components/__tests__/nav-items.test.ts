@@ -29,7 +29,6 @@ describe('nav-items', () => {
       '/production-orders',
       '/stock',
       '/transfers',
-      '/shift-reports',
     ]);
   });
 
@@ -48,13 +47,18 @@ describe('nav-items', () => {
       '/shift-execution',
       '/stock',
       '/transfers',
-      '/shift-reports',
     ]);
   });
 
   it('hides the production orders page from roles lacking production_order:read', () => {
     for (const role of ['KSGP', 'USGP', 'S1C']) {
       expect(hrefsFor([role])).not.toContain('/production-orders');
+    }
+  });
+
+  it('никогда не выводит ссылку на несуществующую страницу /shift-reports', () => {
+    for (const role of ['NP', 'OPR', 'KSGP', 'USGP', 'S1C', 'ADM']) {
+      expect(hrefsFor([role])).not.toContain('/shift-reports');
     }
   });
 

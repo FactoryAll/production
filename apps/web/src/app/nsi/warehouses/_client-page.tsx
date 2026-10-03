@@ -16,9 +16,10 @@ import type { Warehouse } from '@prisma/client';
 
 interface WarehousesPageProps {
   warehouses: Warehouse[];
+  canManage: boolean;
 }
 
-export default function WarehousesPage({ warehouses }: WarehousesPageProps) {
+export default function WarehousesPage({ warehouses, canManage }: WarehousesPageProps) {
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
   const [sorting, setSorting] = useState<SortingState>([{ id: 'name', desc: false }]);
@@ -94,6 +95,9 @@ const columns = useMemo<ColumnDef<Warehouse, unknown>[]>(
         header: 'Действия',
         cell: ({ row }) => {
           const w = row.original;
+          if (!canManage) {
+            return null;
+          }
           return (
             <div className="flex justify-end gap-2">
               <Button
@@ -111,7 +115,7 @@ const columns = useMemo<ColumnDef<Warehouse, unknown>[]>(
         },
       },
     ],
-    [],
+    [canManage],
   );
 
   const table = useReactTable({

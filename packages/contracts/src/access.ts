@@ -20,6 +20,7 @@ export type PermissionCode =
   | 'onec:read'
   | 'onec:process'
   | 'nsi:manage'
+  | 'nsi:manage_warehouses'
   | 'users:manage'
   | 'roles:manage'
   | 'nsi:read';
@@ -44,6 +45,7 @@ export const ALL_PERMISSIONS: PermissionCode[] = [
   'onec:read',
   'onec:process',
   'nsi:manage',
+  'nsi:manage_warehouses',
   'users:manage',
   'roles:manage',
   'nsi:read',
@@ -57,11 +59,15 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     'production_order:read',
     'transfer:create',
     'transfer:update',
+    'transfer:reconcile',
     'stock:read',
     'shift_report:read',
     'dashboard:read',
     'audit:read',
     'nsi:read',
+    // Ведение справочников (смены, номенклатура, сотрудники, РЦ, причины).
+    // Склады остаются за АДМ — см. 'nsi:manage_warehouses' (Р-19).
+    'nsi:manage',
   ],
   OPR: [
     'production_order:read_own',

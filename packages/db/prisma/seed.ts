@@ -90,6 +90,7 @@ export const PERMISSIONS = [
   { code: 'onec:read', action: 'Просмотр данных для 1С' },
   { code: 'onec:process', action: 'Отметка обработано в 1С' },
   { code: 'nsi:manage', action: 'Управление НСИ' },
+  { code: 'nsi:manage_warehouses', action: 'Управление складами' },
   { code: 'users:manage', action: 'Управление пользователями' },
   { code: 'roles:manage', action: 'Управление ролями' },
 ];
@@ -102,10 +103,13 @@ export const ROLE_PERMISSION_MAP: Record<RoleCode, string[]> = {
     'production_order:read',
     'transfer:create',
     'transfer:update',
+    'transfer:reconcile',
     'stock:read',
     'shift_report:read',
     'dashboard:read',
     'audit:read',
+    'nsi:read',
+    'nsi:manage',
   ],
   OPR: [
     'production_order:read_own',

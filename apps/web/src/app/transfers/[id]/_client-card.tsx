@@ -49,7 +49,7 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
   const isReconciled = transfer.status === 'RECONCILED';
   const isCancelled = transfer.status === 'CANCELLED';
   const canSubmit = isDraft && hasPermission(userRoles, 'transfer:update');
-  const canEdit = isDraft && hasPermission(userRoles, 'transfer:create');
+  const canEdit = (isDraft || isSubmitted) && hasPermission(userRoles, 'transfer:create');
   const canCancel =
     (transfer.status === 'DRAFT' || transfer.status === 'SUBMITTED') && hasPermission(userRoles, 'transfer:update');
   const canReceive = isSubmitted && hasPermission(userRoles, 'transfer:receive');

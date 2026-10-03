@@ -17,7 +17,7 @@ function assertInput(input: WarehouseInput): void {
 }
 
 export async function updateWarehouse(id: string, input: WarehouseInput): Promise<Warehouse> {
-  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage_warehouses');
   const roles = userSession.roles.map((ur) => ur.role.code);
   assertInput(input);
 
@@ -42,7 +42,7 @@ export async function updateWarehouse(id: string, input: WarehouseInput): Promis
       objectId: updated.id,
       userId,
       userRoles: roles,
-      permission: 'nsi:manage',
+      permission: 'nsi:manage_warehouses',
       field: 'name,description',
       oldValue,
       newValue: JSON.stringify({
@@ -59,7 +59,7 @@ export async function updateWarehouse(id: string, input: WarehouseInput): Promis
 }
 
 export async function toggleWarehouseActive(id: string): Promise<Warehouse> {
-  const { userId, user: userSession } = await requirePermission('nsi:manage');
+  const { userId, user: userSession } = await requirePermission('nsi:manage_warehouses');
   const roles = userSession.roles.map((ur) => ur.role.code);
 
   const existing = await prisma.warehouse.findUniqueOrThrow({ where: { id } });
@@ -77,7 +77,7 @@ export async function toggleWarehouseActive(id: string): Promise<Warehouse> {
       objectId: updated.id,
       userId,
       userRoles: roles,
-      permission: 'nsi:manage',
+      permission: 'nsi:manage_warehouses',
       field: 'active',
       oldValue: String(existing.active),
       newValue: String(updated.active),

@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { getTransferById, getTransferCreateData } from '../../queries';
 import TransferEditForm from './_client-form';
 
@@ -16,6 +16,12 @@ export default async function EditTransferPage({ params }: EditTransferPageProps
 
   if (!transfer) {
     notFound();
+  }
+
+  // Корректировка возможна в DRAFT и SUBMITTED (M07 §4.2 / UC-M07-3),
+  // после подтверждения КСГП — только просмотр (BR-2).
+  if (transfer.status !== 'DRAFT' && transfer.status !== 'SUBMITTED') {
+    redirect(`/transfers/${transfer.id}`);
   }
 
   return (

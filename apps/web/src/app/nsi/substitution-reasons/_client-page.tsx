@@ -17,6 +17,7 @@ import type { SubstitutionReason as PrismaSubstitutionReason } from '@prisma/cli
 
 interface SubstitutionReasonsPageProps {
   substitutionReasons: PrismaSubstitutionReason[];
+  canManage: boolean;
 }
 
 const REASON_LABELS: Record<SubstitutionReason, string> = {
@@ -26,7 +27,7 @@ const REASON_LABELS: Record<SubstitutionReason, string> = {
   [SubstitutionReason.OTHER]: 'Прочее',
 };
 
-export default function SubstitutionReasonsPage({ substitutionReasons }: SubstitutionReasonsPageProps) {
+export default function SubstitutionReasonsPage({ substitutionReasons, canManage }: SubstitutionReasonsPageProps) {
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
   const [sorting, setSorting] = useState<SortingState>([{ id: 'code', desc: false }]);
@@ -80,6 +81,9 @@ export default function SubstitutionReasonsPage({ substitutionReasons }: Substit
         header: 'Действия',
         cell: ({ row }) => {
           const sr = row.original;
+          if (!canManage) {
+            return null;
+          }
           return (
             <div className="flex justify-end gap-2">
               <Button
@@ -98,7 +102,7 @@ export default function SubstitutionReasonsPage({ substitutionReasons }: Substit
         },
       },
     ],
-    [],
+    [canManage],
   );
 
   const table = useReactTable({
@@ -114,14 +118,16 @@ export default function SubstitutionReasonsPage({ substitutionReasons }: Substit
     <div className="space-y-4 p-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-graphite">Причины ввода за Оператора</h1>
-        <Button
-          onClick={() => {
-            setEditing(null);
-            setDialogOpen(true);
-          }}
-        >
-          Создать
-        </Button>
+        {canManage && (
+          <Button
+            onClick={() => {
+              setEditing(null);
+              setDialogOpen(true);
+            }}
+          >
+            Создать
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-col gap-4 sm:flex-row">

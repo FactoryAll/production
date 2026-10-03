@@ -44,9 +44,8 @@ export function getNavItems(userRoles: string[]): NavItem[] {
     items.push({ label: 'Перемещения', href: '/transfers' });
   }
 
-  if (hasPermission(userRoles, 'shift_report:read')) {
-    items.push({ label: 'Отчёты', href: '/shift-reports' });
-  }
+  // Пункт «Отчёты» не выводится: страницы-списка /shift-reports нет,
+  // по M06 отчёт за смену открывается из карточки ПЗ.
 
   return items;
 }

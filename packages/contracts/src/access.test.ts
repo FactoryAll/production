@@ -97,3 +97,28 @@ describe('getPrimaryRole', () => {
     expect(getPrimaryRole([RoleCode.ADM, RoleCode.NP])).toBe(RoleCode.ADM);
   });
 });
+
+describe('access matrix v1.1.1: ведение НСИ и согласование расхождений', () => {
+  it('НП ведёт справочники (смены, номенклатура, сотрудники, РЦ, причины)', () => {
+    expect(hasPermission([RoleCode.NP], 'nsi:manage')).toBe(true);
+  });
+
+  it('склады остаются только за АДМ (Р-19)', () => {
+    expect(hasPermission([RoleCode.ADM], 'nsi:manage_warehouses')).toBe(true);
+    expect(hasPermission([RoleCode.NP], 'nsi:manage_warehouses')).toBe(false);
+    for (const role of [RoleCode.OPR, RoleCode.KSGP, RoleCode.USGP, RoleCode.S1C]) {
+      expect(hasPermission([role], 'nsi:manage_warehouses')).toBe(false);
+    }
+  });
+
+  it('остальные роли не ведут справочники', () => {
+    for (const role of [RoleCode.OPR, RoleCode.KSGP, RoleCode.USGP, RoleCode.S1C]) {
+      expect(hasPermission([role], 'nsi:manage')).toBe(false);
+    }
+  });
+
+  it('НП участвует в согласовании расхождений (M08 §3)', () => {
+    expect(hasPermission([RoleCode.NP], 'transfer:reconcile')).toBe(true);
+    expect(ROLE_PERMISSIONS[RoleCode.NP]).toContain('transfer:reconcile');
+  });
+});
