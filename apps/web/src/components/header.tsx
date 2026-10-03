@@ -1,13 +1,6 @@
 import Link from 'next/link';
 import { LogoutButton } from './logout-button';
-
-const navItems = [
-  { label: 'Дашборд', href: '/dashboard' },
-  { label: 'ПЗ', href: '/production-orders' },
-  { label: 'Исполнение', href: '/shift-execution' },
-  { label: 'Остатки', href: '/stock' },
-  { label: 'Отчёты', href: '/shift-reports' },
-];
+import { getNavItems } from './nav-items';
 
 const nsiItems = [
   { label: 'РЦ', href: '/nsi/work-centers' },
@@ -28,6 +21,7 @@ interface HeaderProps {
 export function Header({ user }: HeaderProps) {
   const roles = user.roles.map((ur) => ur.role.code);
   const isAdmin = roles.includes('ADM');
+  const navItems = getNavItems(roles);
 
   return (
     <header className="bg-graphite text-white shadow-sm">
