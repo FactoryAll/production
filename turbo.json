@@ -13,6 +13,9 @@
     "db:seed": {
       "cache": false
     },
+    "db:archive-audit": {
+      "cache": false
+    },
     "build": {
       "dependsOn": [
         "^build",

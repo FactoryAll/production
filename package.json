@@ -10,7 +10,8 @@
     "test": "turbo run test",
     "db:generate": "turbo run db:generate",
     "db:migrate": "turbo run db:migrate",
-    "db:seed": "turbo run db:seed"
+    "db:seed": "turbo run db:seed",
+    "db:archive-audit": "turbo run db:archive-audit"
   },
   "devDependencies": {
     "turbo": "^2.0.0",

@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { AccessDenied } from '@/components/access-denied';
 import { checkPageAccess } from '@/lib/auth/page-guard';
 
+import ArchiveAuditButton from './_archive-button';
 import { auditActionLabel, auditChangeLabel, auditObjectLabel, auditRoleLabel } from './labels';
 import { getAuditRecords, type AuditFilter } from './queries';
 
@@ -59,6 +60,11 @@ export default async function AuditServerPage({ searchParams }: AuditPageProps) 
           Неизменяемый журнал значимых изменений и действий пользователей (M13).
           Архивные записи старше 12 месяцев скрыты (Р-16).
         </p>
+        {canShowArchived && (
+          <div className="mt-4">
+            <ArchiveAuditButton />
+          </div>
+        )}
       </div>
 
       <form method="get" className="mb-6 flex flex-wrap items-end gap-3">

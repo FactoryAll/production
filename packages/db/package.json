@@ -9,6 +9,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
+    "db:archive-audit": "tsx prisma/archive-audit.ts",
     "lint": "eslint src/**/*.ts",
     "test": "vitest run"
   },
