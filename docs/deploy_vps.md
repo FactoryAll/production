@@ -126,6 +126,10 @@ docker compose logs --tail=10 web
    а не в `.env` и не git-тегом автоматически. Чтобы футер показал новую версию, нужно:
    - поднять значение в `docker-compose.yml` (и `.env.example`),
    - пересобрать образ (`docker compose build --no-cache`).
+
+   Значение **встраивается на этапе сборки** (`next.config.js` → `env.VERSION`), а не читается в рантайме:
+   правка `VERSION` в `.env` без пересборки образа на футер не влияет (проверено дымовым тестом
+   production-сборки, см. `docs/phase_4_selfcheck_report.md` §2.2).
 2. **`docker build -t … .` из корня репозитория не работает** — Dockerfile лежит в `apps/web/Dockerfile`
    и используется только через `docker compose`. Собирать нужно через compose.
 3. **`docker compose down` удаляет контейнеры вместе с их логами.** Если нужно разобрать ошибку —
