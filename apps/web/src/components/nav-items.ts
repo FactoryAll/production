@@ -26,7 +26,12 @@ export function canViewTransfers(userRoles: string[]): boolean {
  * Иначе пользователь попадает на страницу, падающую с ошибкой доступа.
  */
 export function getNavItems(userRoles: string[]): NavItem[] {
-  const items: NavItem[] = [{ label: 'Дашборд', href: '/dashboard' }];
+  const items: NavItem[] = [
+    { label: 'Дашборд', href: '/dashboard' },
+    // Центр уведомлений M09: каждый пользователь видит только свои уведомления,
+    // отдельного права в матрице доступа нет (M09 §3).
+    { label: 'Уведомления', href: '/notifications' },
+  ];
 
   if (hasPermission(userRoles, 'production_order:read')) {
     items.push({ label: 'ПЗ', href: '/production-orders' });

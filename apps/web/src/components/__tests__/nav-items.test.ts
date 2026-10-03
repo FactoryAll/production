@@ -26,6 +26,7 @@ describe('nav-items', () => {
   it('builds the NP menu in a stable order', () => {
     expect(hrefsFor(['NP'])).toEqual([
       '/dashboard',
+      '/notifications',
       '/production-orders',
       '/stock',
       '/transfers',
@@ -33,16 +34,27 @@ describe('nav-items', () => {
   });
 
   it('builds the KSGP menu without pages the role cannot open', () => {
-    expect(hrefsFor(['KSGP'])).toEqual(['/dashboard', '/stock', '/transfers']);
+    expect(hrefsFor(['KSGP'])).toEqual([
+      '/dashboard',
+      '/notifications',
+      '/stock',
+      '/transfers',
+    ]);
   });
 
   it('builds the OPR menu without Перемещения and without ПЗ', () => {
-    expect(hrefsFor(['OPR'])).toEqual(['/dashboard', '/shift-execution', '/stock']);
+    expect(hrefsFor(['OPR'])).toEqual([
+      '/dashboard',
+      '/notifications',
+      '/shift-execution',
+      '/stock',
+    ]);
   });
 
   it('builds the full menu for ADM', () => {
     expect(hrefsFor(['ADM'])).toEqual([
       '/dashboard',
+      '/notifications',
       '/production-orders',
       '/shift-execution',
       '/stock',
@@ -59,6 +71,12 @@ describe('nav-items', () => {
   it('никогда не выводит ссылку на несуществующую страницу /shift-reports', () => {
     for (const role of ['NP', 'OPR', 'KSGP', 'USGP', 'S1C', 'ADM']) {
       expect(hrefsFor([role])).not.toContain('/shift-reports');
+    }
+  });
+
+  it('shows Уведомления for every role (M09 §3: просмотр своих уведомлений — R для всех)', () => {
+    for (const role of ['NP', 'OPR', 'KSGP', 'USGP', 'S1C', 'ADM']) {
+      expect(hrefsFor([role])).toContain('/notifications');
     }
   });
 

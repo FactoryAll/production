@@ -16,9 +16,11 @@ interface HeaderProps {
     login: string;
     roles: { role: { code: string } }[];
   };
+  /** Количество непрочитанных уведомлений (M09 §8: индикатор в шапке). */
+  unreadCount?: number;
 }
 
-export function Header({ user }: HeaderProps) {
+export function Header({ user, unreadCount = 0 }: HeaderProps) {
   const roles = user.roles.map((ur) => ur.role.code);
   const isAdmin = roles.includes('ADM');
   const navItems = getNavItems(roles);
@@ -69,6 +71,25 @@ export function Header({ user }: HeaderProps) {
         </nav>
 
         <div className="flex items-center gap-4">
+          <Link
+            href="/notifications"
+            aria-label={
+              unreadCount > 0
+                ? 'Уведомления, непрочитанных: ' + unreadCount
+                : 'Уведомления'
+            }
+            className="relative rounded-sm px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-white/10 hover:text-white"
+          >
+            Уведомления
+            {unreadCount > 0 && (
+              <span
+                data-testid="unread-badge"
+                className="ml-2 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-signal-amber px-1 text-xs font-semibold text-graphite"
+              >
+                {unreadCount}
+              </span>
+            )}
+          </Link>
           <span className="hidden text-sm text-neutral-300 sm:inline">
             {user.login}
           </span>
