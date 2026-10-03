@@ -5,11 +5,19 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button, Select, Input, Label, Card } from '@prodtrack/ui';
 import { createGoodsTransferAction } from '../actions';
+import {
+  formatQuantity,
+  getAvailableQuantity,
+  isQuantityOverAvailable,
+  parseQuantityInput,
+  type StockByWarehouse,
+} from '../availability';
 import type { Warehouse, Product } from '@prisma/client';
 
 interface TransferFormProps {
   warehouses: Warehouse[];
   products: Product[];
+  stockByWarehouse: StockByWarehouse;
 }
 
 interface LineDraft {
@@ -26,7 +34,7 @@ function emptyLine(): LineDraft {
   return { id: makeLineId(), productId: '', plannedQuantity: '' };
 }
 
-export default function TransferForm({ warehouses, products }: TransferFormProps) {
+export default function TransferForm({ warehouses, products, stockByWarehouse }: TransferFormProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [sourceWarehouseId, setSourceWarehouseId] = useState('');
@@ -58,6 +66,19 @@ export default function TransferForm({ warehouses, products }: TransferFormProps
     label: `${p.code} – ${p.name} (${p.unit})` + (p.active ? '' : ' (деактивирован)'),
   }));
 
+  function getProduct(productId: string): Product | undefined {
+    return products.find((p) => p.id === productId);
+  }
+
+  function getLineAvailable(productId: string): number {
+    return getAvailableQuantity(stockByWarehouse, sourceWarehouseId, productId);
+  }
+
+  function getLineOverflow(line: LineDraft): boolean {
+    const quantity = parseQuantityInput(line.plannedQuantity);
+    return isQuantityOverAvailable(quantity, getLineAvailable(line.productId));
+  }
+
   function validate(): string | null {
     if (sourceWarehouseId === destinationWarehouseId) {
       return 'Склад-источник и склад-приёмник должны различаться';
@@ -68,9 +89,16 @@ export default function TransferForm({ warehouses, products }: TransferFormProps
     const seenProducts = new Set<string>();
     for (const line of lines) {
       if (!line.productId) return 'Укажите продукт';
-      const qty = Number(line.plannedQuantity);
-      if (Number.isNaN(qty) || qty <= 0) return 'Количество должно быть больше 0';
+      const qty = parseQuantityInput(line.plannedQuantity);
+      if (qty === null || qty <= 0) return 'Количество должно быть больше 0';
       if (seenProducts.has(line.productId)) return 'Продукт в перемещении не может повторяться';
+
+      const available = getLineAvailable(line.productId);
+      if (qty > available) {
+        const product = getProduct(line.productId);
+        return `Недостаточно остатка для продукта ${product?.name ?? ''}: требуется ${formatQuantity(qty)}, доступно ${formatQuantity(available)}`;
+      }
+
       seenProducts.add(line.productId);
     }
     return null;
@@ -88,7 +116,7 @@ export default function TransferForm({ warehouses, products }: TransferFormProps
 
     const payloadLines = lines.map((line) => ({
       productId: line.productId,
-      plannedQuantity: Number(line.plannedQuantity),
+      plannedQuantity: Number(parseQuantityInput(line.plannedQuantity)),
     }));
 
     const formData = new FormData();
@@ -106,8 +134,11 @@ export default function TransferForm({ warehouses, products }: TransferFormProps
     });
   }
 
+  const hasOverflow = lines.some((line) => line.productId !== '' && getLineOverflow(line));
+
   const canSubmit =
     !isPending &&
+    !hasOverflow &&
     sourceWarehouseId !== '' &&
     destinationWarehouseId !== '' &&
     lines.every((line) => line.productId !== '' && line.plannedQuantity.trim() !== '');
@@ -159,49 +190,69 @@ export default function TransferForm({ warehouses, products }: TransferFormProps
 
         <div className="space-y-4">
           <h2 className="text-lg font-medium text-graphite">Строки перемещения</h2>
-          {lines.map((line, index) => (
-            <Card key={line.id} className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="font-medium text-graphite">Строка {index + 1}</span>
-                {lines.length > 1 && (
-                  <Button type="button" variant="secondary" size="sm" onClick={() => removeLine(line.id)}>
-                    Удалить
-                  </Button>
-                )}
-              </div>
+          {lines.map((line, index) => {
+            const product = getProduct(line.productId);
+            const available = getLineAvailable(line.productId);
+            const overflow = line.productId !== '' && getLineOverflow(line);
+            const showAvailable = sourceWarehouseId !== '' && line.productId !== '';
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor={line.id + '_product'}>Продукт</Label>
-                  <Select
-                    id={line.id + '_product'}
-                    value={line.productId}
-                    onChange={(e) => updateLine(line.id, { productId: e.target.value })}
-                    options={productOptions}
-                    placeholder="Выберите продукт"
-                    required
-                  />
-                  {line.productId && !products.find((p) => p.id === line.productId)?.active && (
-                    <p className="text-sm text-signal-amber">Эта номенклатура деактивирована. Выберите другую.</p>
+            return (
+              <Card key={line.id} className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-graphite">Строка {index + 1}</span>
+                  {lines.length > 1 && (
+                    <Button type="button" variant="secondary" size="sm" onClick={() => removeLine(line.id)}>
+                      Удалить
+                    </Button>
                   )}
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor={line.id + '_qty'}>Плановое количество</Label>
-                  <Input
-                    id={line.id + '_qty'}
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    value={line.plannedQuantity}
-                    onChange={(e) => updateLine(line.id, { plannedQuantity: e.target.value })}
-                    placeholder="0.00"
-                    required
-                  />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor={line.id + '_product'}>Продукт</Label>
+                    <Select
+                      id={line.id + '_product'}
+                      value={line.productId}
+                      onChange={(e) => updateLine(line.id, { productId: e.target.value })}
+                      options={productOptions}
+                      placeholder="Выберите продукт"
+                      required
+                    />
+                    {line.productId && !product?.active && (
+                      <p className="text-sm text-signal-amber">Эта номенклатура деактивирована. Выберите другую.</p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor={line.id + '_qty'}>Плановое количество</Label>
+                    <Input
+                      id={line.id + '_qty'}
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={line.plannedQuantity}
+                      onChange={(e) => updateLine(line.id, { plannedQuantity: e.target.value })}
+                      placeholder={showAvailable ? formatQuantity(available) : '0.00'}
+                      aria-invalid={overflow}
+                      className={overflow ? 'border-red-500 focus:ring-red-500' : ''}
+                      required
+                    />
+                    {showAvailable ? (
+                      <p className={`text-sm ${overflow ? 'text-red-600' : 'text-neutral-500'}`}>
+                        {overflow
+                          ? `Недостаточно остатка: доступно ${formatQuantity(available)} ${product?.unit ?? ''}`
+                          : `Доступно на складе-источнике: ${formatQuantity(available)} ${product?.unit ?? ''}`}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-neutral-500">
+                        Выберите склад-источник и продукт, чтобы увидеть доступный остаток
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
 
           <Button type="button" variant="secondary" onClick={addLine}>
             + Добавить строку

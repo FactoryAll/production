@@ -23,6 +23,7 @@ export default async function EditTransferPage({ params }: EditTransferPageProps
       transfer={transfer}
       warehouses={createData.warehouses}
       products={createData.products}
+      stockByWarehouse={createData.stockByWarehouse}
     />
   );
 }
