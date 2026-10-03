@@ -17,29 +17,21 @@ import type { Product } from '@prisma/client';
 interface ProductsPageProps {
   products: Product[];
   canManage: boolean;
+  /** Текущий поисковый запрос (применяется на сервере, M01 §8). */
+  query: string;
+  /** Текущий фильтр активности (применяется на сервере). */
+  activeFilter: 'ALL' | 'ACTIVE' | 'INACTIVE';
 }
 
-export default function ProductsPage({ products, canManage }: ProductsPageProps) {
-  const [search, setSearch] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+export default function ProductsPage({
+  products,
+  canManage,
+  query,
+  activeFilter,
+}: ProductsPageProps) {
   const [sorting, setSorting] = useState<SortingState>([{ id: 'code', desc: false }]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
-
-  const filtered = useMemo(() => {
-    return products.filter((p) => {
-      const matchesSearch =
-        p.code.toLowerCase().includes(search.toLowerCase()) ||
-        p.name.toLowerCase().includes(search.toLowerCase());
-      const matchesActive =
-        activeFilter === 'ALL'
-          ? true
-          : activeFilter === 'ACTIVE'
-            ? p.active
-            : !p.active;
-      return matchesSearch && matchesActive;
-    });
-  }, [products, search, activeFilter]);
 
   const columns = useMemo<ColumnDef<Product, unknown>[]>(
     () => [
@@ -108,7 +100,7 @@ export default function ProductsPage({ products, canManage }: ProductsPageProps)
   );
 
   const table = useReactTable({
-    data: filtered,
+    data: products,
     columns,
     state: { sorting },
     onSortingChange: setSorting,
@@ -132,23 +124,27 @@ export default function ProductsPage({ products, canManage }: ProductsPageProps)
         )}
       </div>
 
-      <div className="flex flex-col gap-4 sm:flex-row">
+      {/* Поиск и фильтр применяются на сервере (T-058), поэтому форма отправляет GET-запрос. */}
+      <form method="get" action="/nsi/products" className="flex flex-col gap-4 sm:flex-row">
         <Input
-          placeholder="Поиск по коду или названию"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          name="q"
+          defaultValue={query}
+          placeholder="Поиск по коду или наименованию"
           className="max-w-sm"
         />
         <select
-          value={activeFilter}
-          onChange={(e) => setActiveFilter(e.target.value as 'ALL' | 'ACTIVE' | 'INACTIVE')}
+          name="active"
+          defaultValue={activeFilter}
           className="h-[var(--button-height-sm)] rounded-md border border-mist-metal bg-white px-3 font-sans text-graphite"
         >
           <option value="ALL">Все</option>
           <option value="ACTIVE">Активные</option>
           <option value="INACTIVE">Неактивные</option>
         </select>
-      </div>
+        <Button type="submit" variant="secondary">
+          Найти
+        </Button>
+      </form>
 
       <Card className="overflow-hidden p-0">
         <div className="overflow-x-auto">
@@ -180,6 +176,18 @@ export default function ProductsPage({ products, canManage }: ProductsPageProps)
               ))}
             </thead>
             <tbody>
+              {table.getRowModel().rows.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={columns.length}
+                    className="border-b border-mist-metal px-4 py-6 text-center text-machine-gray"
+                  >
+                    {query || activeFilter !== 'ALL'
+                      ? 'По заданным условиям ничего не найдено.'
+                      : 'Список пуст.'}
+                  </td>
+                </tr>
+              )}
               {table.getRowModel().rows.map((row) => (
                 <tr key={row.id} className="hover:bg-neutral-100">
                   {row.getVisibleCells().map((cell) => (
