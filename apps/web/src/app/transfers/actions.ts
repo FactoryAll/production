@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client';
 import type { GoodsTransfer, TransferLine, Warehouse, Product, StockCategory, StockMovementType } from '@prisma/client';
 import { prisma, writeAudit, writeTiming, emitEvent } from '@prodtrack/db';
 import { requirePermission } from '@/lib/auth/access';
+import { notifyEvent } from '@/lib/events/notify';
 import { getAttributeRole } from '@prodtrack/contracts';
 import {
   applyStockMovements,
@@ -374,29 +375,18 @@ export async function submitGoodsTransfer(
       initiatorId: userId,
     });
 
-    const ksgpUsers = await tx.user.findMany({
-      where: { roles: { some: { role: { code: 'KSGP' } } } },
-      select: { id: true },
-    });
-    const recipientIds = ksgpUsers.map((u) => u.id);
-
-    if (recipientIds.length > 0) {
-      const payload = {
+    // EV-04: уведомление КСГП и С1С (адресаты и deep-link — из каталога, 00 §5).
+    await notifyEvent(
+      tx,
+      'EV-04',
+      {
         transferId: transfer.id,
         sourceWarehouse: { id: transfer.sourceWarehouse.id, name: transfer.sourceWarehouse.name },
         destinationWarehouse: { id: transfer.destinationWarehouse.id, name: transfer.destinationWarehouse.name },
         linesCount: transfer.lines.length,
-      };
-
-      await deps.emitEvent(tx, {
-        eventCode: 'EV_04',
-        title: 'Перемещение отправлено',
-        body: JSON.stringify(payload),
-        deepLink: '/transfers/' + transfer.id,
-        payload,
-        recipientIds,
-      });
-    }
+      },
+      { emit: deps.emitEvent },
+    );
 
     return updated;
   });
@@ -521,38 +511,18 @@ export async function cancelGoodsTransfer(
       initiatorId: userId,
     });
 
-    const npAndKsgpUsers = await tx.user.findMany({
-      where: {
-        roles: {
-          some: {
-            role: {
-              code: { in: ['NP', 'KSGP'] },
-            },
-          },
-        },
-      },
-      select: { id: true, roles: { select: { role: { select: { code: true } } } } },
-    });
-
-    const recipientIds = npAndKsgpUsers.map((u) => u.id);
-
-    if (recipientIds.length > 0) {
-      const payload = {
+    // EV-10: уведомление КСГП и С1С (адресаты и deep-link — из каталога, 00 §5).
+    await notifyEvent(
+      tx,
+      'EV-10',
+      {
         transferId: transfer.id,
         sourceWarehouse: { id: transfer.sourceWarehouse.id, name: transfer.sourceWarehouse.name },
         destinationWarehouse: { id: transfer.destinationWarehouse.id, name: transfer.destinationWarehouse.name },
         status: 'CANCELLED',
-      };
-
-      await deps.emitEvent(tx, {
-        eventCode: 'EV_10',
-        title: 'Перемещение отменено',
-        body: JSON.stringify(payload),
-        deepLink: '/transfers/' + transfer.id,
-        payload,
-        recipientIds,
-      });
-    }
+      },
+      { emit: deps.emitEvent },
+    );
 
     return updated;
   });
@@ -955,47 +925,27 @@ export async function receiveGoodsTransfer(
       initiatorId: userId,
     });
 
-    const recipientRoleCodes: Array<'NP' | 'USGP'> = nextStatus === 'RECEIVED' ? ['NP'] : ['NP', 'USGP'];
-    const notifyUsers = await tx.user.findMany({
-      where: {
-        roles: {
-          some: {
-            role: {
-              code: { in: recipientRoleCodes },
-            },
+    // EV-05 (принято без расхождения → С1С) и EV-06 (расхождение → НП):
+    // адресаты и deep-link берутся из каталога событий (00 §5).
+    const warehouses = {
+      sourceWarehouse: { id: transfer.sourceWarehouse.id, name: transfer.sourceWarehouse.name },
+      destinationWarehouse: { id: transfer.destinationWarehouse.id, name: transfer.destinationWarehouse.name },
+    };
+
+    await notifyEvent(
+      tx,
+      nextStatus === 'RECEIVED' ? 'EV-05' : 'EV-06',
+      nextStatus === 'RECEIVED'
+        ? { transferId: transfer.id, ...warehouses }
+        : {
+            transferId: transfer.id,
+            ...warehouses,
+            discrepanciesCount: receivedLines.filter((line) =>
+              !line.actualQuantity.equals(line.plannedQuantity),
+            ).length,
           },
-        },
-      },
-      select: { id: true },
-    });
-    const recipientIds = notifyUsers.map((u) => u.id);
-
-    if (recipientIds.length > 0) {
-      const payload =
-        nextStatus === 'RECEIVED'
-          ? {
-              transferId: transfer.id,
-              sourceWarehouse: { id: transfer.sourceWarehouse.id, name: transfer.sourceWarehouse.name },
-              destinationWarehouse: { id: transfer.destinationWarehouse.id, name: transfer.destinationWarehouse.name },
-            }
-          : {
-              transferId: transfer.id,
-              sourceWarehouse: { id: transfer.sourceWarehouse.id, name: transfer.sourceWarehouse.name },
-              destinationWarehouse: { id: transfer.destinationWarehouse.id, name: transfer.destinationWarehouse.name },
-              discrepanciesCount: receivedLines.filter((line) =>
-                !line.actualQuantity.equals(line.plannedQuantity),
-              ).length,
-            };
-
-      await deps.emitEvent(tx, {
-        eventCode: nextStatus === 'RECEIVED' ? 'EV_05' : 'EV_06',
-        title: nextStatus === 'RECEIVED' ? 'Перемещение принято без расхождений' : 'Перемещение принято с расхождениями',
-        body: JSON.stringify(payload),
-        deepLink: '/transfers/' + transfer.id,
-        payload,
-        recipientIds,
-      });
-    }
+      { emit: deps.emitEvent },
+    );
 
     return updated;
   });
@@ -1158,36 +1108,17 @@ export async function reconcileDiscrepancies(
       initiatorId: userId,
     });
 
-    const notifyUsers = await tx.user.findMany({
-      where: {
-        roles: {
-          some: {
-            role: {
-              code: 'KSGP',
-            },
-          },
-        },
-      },
-      select: { id: true },
-    });
-    const recipientIds = notifyUsers.map((u) => u.id);
-
-    if (recipientIds.length > 0) {
-      const payload = {
+    // EV-07: уведомление С1С и УСГП (адресаты и deep-link — из каталога, 00 §5).
+    await notifyEvent(
+      tx,
+      'EV-07',
+      {
         transferId: transfer.id,
         discrepanciesCount: openDiscrepancies.length,
         reconciledByUserId: userId,
-      };
-
-      await deps.emitEvent(tx, {
-        eventCode: 'EV_07',
-        title: 'Расхождения согласованы',
-        body: JSON.stringify(payload),
-        deepLink: '/transfers/' + transfer.id,
-        payload,
-        recipientIds,
-      });
-    }
+      },
+      { emit: deps.emitEvent },
+    );
 
     return updated;
   });

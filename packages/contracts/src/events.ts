@@ -169,10 +169,12 @@ function requireString(
   record: Record<string, unknown>,
   field: string,
   issues: string[],
+  /** Человекочитаемое имя поля для сообщения об ошибке (по умолчанию — имя поля payload). */
+  label: string = field,
 ): string {
   const value = record[field];
   if (typeof value !== 'string' || value.trim() === '') {
-    issues.push(`поле «${field}» — обязательная непустая строка`);
+    issues.push(`поле «${label}» — обязательная непустая строка`);
     return '';
   }
   return value;
@@ -452,7 +454,7 @@ export const EVENT_CATALOG: { [K in EventCodeValue]: NotificationEventDefinition
           issues,
           'причина из пресета',
         ) as Event08Payload['reasonCode'],
-        comment: requireString(record, 'comment', issues),
+        comment: requireString(record, 'comment', issues, 'комментарий'),
         factIds: requireStringArray(record, 'factIds', issues),
       };
       failIfIssues('EV-08', issues);

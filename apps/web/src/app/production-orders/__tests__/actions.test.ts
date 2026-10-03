@@ -1582,7 +1582,7 @@ describe('cancelProductionOrder', () => {
     expect(timingCall.toStatus).toBe('CANCELLED');
   });
 
-  it('emits EV_09 to operators, S1C and cancelling user with correct payload', async () => {
+  it('emits EV-09 to operators of assigned work centers with correct payload (00 §5)', async () => {
     const order = buildCancellableOrder('CONFIRMED', ['ASSIGNED', 'ASSIGNED'], 'emp-1');
     const deps = buildCancelDeps(order, [{ id: 's1c-user-1' }, { id: 's1c-user-2' }]);
     await cancelProductionOrder('po-1', { reason: 'Ремонт РЦ' }, {
@@ -1596,9 +1596,11 @@ describe('cancelProductionOrder', () => {
 
     expect(deps.notificationCreateMany).toHaveBeenCalled();
     const data = deps.notificationCreateMany.mock.calls[0][0].data;
-    expect(data).toHaveLength(4);
+    // Каталог 00 §5: EV-09 адресуется только операторам назначенных РЦ
+    // (С1С и отменивший пользователь уведомление не получают).
+    expect(data).toHaveLength(1);
     const recipientIds = data.map((item: { recipientId: string }) => item.recipientId).sort();
-    expect(recipientIds).toEqual(['s1c-user-1', 's1c-user-2', 'user-1', 'user-opr-1']);
+    expect(recipientIds).toEqual(['user-opr-1']);
     expect(data[0].eventCode).toBe('EV_09');
     expect(data[0].deepLink).toBe('/production-orders/po-1');
     const payload = JSON.parse(data[0].body);
@@ -1607,7 +1609,7 @@ describe('cancelProductionOrder', () => {
     expect(payload.cancelledByUserId).toBe('user-1');
   });
 
-  it('deduplicates operator recipients for EV_09', async () => {
+  it('sends a single notification when the same operator runs several lines (EV-09)', async () => {
     const order = buildCancellableOrder('CONFIRMED', ['ASSIGNED', 'ASSIGNED'], 'emp-1');
     const deps = buildCancelDeps(order);
     await cancelProductionOrder('po-1', { reason: 'План изменился' }, {
@@ -1620,9 +1622,9 @@ describe('cancelProductionOrder', () => {
     });
 
     const data = deps.notificationCreateMany.mock.calls[0][0].data;
-    expect(data).toHaveLength(2);
+    expect(data).toHaveLength(1);
     const recipientIds = data.map((item: { recipientId: string }) => item.recipientId).sort();
-    expect(recipientIds).toEqual(['user-1', 'user-opr-1']);
+    expect(recipientIds).toEqual(['user-opr-1']);
   });
 
   it('blocks cancel of IN_PROGRESS order', async () => {

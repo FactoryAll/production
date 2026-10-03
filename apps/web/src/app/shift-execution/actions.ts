@@ -2,8 +2,9 @@
 
 import { revalidatePath } from 'next/cache';
 import { Prisma, type ProductionOrderLine, type ProductionFact, type ProductCategory } from '@prisma/client';
-import { prisma, writeAudit, writeTiming, emitEvent } from '@prodtrack/db';
+import { prisma, writeAudit, writeTiming } from '@prodtrack/db';
 import { requireShiftWindow } from '@/lib/auth/require-shift-window';
+import { notifyEvent } from '@/lib/events/notify';
 import { hasPermission, getAttributeRole } from '@prodtrack/contracts';
 import {
   checkAndCloseProductionOrder,
@@ -342,32 +343,13 @@ export async function acceptProductionOrderLine(
       initiatorId: session.userId,
     });
 
-    const npUsers = await tx.user.findMany({
-      where: {
-        roles: {
-          some: {
-            role: { code: 'NP' },
-          },
-        },
-      },
-      select: { id: true },
+    // EV-02: уведомление НП (адресат и deep-link — из каталога, 00 §5).
+    await notifyEvent(tx, 'EV-02', {
+      orderId: line.order.id,
+      lineId,
+      workCenterId: line.workCenterId,
+      operatorId: line.operatorId,
     });
-
-    const recipientIds = npUsers.map((u) => u.id);
-    if (recipientIds.length > 0) {
-      await emitEvent(tx, {
-        eventCode: 'EV_02',
-        title: 'Оператор подтвердил получение ПЗ',
-        body: JSON.stringify({
-          orderId: line.order.id,
-          lineId,
-          workCenterId: line.workCenterId,
-          operatorId: line.operatorId,
-        }),
-        deepLink: '/production-orders/' + line.order.id,
-        recipientIds,
-      });
-    }
 
     await transitionToInProgress(line.order.id, tx, session);
     await checkAndCloseProductionOrder(line.order.id, tx, session);
@@ -568,33 +550,14 @@ export async function reportProductionFact(
       initiatorId: session.userId,
     });
 
-    const s1cUsers = await tx.user.findMany({
-      where: {
-        roles: {
-          some: {
-            role: { code: 'S1C' },
-          },
-        },
-      },
-      select: { id: true },
+    // EV-03: уведомление С1С об итоге смены (адресат и deep-link — из каталога, 00 §5).
+    await notifyEvent(tx, 'EV-03', {
+      orderId: line.order.id,
+      lineId,
+      factIds: createdFacts.map((f) => f.id),
+      workCenterId: line.workCenterId,
+      operatorId: line.operatorId,
     });
-
-    const recipientIds = s1cUsers.map((u) => u.id);
-    if (recipientIds.length > 0) {
-      await emitEvent(tx, {
-        eventCode: 'EV_03',
-        title: 'Оператор внёс итог смены',
-        body: JSON.stringify({
-          orderId: line.order.id,
-          lineId,
-          factIds: createdFacts.map((f) => f.id),
-          workCenterId: line.workCenterId,
-          operatorId: line.operatorId,
-        }),
-        deepLink: '/production-orders/' + line.order.id,
-        recipientIds,
-      });
-    }
 
     await checkAndCloseProductionOrder(line.order.id, tx, session);
 

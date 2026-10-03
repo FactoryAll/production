@@ -6,11 +6,11 @@ import type {
   ProductionOrderLine,
   ProductionOrderLineStatus,
   ProductionOrderStatus,
-  EventCode,
   ProductionFact,
 } from '@prisma/client';
 import { Prisma } from '@prisma/client';
-import { prisma, writeAudit, writeTiming, emitEvent } from '@prodtrack/db';
+import { prisma, writeAudit, writeTiming } from '@prodtrack/db';
+import { notifyEvent } from '@/lib/events/notify';
 import { requirePermission } from '@/lib/auth/access';
 import { getAttributeRole } from '@prodtrack/contracts';
 import {
@@ -278,32 +278,18 @@ export async function confirmProductionOrder(
       initiatorId: userId,
     });
 
-    if (uniqueOperatorIds.length > 0) {
-      const operatorUsers = await tx.user.findMany({
-        where: { employeeId: { in: uniqueOperatorIds } },
-        select: { id: true },
-      });
-      const operatorUserIds = operatorUsers.map((u) => u.id);
-
-      if (operatorUserIds.length > 0) {
-        const shiftName = 'Смена ' + order.shift.number;
-        await tx.notification.createMany({
-          data: operatorUserIds.map((recipientId) => ({
-            eventCode: 'EV_01',
-            recipientId,
-            title: 'Подтверждено производственное задание',
-            body: JSON.stringify({
-              orderId: order.id,
-              shiftId: order.shift.id,
-              shiftName,
-              linesCount: order.lines.length,
-              confirmedAt,
-            }),
-            deepLink: '/production-orders/' + order.id,
-          })),
-        });
-      }
-    }
+    // EV-01: уведомление операторам назначенных РЦ (адресаты и deep-link — из каталога, 00 §5).
+    await notifyEvent(
+      tx,
+      'EV-01',
+      {
+        orderId: order.id,
+        shiftId: order.shift.id,
+        shiftName: 'Смена ' + order.shift.number,
+        linesCount: order.lines.length,
+      },
+      { context: { operatorEmployeeIds: uniqueOperatorIds } },
+    );
 
     return updated;
   });
@@ -639,14 +625,6 @@ async function validateSubstitutionInput(
   return { outputByCategory, defectQuantity, stopsCount, stopsDurationMinutes, consumption };
 }
 
-async function findS1CUserIds(client: { user: { findMany: typeof prisma.user.findMany } }): Promise<string[]> {
-  const users = await client.user.findMany({
-    where: { roles: { some: { role: { code: 'S1C' } } } },
-    select: { id: true },
-  });
-  return users.map((u: { id: string }) => u.id);
-}
-
 export interface SubstitutionInput {
   reasonCode: string;
   comment: string;
@@ -853,48 +831,20 @@ export async function substituteOperator(
     await transitionToInProgress(orderId, tx as unknown as PrismaLike, session);
     await checkAndCloseProductionOrder(orderId, tx as unknown as PrismaLike, session);
 
-    const recipientIds = new Set<string>();
-    if (operatorId) {
-      const operatorUser = await tx.user.findFirst({
-        where: { employeeId: operatorId },
-        select: { id: true },
-      });
-      if (operatorUser) {
-        recipientIds.add(operatorUser.id);
-      }
-    }
-    const s1cUserIds = await findS1CUserIds(tx as unknown as PrismaLike);
-    for (const id of s1cUserIds) {
-      recipientIds.add(id);
-    }
+    const factIds = createdFacts.map((f) => f.id);
 
-    const uniqueRecipientIds = [...recipientIds];
-    if (uniqueRecipientIds.length > 0) {
-      await emitEvent(tx, {
-        eventCode: 'EV_08',
-        title: 'Смена закрыта за Оператора',
-        body: JSON.stringify({
-          orderId,
-          lineId,
-          operatorId,
-          reasonCode,
-          comment,
-          factIds: createdFacts.map((f) => f.id),
-        }),
-        deepLink: '/production-orders/' + orderId,
-        recipientIds: uniqueRecipientIds,
-      });
-    }
+    // EV-08 (ввод за Оператора, причина + комментарий — Р-13) и EV-03:
+    // адресаты и deep-link берутся из каталога событий (00 §5).
+    await notifyEvent(tx, 'EV-08', {
+      orderId,
+      lineId,
+      operatorId,
+      reasonCode,
+      comment,
+      factIds,
+    });
 
-    if (s1cUserIds.length > 0) {
-      await emitEvent(tx, {
-        eventCode: 'EV_03',
-        title: 'Итог смены внесён',
-        body: JSON.stringify({ orderId, lineId, factIds: createdFacts.map((f) => f.id) }),
-        deepLink: '/production-orders/' + orderId,
-        recipientIds: s1cUserIds,
-      });
-    }
+    await notifyEvent(tx, 'EV-03', { orderId, lineId, factIds });
   });
 
   revalidatePath('/production-orders');
@@ -1030,42 +980,18 @@ export async function cancelProductionOrder(
       initiatorId: userId,
     });
 
-    const recipientIds = new Set<string>();
-
-    if (uniqueOperatorIds.length > 0) {
-      const operatorUsers = await tx.user.findMany({
-        where: { employeeId: { in: uniqueOperatorIds } },
-        select: { id: true },
-      });
-      for (const u of operatorUsers) {
-        recipientIds.add(u.id);
-      }
-    }
-
-    const s1cUserIds = await findS1CUserIds(tx as unknown as PrismaLike);
-    for (const id of s1cUserIds) {
-      recipientIds.add(id);
-    }
-
-    recipientIds.add(userId);
-
-    const uniqueRecipientIds = [...recipientIds];
-    if (uniqueRecipientIds.length > 0) {
-      await tx.notification.createMany({
-        data: uniqueRecipientIds.map((recipientId) => ({
-          eventCode: 'EV_09' as EventCode,
-          recipientId,
-          title: 'Производственное задание отменено',
-          body: JSON.stringify({
-            orderId: order.id,
-            reason,
-            cancelledAt,
-            cancelledByUserId: userId,
-          }),
-          deepLink: '/production-orders/' + order.id,
-        })),
-      });
-    }
+    // EV-09: уведомление операторам назначенных РЦ (адресаты и deep-link — из каталога, 00 §5).
+    await notifyEvent(
+      tx,
+      'EV-09',
+      {
+        orderId: order.id,
+        reason,
+        cancelledAt: cancelledAt.toISOString(),
+        cancelledByUserId: userId,
+      },
+      { context: { operatorEmployeeIds: uniqueOperatorIds } },
+    );
 
     return updated;
   });

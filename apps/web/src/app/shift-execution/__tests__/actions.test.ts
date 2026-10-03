@@ -155,11 +155,16 @@ function buildMockPrisma(overrides: {
   }));
 
   const notificationCreateMany = vi.fn().mockResolvedValue(undefined);
-  const userFindMany = vi.fn().mockImplementation(({ where }: { where: { roles?: { some: { role: { code: string } } } } }) => {
-    const roleCode = where.roles?.some.role.code;
-    if (roleCode === 'NP') return Promise.resolve([{ id: 'np-user-1' }]);
-    if (roleCode === 'S1C') return Promise.resolve([{ id: 's1c-user-1' }]);
-    return Promise.resolve([]);
+  // Каталог адресатов (T-044) резолвит роли одним запросом с `code: { in: [...] }`.
+  const userFindMany = vi.fn().mockImplementation(({ where }: { where: { roles?: { some: { role: { code: string | { in: string[] } } } } } }) => {
+    const code = where.roles?.some.role.code;
+    const roleCodes = typeof code === 'string' ? [code] : code?.in ?? [];
+    const users = roleCodes.flatMap((roleCode) => {
+      if (roleCode === 'NP') return [{ id: 'np-user-1' }];
+      if (roleCode === 'S1C') return [{ id: 's1c-user-1' }];
+      return [];
+    });
+    return Promise.resolve(users);
   });
 
 
