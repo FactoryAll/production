@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation';
 import { Button, Card, Dialog } from '@prodtrack/ui';
 import { hasPermission } from '@prodtrack/contracts';
 import type { GoodsTransfer, TransferLine, Warehouse, Product, User } from '@prisma/client';
-import { transferStatusLabel, submitGoodsTransferAction, cancelGoodsTransferAction } from '../actions';
+import { submitGoodsTransferAction, cancelGoodsTransferAction } from '../actions';
+import { transferStatusLabel } from '../labels';
 import type { Discrepancy } from '@prisma/client';
 
 interface TransferCardProps {

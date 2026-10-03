@@ -13,7 +13,8 @@ import {
 import { Button, Card } from '@prodtrack/ui';
 import { hasPermission } from '@prodtrack/contracts';
 import type { GoodsTransfer, TransferLine, Warehouse, Product } from '@prisma/client';
-import { transferStatusLabel, submitGoodsTransferAction, cancelGoodsTransferAction } from './actions';
+import { submitGoodsTransferAction, cancelGoodsTransferAction } from './actions';
+import { transferStatusLabel } from './labels';
 
 interface TransferWithLines extends GoodsTransfer {
   sourceWarehouse: Warehouse;

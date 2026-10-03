@@ -109,18 +109,6 @@ function toDecimal(value: number | string): Prisma.Decimal {
   return new Prisma.Decimal(value);
 }
 
-function transferStatusLabel(status: GoodsTransfer['status']): string {
-  const labels: Record<GoodsTransfer['status'], string> = {
-    DRAFT: 'Черновик',
-    SUBMITTED: 'Отправлено',
-    RECEIVED: 'Принято',
-    DISCREPANCY: 'Расхождение',
-    RECONCILED: 'Согласовано',
-    CANCELLED: 'Отменено',
-  };
-  return labels[status] ?? status;
-}
-
 async function validateCreateInput(
   input: { sourceWarehouseId: string; destinationWarehouseId: string; lines: TransferLineInput[] },
   client: typeof prisma,
@@ -1102,5 +1090,3 @@ export async function reconcileDiscrepanciesAction(
     return { success: false, error: message };
   }
 }
-
-export { transferStatusLabel };
