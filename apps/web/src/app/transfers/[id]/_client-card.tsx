@@ -192,9 +192,13 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
                 <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Плановое количество</th>
                 {isDiscrepancy || isReconciled ? (
                   <>
-                    <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Фактическое</th>
+                    <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">
+                      Факт при приёмке
+                    </th>
                     <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Разница</th>
-                    <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">Согласовано</th>
+                    <th className="border-b border-mist-metal px-4 py-3 font-bold text-graphite">
+                      {isReconciled ? 'Согласованное количество' : 'Согласовано'}
+                    </th>
                   </>
                 ) : null}
               </tr>
@@ -220,7 +224,15 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
                           {discrepancy ? discrepancy.difference.toString() : '—'}
                         </td>
                         <td className="border-b border-mist-metal px-4 py-3 text-graphite">
-                          {discrepancy?.reconciled ? 'Да' : 'Нет'}
+                          {/* После согласования в строке хранится согласованное количество (M08 §5),
+                              а фактическое при приёмке остаётся в записи расхождения. */}
+                          {isReconciled && discrepancy?.reconciled
+                            ? line.actualQuantity
+                              ? line.actualQuantity.toString()
+                              : '—'
+                            : discrepancy?.reconciled
+                              ? 'Да'
+                              : 'Нет'}
                         </td>
                       </>
                     ) : null}
