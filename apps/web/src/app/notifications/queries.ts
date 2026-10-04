@@ -30,12 +30,13 @@ export function notificationFilterWhere(filter: NotificationFilter) {
 }
 
 /**
- * Сортировка списка: непрочитанные сверху (UC-M09-2), внутри группы — новые сверху (M09 §11).
+ * Сортировка списка — строго по времени, новые сверху (M09 §11).
+ *
+ * Ранее для фильтра «Все» первым ключом шло «непрочитанные сверху» (UC-M09-2),
+ * но в проде порядок не соблюдался (дефект №5 ручного тестирования v1.2.0).
+ * Оставлен один однозначный ключ: новые сверху; непрочитанные отбираются фильтром.
  */
-export function notificationOrderBy(filter: NotificationFilter) {
-  if (filter === 'ALL') {
-    return [{ readAt: { sort: 'asc' as const, nulls: 'first' as const } }, { createdAt: 'desc' as const }];
-  }
+export function notificationOrderBy(_filter: NotificationFilter = 'ALL') {
   return [{ createdAt: 'desc' as const }];
 }
 

@@ -32,17 +32,14 @@ describe('Серверная страница центра уведомлени�
     expect(prisma.notification.findMany).not.toHaveBeenCalled();
   });
 
-  it('по умолчанию показывает все уведомления пользователя, непрочитанные сверху', async () => {
+  it('по умолчанию показывает все уведомления пользователя, новые сверху', async () => {
     const element = await NotificationsServerPage({ searchParams: {} });
 
     expect(element.type).toBe('main');
     expect(prisma.notification.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { recipientId: 'user-1' },
-        orderBy: [
-          { readAt: { sort: 'asc', nulls: 'first' } },
-          { createdAt: 'desc' },
-        ],
+        orderBy: [{ createdAt: 'desc' }],
         skip: 0,
         take: 21,
       }),

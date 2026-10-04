@@ -29,16 +29,14 @@ describe('notificationFilterWhere (M09 §8)', () => {
   });
 });
 
-describe('notificationOrderBy (§11 и UC-M09-2)', () => {
-  it('во «всех» непрочитанные идут сверху, внутри группы — новые первыми', () => {
-    expect(notificationOrderBy('ALL')).toEqual([
-      { readAt: { sort: 'asc', nulls: 'first' } },
-      { createdAt: 'desc' },
-    ]);
+describe('notificationOrderBy (M09 §11: новые сверху; дефект №5)', () => {
+  it('во «всех» сортировка по времени, новые первыми', () => {
+    expect(notificationOrderBy('ALL')).toEqual([{ createdAt: 'desc' }]);
   });
 
-  it('при фильтре по прочитанности сортировка только по времени', () => {
+  it('при фильтре по прочитанности сортировка та же', () => {
     expect(notificationOrderBy('UNREAD')).toEqual([{ createdAt: 'desc' }]);
+    expect(notificationOrderBy('READ')).toEqual([{ createdAt: 'desc' }]);
   });
 });
 
@@ -64,10 +62,7 @@ describe('getNotifications', () => {
 
     expect(prisma.notification.findMany).toHaveBeenCalledWith({
       where: { recipientId: 'user-1' },
-      orderBy: [
-        { readAt: { sort: 'asc', nulls: 'first' } },
-        { createdAt: 'desc' },
-      ],
+      orderBy: [{ createdAt: 'desc' }],
       take: 100,
     });
     expect(items).toEqual([
