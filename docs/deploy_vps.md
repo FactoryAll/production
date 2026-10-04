@@ -186,14 +186,21 @@ bash scripts/postdeploy-check.sh
 заголовок `X-Accel-Buffering: no` и keep-alive-кадр каждые 15 секунд, но надёжнее явно отключить
 буферизацию в nginx — иначе кадры могут копиться в буфере прокси и real-time перестанет работать.
 
-Действия при первом деплое релиза с SSE (один раз):
+Действия при первом деплое релиза с SSE (один раз) — **вставить только блок `location /api/events/`**
+в существующий конфиг сайта (файл целиком копировать нельзя: там блок `listen 443 ssl` от certbot):
 
 ```bash
-cp -r /etc/nginx/sites-enabled /root/nginx-backup-$(date +%F)
-cd /opt/prodtrack
-cp docs/nginx/prodtracker.factoryall.ru.conf /etc/nginx/sites-available/
-nginx -t
-systemctl reload nginx
+# 1) бэкап именно содержимого файла (cp -r по sites-enabled копирует только симлинки!)
+cp /etc/nginx/sites-available/prodtracker.factoryall.ru.conf /root/prodtracker-nginx-$(date +%F).conf
+
+# 2) добавить блок location /api/events/ внутрь server-блока с server_name prodtracker.factoryall.ru
+#    (он лежит в docs/nginx/prodtracker.factoryall.ru.conf как образец)
+
+# 3) проверить и перезагрузить
+nginx -t && systemctl reload nginx
+
+# 4) если HTTPS по какой-то причине отвалился — вернуть блок 443 одной командой:
+#    certbot --nginx -d prodtracker.factoryall.ru --non-interactive --agree-tos
 ```
 
 Проверка, что канал открыт и не буферизуется (в заголовках должен быть `text/event-stream`):
