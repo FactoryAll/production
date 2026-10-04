@@ -1,24 +1,38 @@
 export const dynamic = 'force-dynamic';
 
 import { notFound } from 'next/navigation';
+import { AccessDenied } from '@/components/access-denied';
+import { ObjectHistory } from '@/components/object-history';
+import { checkPageAccess } from '@/lib/auth/page-guard';
+
 import { getProductionOrderById } from '../actions';
 import ProductionOrderCard from './_client-card';
-import { ObjectHistory } from '@/components/object-history';
-import { requireSession } from '@/lib/auth/session';
 
 interface ProductionOrderPageProps {
   params: { id: string };
 }
 
 export default async function ProductionOrderPage({ params }: ProductionOrderPageProps) {
-  const [{ order, defectReasons }, session] = await Promise.all([
-    getProductionOrderById(params.id),
-    requireSession(),
-  ]);
+  // НП/АДМ/С1С видят любое ПЗ, ОПР — только ПЗ своих РЦ (M02). Роли без права
+  // чтения получают понятный экран вместо серверной ошибки (T-067).
+  const access = await checkPageAccess(['production_order:read', 'production_order:read_own']);
+  if (!access.allowed) {
+    return (
+      <AccessDenied
+        action="просмотр производственного задания"
+        allowedRoles={['NP', 'OPR', 'S1C', 'ADM']}
+        requiredPermission="production_order:read / production_order:read_own"
+      />
+    );
+  }
+
+  const { order, defectReasons } = await getProductionOrderById(params.id);
   if (!order) {
+    // ПЗ не существует либо (для ОПР) в нём нет строк его РЦ — отдаём 404, а не 500.
     notFound();
   }
-  const userRoles = session.user.roles.map((ur) => ur.role.code);
+
+  const userRoles = access.roles;
   return (
     <>
       <ProductionOrderCard order={order} defectReasons={defectReasons} userRoles={userRoles} />

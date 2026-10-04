@@ -11,7 +11,7 @@ import type {
 import { Prisma } from '@prisma/client';
 import { prisma, writeAudit, writeTiming } from '@prodtrack/db';
 import { notifyEvent } from '@/lib/events/notify';
-import { requirePermission } from '@/lib/auth/access';
+import { hasPermission, requireAnyPermission, requirePermission } from '@/lib/auth/access';
 import { getAttributeRole } from '@prodtrack/contracts';
 import {
   applyStockMovements,
@@ -1199,8 +1199,21 @@ export async function correctProductionFactAction(
   }
 }
 
+/**
+ * Карточка ПЗ.
+ *
+ * Доступ: НП/АДМ/С1С — по праву `production_order:read` (весь список),
+ * ОПР — по праву `production_order:read_own`, но только к ПЗ своих РЦ
+ * (M02: «Просмотр ПЗ — ОПР (свой РЦ)»). Иначе переход по уведомлению EV-01/EV-09
+ * из центра уведомлений приводит к серверной ошибке вместо карточки.
+ */
 export async function getProductionOrderById(id: string) {
-  await requirePermission('production_order:read');
+  const session = await requireAnyPermission([
+    'production_order:read',
+    'production_order:read_own',
+  ]);
+  const roles = session.user.roles.map((ur) => ur.role.code);
+  const canReadAll = hasPermission(roles, 'production_order:read');
 
   const [order, defectReasons] = await Promise.all([
     prisma.productionOrder.findUnique({
@@ -1234,6 +1247,22 @@ export async function getProductionOrderById(id: string) {
       orderBy: { code: 'asc' },
     }),
   ]);
+
+  if (!order) {
+    return { order: null, defectReasons };
+  }
+
+  // ОПР видит только ПЗ, в которых есть строка его РЦ, и только эти строки (свой РЦ, M02).
+  if (!canReadAll) {
+    const employeeId = session.user.employeeId;
+    const ownLines = employeeId
+      ? order.lines.filter((line) => line.operatorId === employeeId)
+      : [];
+    if (ownLines.length === 0) {
+      return { order: null, defectReasons };
+    }
+    return { order: { ...order, lines: ownLines }, defectReasons };
+  }
 
   return { order, defectReasons };
 }
