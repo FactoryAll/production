@@ -63,6 +63,7 @@ export default function ProductionOrdersPage({
   const [cancelReason, setCancelReason] = useState('');
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+  const canCreate = hasPermission(userRoles, 'production_order:create');
   const canConfirm = hasPermission(userRoles, 'production_order:confirm');
 
   function handleConfirm(orderId: string) {
@@ -205,9 +206,12 @@ export default function ProductionOrdersPage({
     <div className="space-y-4 p-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-graphite">Производственные задания</h1>
-        <Link href="/production-orders/new">
-          <Button variant="cta">Создать ПЗ</Button>
-        </Link>
+        {/* Кнопка создания — только ролям с правом production_order:create (НП). */}
+        {canCreate && (
+          <Link href="/production-orders/new">
+            <Button variant="cta">Создать ПЗ</Button>
+          </Link>
+        )}
       </div>
 
       {/* Фильтр по статусу применяется на сервере (T-058), поэтому форма отправляет GET-запрос. */}
