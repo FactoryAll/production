@@ -5,30 +5,14 @@
 import type { Employee } from '@prisma/client';
 import { prisma } from '@prodtrack/db';
 import { parsePageParam, toPageResult, type PageResult } from '@/lib/pagination';
-import { parseActiveFilter, type ActiveFilter } from '../products/queries';
+import { nsiListWhere, parseActiveFilter, type ActiveFilter } from '@/lib/nsi-list';
 
 /** Размер страницы списка сотрудников. */
 export const EMPLOYEES_PAGE_SIZE = 50;
 
 /** Условие выборки: поиск по ФИО и табельному номеру (M01 §8) + фильтр активности. */
 export function employeeWhere(filter: { q?: string; active?: ActiveFilter }) {
-  const where: Record<string, unknown> = {};
-  const query = filter.q?.trim();
-
-  if (query) {
-    where.OR = [
-      { tabNumber: { contains: query, mode: 'insensitive' } },
-      { fullName: { contains: query, mode: 'insensitive' } },
-    ];
-  }
-  if (filter.active === 'ACTIVE') {
-    where.active = true;
-  }
-  if (filter.active === 'INACTIVE') {
-    where.active = false;
-  }
-
-  return where;
+  return nsiListWhere(filter.q, filter.active ?? 'ALL', ['tabNumber', 'fullName']);
 }
 
 /** Страница сотрудников: серверный поиск и пагинация без отдельного `count`. */

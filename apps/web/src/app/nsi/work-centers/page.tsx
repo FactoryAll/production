@@ -1,17 +1,51 @@
 export const dynamic = 'force-dynamic';
-import { prisma } from '@prodtrack/db';
-import { hasPermission } from '@prodtrack/contracts';
-import { requireSession } from '@/lib/auth/session';
-import WorkCentersPage from './_client-page';
 
-export default async function WorkCentersServerPage() {
-  const [workCenters, session] = await Promise.all([
-    prisma.workCenter.findMany({ orderBy: { code: 'asc' } }),
+import { hasPermission } from '@prodtrack/contracts';
+import { Pagination } from '@/components/pagination';
+import { requireSession } from '@/lib/auth/session';
+import { parseActiveFilter } from '@/lib/nsi-list';
+
+import WorkCentersPage from './_client-page';
+import { getWorkCenterPage } from './queries';
+
+interface ServerPageProps {
+  searchParams: {
+    q?: string;
+    active?: string;
+    page?: string;
+  };
+}
+
+export default async function ServerPage({ searchParams }: ServerPageProps) {
+  const query = searchParams.q?.trim() ?? '';
+  const active = parseActiveFilter(searchParams.active);
+
+  const [result, session] = await Promise.all([
+    getWorkCenterPage({ q: query, active }, searchParams.page),
     requireSession(),
   ]);
+
   const canManage = hasPermission(
     session.user.roles.map((ur) => ur.role.code),
     'nsi:manage',
   );
-  return <WorkCentersPage workCenters={workCenters} canManage={canManage} />;
+
+  return (
+    <>
+      <WorkCentersPage
+        workCenters={result.items}
+        canManage={canManage}
+        query={query}
+        activeFilter={active}
+      />
+      <div className="px-6 pb-6">
+        <Pagination
+          pathname="/nsi/work-centers"
+          searchParams={searchParams}
+          page={result.page}
+          hasNextPage={result.hasNextPage}
+        />
+      </div>
+    </>
+  );
 }

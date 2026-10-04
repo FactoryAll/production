@@ -9,7 +9,8 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table';
-import { Button, Card, Input } from '@prodtrack/ui';
+import { Button, Card } from '@prodtrack/ui';
+import { emptyListLabel, NsiListControls } from '@/components/nsi-list-controls';
 import { ShiftDialog } from './_components/shift-dialog';
 import { ToggleShiftButton } from './_components/toggle-shift-button';
 import type { Shift } from '@prisma/client';
@@ -17,6 +18,10 @@ import type { Shift } from '@prisma/client';
 interface ShiftsPageProps {
   shifts: Shift[];
   canManage: boolean;
+  /** Текущий поисковый запрос (применяется на сервере, M01 §8). */
+  query: string;
+  /** Текущий фильтр активности (применяется на сервере). */
+  activeFilter: 'ALL' | 'ACTIVE' | 'INACTIVE';
 }
 
 function formatDate(date: Date): string {
@@ -27,28 +32,15 @@ function formatDate(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-export default function ShiftsPage({ shifts, canManage }: ShiftsPageProps) {
-  const [search, setSearch] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: 'date', desc: true },
-    { id: 'number', desc: false },
-  ]);
+export default function ShiftsPage({
+  shifts,
+  canManage,
+  query,
+  activeFilter,
+}: ShiftsPageProps) {
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'date', desc: true }]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Shift | null>(null);
-
-  const filtered = useMemo(() => {
-    return shifts.filter((s) => {
-      const matchesSearch = formatDate(s.date).includes(search);
-      const matchesActive =
-        activeFilter === 'ALL'
-          ? true
-          : activeFilter === 'ACTIVE'
-            ? s.active
-            : !s.active;
-      return matchesSearch && matchesActive;
-    });
-  }, [shifts, search, activeFilter]);
 
   const columns = useMemo<ColumnDef<Shift, unknown>[]>(
     () => [
@@ -114,7 +106,7 @@ export default function ShiftsPage({ shifts, canManage }: ShiftsPageProps) {
   );
 
   const table = useReactTable({
-    data: filtered,
+    data: shifts,
     columns,
     state: { sorting },
     onSortingChange: setSorting,
@@ -138,23 +130,12 @@ export default function ShiftsPage({ shifts, canManage }: ShiftsPageProps) {
         )}
       </div>
 
-      <div className="flex flex-col gap-4 sm:flex-row">
-        <Input
-          placeholder="Поиск по дате (ГГГГ-ММ-ДД)"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="max-w-sm"
-        />
-        <select
-          value={activeFilter}
-          onChange={(e) => setActiveFilter(e.target.value as 'ALL' | 'ACTIVE' | 'INACTIVE')}
-          className="h-[var(--button-height-sm)] rounded-md border border-mist-metal bg-white px-3 font-sans text-graphite"
-        >
-          <option value="ALL">Все</option>
-          <option value="ACTIVE">Активные</option>
-          <option value="INACTIVE">Неактивные</option>
-        </select>
-      </div>
+      <NsiListControls
+        action="/nsi/shifts"
+        query={query}
+        activeFilter={activeFilter}
+        placeholder="Поиск по дате (ГГГГ-ММ-ДД)"
+      />
 
       <Card className="overflow-hidden p-0">
         <div className="overflow-x-auto">
@@ -186,6 +167,16 @@ export default function ShiftsPage({ shifts, canManage }: ShiftsPageProps) {
               ))}
             </thead>
             <tbody>
+              {table.getRowModel().rows.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={columns.length}
+                    className="border-b border-mist-metal px-4 py-6 text-center text-machine-gray"
+                  >
+                    {emptyListLabel(query, activeFilter)}
+                  </td>
+                </tr>
+              )}
               {table.getRowModel().rows.map((row) => (
                 <tr key={row.id} className="hover:bg-neutral-100">
                   {row.getVisibleCells().map((cell) => (

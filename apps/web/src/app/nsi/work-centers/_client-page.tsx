@@ -9,7 +9,8 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table';
-import { Button, Card, Input } from '@prodtrack/ui';
+import { Button, Card } from '@prodtrack/ui';
+import { emptyListLabel, NsiListControls } from '@/components/nsi-list-controls';
 import { WorkCenterDialog } from './_components/work-center-dialog';
 import { ToggleWorkCenterButton } from './_components/toggle-work-center-button';
 import type { WorkCenter } from '@prisma/client';
@@ -17,29 +18,21 @@ import type { WorkCenter } from '@prisma/client';
 interface WorkCentersPageProps {
   workCenters: WorkCenter[];
   canManage: boolean;
+  /** Текущий поисковый запрос (применяется на сервере, M01 §8). */
+  query: string;
+  /** Текущий фильтр активности (применяется на сервере). */
+  activeFilter: 'ALL' | 'ACTIVE' | 'INACTIVE';
 }
 
-export default function WorkCentersPage({ workCenters, canManage }: WorkCentersPageProps) {
-  const [search, setSearch] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+export default function WorkCentersPage({
+  workCenters,
+  canManage,
+  query,
+  activeFilter,
+}: WorkCentersPageProps) {
   const [sorting, setSorting] = useState<SortingState>([{ id: 'code', desc: false }]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<WorkCenter | null>(null);
-
-  const filtered = useMemo(() => {
-    return workCenters.filter((wc) => {
-      const matchesSearch =
-        wc.code.toLowerCase().includes(search.toLowerCase()) ||
-        wc.name.toLowerCase().includes(search.toLowerCase());
-      const matchesActive =
-        activeFilter === 'ALL'
-          ? true
-          : activeFilter === 'ACTIVE'
-            ? wc.active
-            : !wc.active;
-      return matchesSearch && matchesActive;
-    });
-  }, [workCenters, search, activeFilter]);
 
   const columns = useMemo<ColumnDef<WorkCenter, unknown>[]>(
     () => [
@@ -100,7 +93,7 @@ export default function WorkCentersPage({ workCenters, canManage }: WorkCentersP
   );
 
   const table = useReactTable({
-    data: filtered,
+    data: workCenters,
     columns,
     state: { sorting },
     onSortingChange: setSorting,
@@ -124,23 +117,12 @@ export default function WorkCentersPage({ workCenters, canManage }: WorkCentersP
         )}
       </div>
 
-      <div className="flex flex-col gap-4 sm:flex-row">
-        <Input
-          placeholder="Поиск по коду или названию"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="max-w-sm"
-        />
-        <select
-          value={activeFilter}
-          onChange={(e) => setActiveFilter(e.target.value as 'ALL' | 'ACTIVE' | 'INACTIVE')}
-          className="h-[var(--button-height-sm)] rounded-md border border-mist-metal bg-white px-3 font-sans text-graphite"
-        >
-          <option value="ALL">Все</option>
-          <option value="ACTIVE">Активные</option>
-          <option value="INACTIVE">Неактивные</option>
-        </select>
-      </div>
+      <NsiListControls
+        action="/nsi/work-centers"
+        query={query}
+        activeFilter={activeFilter}
+        placeholder="Поиск по коду или названию"
+      />
 
       <Card className="overflow-hidden p-0">
         <div className="overflow-x-auto">
@@ -172,6 +154,16 @@ export default function WorkCentersPage({ workCenters, canManage }: WorkCentersP
               ))}
             </thead>
             <tbody>
+              {table.getRowModel().rows.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={columns.length}
+                    className="border-b border-mist-metal px-4 py-6 text-center text-machine-gray"
+                  >
+                    {emptyListLabel(query, activeFilter)}
+                  </td>
+                </tr>
+              )}
               {table.getRowModel().rows.map((row) => (
                 <tr key={row.id} className="hover:bg-neutral-100">
                   {row.getVisibleCells().map((cell) => (

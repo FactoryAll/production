@@ -1,18 +1,51 @@
 export const dynamic = 'force-dynamic';
 
-import { prisma } from '@prodtrack/db';
 import { hasPermission } from '@prodtrack/contracts';
+import { Pagination } from '@/components/pagination';
 import { requireSession } from '@/lib/auth/session';
-import SubstitutionReasonsPage from './_client-page';
+import { parseActiveFilter } from '@/lib/nsi-list';
 
-export default async function SubstitutionReasonsServerPage() {
-  const [substitutionReasons, session] = await Promise.all([
-    prisma.substitutionReason.findMany({ orderBy: { code: 'asc' } }),
+import SubstitutionReasonsPage from './_client-page';
+import { getSubstitutionReasonPage } from './queries';
+
+interface ServerPageProps {
+  searchParams: {
+    q?: string;
+    active?: string;
+    page?: string;
+  };
+}
+
+export default async function ServerPage({ searchParams }: ServerPageProps) {
+  const query = searchParams.q?.trim() ?? '';
+  const active = parseActiveFilter(searchParams.active);
+
+  const [result, session] = await Promise.all([
+    getSubstitutionReasonPage({ q: query, active }, searchParams.page),
     requireSession(),
   ]);
+
   const canManage = hasPermission(
     session.user.roles.map((ur) => ur.role.code),
     'nsi:manage',
   );
-  return <SubstitutionReasonsPage substitutionReasons={substitutionReasons} canManage={canManage} />;
+
+  return (
+    <>
+      <SubstitutionReasonsPage
+        substitutionReasons={result.items}
+        canManage={canManage}
+        query={query}
+        activeFilter={active}
+      />
+      <div className="px-6 pb-6">
+        <Pagination
+          pathname="/nsi/substitution-reasons"
+          searchParams={searchParams}
+          page={result.page}
+          hasNextPage={result.hasNextPage}
+        />
+      </div>
+    </>
+  );
 }
