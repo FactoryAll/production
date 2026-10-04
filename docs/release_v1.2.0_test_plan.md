@@ -40,14 +40,18 @@ sleep 20
 docker compose logs --tail=10 web
 ```
 
-### 0.2. Миграции и сид (права `timing:read`)
+### 0.2. Миграции и сид (права `timing:read`, `transfer:read`)
 
 ```bash
 cd /opt/prodtrack
-docker compose exec -T web pnpm --filter @prodtrack/db db:migrate
-docker compose exec -T web pnpm --filter @prodtrack/db db:seed
-docker compose exec -T web pnpm --filter @prodtrack/db db:seed
+docker compose exec -T web sh -lc 'prisma migrate deploy --schema=/app/packages/db/prisma/schema.prisma'
+docker compose exec -T web sh -lc 'cd /app/packages/db && tsx prisma/seed.ts'
+docker compose exec -T web sh -lc 'cd /app/packages/db && tsx prisma/seed.ts'
 ```
+
+> Команды с `pnpm --filter @prodtrack/db db:seed` в контейнере **не работают** (проверено 03.10.2026):
+> в standalone-образе нет pnpm-воркспейса, `pnpm` отвечает «No projects matched the filters in "/app"`.
+> Используйте вызов `prisma`/`tsx` — они установлены в образ глобально.
 
 Ожидаемо: обе команды сида завершаются без ошибок (повторный прогон проверяет идемпотентность).
 Версия в футере после деплоя — `v1.2.0`. Соседей по серверу проверить:
@@ -74,10 +78,11 @@ systemctl reload nginx
 ```bash
 cd /opt/prodtrack
 docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT count(*) AS notifications FROM notifications;"'
-docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT event_code, count(*) FROM notifications GROUP BY event_code ORDER BY event_code;"'
+docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT \"eventCode\", count(*) FROM notifications GROUP BY \"eventCode\" ORDER BY \"eventCode\";"'
 docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT count(*) AS discrepancies FROM discrepancies;"'
 docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT count(*) AS audit_records, count(*) FILTER (WHERE archived) AS archived FROM audit_records;"'
 docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT count(*) AS timings FROM stage_timings;"'
+docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT count(*) FILTER (WHERE code = '\''timing:read'\'') AS timing_read, count(*) FILTER (WHERE code = '\''transfer:read'\'') AS transfer_read FROM permissions;"'
 ```
 
 Ожидаемо: таблицы существуют, счётчики растут после сценариев ниже. Вывод прислать — это закрывает открытый пункт **H** из Фазы 3.

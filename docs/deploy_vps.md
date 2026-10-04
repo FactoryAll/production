@@ -149,8 +149,25 @@ docker compose logs --tail=10 web
    ```
 6. **Сид после изменений матрицы прав.** Права проверяются кодом (`packages/contracts`), поэтому
    работоспособность от сида не зависит. Сид нужен только чтобы новые коды прав появились
-   в справочнике на экране «Роли». При плановом деплое полезно выполнить `pnpm db:seed` или
-   `bash scripts/deploy.sh`.
+   в справочнике на экране «Роли».
+
+   **Важно (проверено на проде 03.10.2026): в контейнере нет pnpm-воркспейса**, поэтому команда
+   `docker compose exec -T web pnpm --filter @prodtrack/db db:seed` падает с
+   `No projects matched the filters in "/app"` — сид при таком вызове не выполняется. Рабочий способ —
+   глобальные `prisma` и `tsx`, установленные в образ:
+
+   ```bash
+   cd /opt/prodtrack
+   docker compose exec -T web sh -lc 'prisma migrate deploy --schema=/app/packages/db/prisma/schema.prisma'
+   docker compose exec -T web sh -lc 'cd /app/packages/db && tsx prisma/seed.ts'   # и повторить для проверки идемпотентности
+   ```
+
+7. **Конфиг nginx правим аккуратно.** Если файл сайта до этого менял `certbot --nginx`,
+   в нём есть блок `listen 443 ssl` с сертификатами. Копирование файла целиком из репозитория
+   затрёт эти строки и может уронить HTTPS: перед копированием снимите бэкап и после копирования
+   проверьте, что `nginx -T | grep -A2 'server_name prodtracker'` показывает и 80, и 443.
+   Для одного лишь SSE-блока (он нужен только для real-time) достаточно вставить `location /api/events/`
+   в существующий конфиг.
 
 ### Последеплойная проверка одним скриптом (с v1.2.0)
 

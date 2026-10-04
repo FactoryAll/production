@@ -52,14 +52,16 @@ docker compose ps | grep "prodtrack_postgres" | grep "healthy" >/dev/null || {
 }
 
 # 4. Run migrations and seed (idempotent)
+# Важно: в standalone-образе нет pnpm-воркспейса, поэтому `pnpm --filter` не работает
+# («No projects matched the filters in "/app"»). Используем глобальные prisma/tsx из образа.
 echo "[deploy] Running Prisma migrate deploy..."
-docker compose exec -T web pnpm --filter @prodtrack/db db:migrate
+docker compose exec -T web sh -lc 'prisma migrate deploy --schema=/app/packages/db/prisma/schema.prisma || npx --yes prisma@5.22.0 migrate deploy --schema=/app/packages/db/prisma/schema.prisma'
 
 echo "[deploy] Running seed (first pass)..."
-docker compose exec -T web pnpm --filter @prodtrack/db db:seed
+docker compose exec -T web sh -lc 'cd /app/packages/db && (tsx prisma/seed.ts || npx --yes tsx@4.15.0 prisma/seed.ts)'
 
 echo "[deploy] Running seed again (idempotency check)..."
-docker compose exec -T web pnpm --filter @prodtrack/db db:seed
+docker compose exec -T web sh -lc 'cd /app/packages/db && (tsx prisma/seed.ts || npx --yes tsx@4.15.0 prisma/seed.ts)'
 
 # 5. Smoke test
 echo "[deploy] Smoke test: curl http://127.0.0.1:3000/login"
