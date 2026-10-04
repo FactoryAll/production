@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { LogoutButton } from './logout-button';
 import { getNavItems } from './nav-items';
+import { UnreadBadge } from './unread-badge';
 
 const nsiItems = [
   { label: 'РЦ', href: '/nsi/work-centers' },
@@ -71,25 +72,7 @@ export function Header({ user, unreadCount = 0 }: HeaderProps) {
         </nav>
 
         <div className="flex items-center gap-4">
-          <Link
-            href="/notifications"
-            aria-label={
-              unreadCount > 0
-                ? 'Уведомления, непрочитанных: ' + unreadCount
-                : 'Уведомления'
-            }
-            className="relative rounded-sm px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-white/10 hover:text-white"
-          >
-            Уведомления
-            {unreadCount > 0 && (
-              <span
-                data-testid="unread-badge"
-                className="ml-2 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-signal-amber px-1 text-xs font-semibold text-graphite"
-              >
-                {unreadCount}
-              </span>
-            )}
-          </Link>
+          <UnreadBadge initialCount={unreadCount} />
           <span className="hidden text-sm text-neutral-300 sm:inline">
             {user.login}
           </span>
