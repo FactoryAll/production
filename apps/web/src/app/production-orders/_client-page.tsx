@@ -23,6 +23,8 @@ interface ProductionOrdersPageProps {
     }
   >;
   userRoles: string[];
+  /** Фильтр по статусу применяется на сервере (T-058). */
+  statusFilter: 'ALL' | 'DRAFT' | 'CONFIRMED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -49,7 +51,11 @@ function lineProgressLabel(lines: ProductionOrderLine[]): string {
   return `${reported} из ${total} РЦ отчитались, ${accepted} в работе, ${assigned} не приняты`;
 }
 
-export default function ProductionOrdersPage({ orders, userRoles }: ProductionOrdersPageProps) {
+export default function ProductionOrdersPage({
+  orders,
+  userRoles,
+  statusFilter,
+}: ProductionOrdersPageProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [confirmOrderId, setConfirmOrderId] = useState<string | null>(null);
@@ -203,6 +209,28 @@ export default function ProductionOrdersPage({ orders, userRoles }: ProductionOr
           <Button variant="cta">Создать ПЗ</Button>
         </Link>
       </div>
+
+      {/* Фильтр по статусу применяется на сервере (T-058), поэтому форма отправляет GET-запрос. */}
+      <form method="get" action="/production-orders" className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1 text-sm text-steel-graphite">
+          Статус
+          <select
+            name="status"
+            defaultValue={statusFilter}
+            className="h-[var(--button-height-sm)] rounded-md border border-mist-metal bg-white px-3 font-sans text-graphite"
+          >
+            <option value="ALL">Все</option>
+            <option value="DRAFT">Черновик</option>
+            <option value="CONFIRMED">Подтверждено</option>
+            <option value="IN_PROGRESS">В работе</option>
+            <option value="COMPLETED">Завершено</option>
+            <option value="CANCELLED">Отменено</option>
+          </select>
+        </label>
+        <Button type="submit" variant="secondary">
+          Показать
+        </Button>
+      </form>
 
       <Card className="overflow-hidden p-0">
         <div className="overflow-x-auto">

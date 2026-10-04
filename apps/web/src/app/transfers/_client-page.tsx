@@ -25,6 +25,8 @@ interface TransferWithLines extends GoodsTransfer {
 interface TransfersPageProps {
   transfers: TransferWithLines[];
   userRoles: string[];
+  /** Фильтр по статусу применяется на сервере (T-058). */
+  statusFilter: 'ALL' | GoodsTransfer['status'];
 }
 
 const STATUS_FILTERS: Array<{ value: GoodsTransfer['status'] | 'ALL'; label: string }> = [
@@ -37,10 +39,13 @@ const STATUS_FILTERS: Array<{ value: GoodsTransfer['status'] | 'ALL'; label: str
   { value: 'CANCELLED', label: 'Отменено' },
 ];
 
-export default function TransfersPage({ transfers, userRoles }: TransfersPageProps) {
+export default function TransfersPage({
+  transfers,
+  userRoles,
+  statusFilter,
+}: TransfersPageProps) {
   const router = useRouter();
   const [isPending, setIsPending] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<GoodsTransfer['status'] | 'ALL'>('ALL');
   const [submitTransferId, setSubmitTransferId] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [cancelTransferId, setCancelTransferId] = useState<string | null>(null);
@@ -49,11 +54,6 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
   const canCreate = hasPermission(userRoles, 'transfer:create');
   const canUpdate = hasPermission(userRoles, 'transfer:update');
   const canReceive = hasPermission(userRoles, 'transfer:receive');
-
-  const filteredTransfers = useMemo(() => {
-    if (statusFilter === 'ALL') return transfers;
-    return transfers.filter((t) => t.status === statusFilter);
-  }, [transfers, statusFilter]);
 
   async function handleSubmit(transferId: string) {
     setSubmitError(null);
@@ -191,7 +191,7 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
   );
 
   const table = useReactTable({
-    data: filteredTransfers,
+    data: transfers,
     columns,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -239,7 +239,14 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
           <button
             key={filter.value}
             type="button"
-            onClick={() => setStatusFilter(filter.value)}
+            // Фильтр применяется на сервере (T-058): меняем параметр адреса и перезапрашиваем список.
+            onClick={() =>
+              router.push(
+                filter.value === 'ALL'
+                  ? '/transfers'
+                  : '/transfers?status=' + filter.value,
+              )
+            }
             className={[
               'rounded-md px-4 py-2 text-sm font-medium transition-colors',
               statusFilter === filter.value
@@ -298,10 +305,12 @@ export default function TransfersPage({ transfers, userRoles }: TransfersPagePro
                   ))}
                 </tr>
               ))}
-              {filteredTransfers.length === 0 && (
+              {transfers.length === 0 && (
                 <tr>
                   <td colSpan={columns.length} className="px-4 py-8 text-center text-neutral-500">
-                    Нет перемещений. Создайте первое перемещение.
+                    {statusFilter === 'ALL'
+                      ? 'Нет перемещений. Создайте первое перемещение.'
+                      : 'По выбранному статусу перемещений нет.'}
                   </td>
                 </tr>
               )}
