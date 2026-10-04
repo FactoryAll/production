@@ -4,7 +4,7 @@
 // расчёт длительностей этапов (UC-M10-2).
 
 import { prisma } from '@prodtrack/db';
-import type { DocumentType, EntityType } from '@prisma/client';
+import type { DocumentType, EntityType, Prisma } from '@prisma/client';
 import { parsePageParam, toPageResult, type PageResult } from '@/lib/pagination';
 
 export interface TimingRecordItem {
@@ -48,8 +48,9 @@ export interface StageDuration {
 /** Размер страницы списка записей хронометража (T-057). */
 export const TIMING_PAGE_SIZE = 50;
 
-export function timingWhere(filter: TimingFilter) {
-  const where: Record<string, unknown> = {};
+/** Условие выборки хронометража. Типизировано Prisma-типом: имена полей проверяет компилятор. */
+export function timingWhere(filter: TimingFilter): Prisma.StageTimingWhereInput {
+  const where: Prisma.StageTimingWhereInput = {};
   if (filter.documentType) {
     where.documentType = filter.documentType;
   }

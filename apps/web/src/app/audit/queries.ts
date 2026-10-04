@@ -3,6 +3,7 @@
 // Аудит append-only: модуль только читает записи, изменять и удалять их нельзя
 // (M13 BR-2). Архивные записи скрыты от всех, кроме АДМ (Р-16, BR-6).
 
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@prodtrack/db';
 import { parsePageParam, toPageResult, type PageResult } from '@/lib/pagination';
 
@@ -46,8 +47,12 @@ export const AUDIT_HISTORY_LIMIT = 200;
  * `canShowArchived` — признак того, что пользователь вправе видеть архив (только АДМ, BR-6):
  * для остальных ролей архив скрыт, даже если флаг запрошен.
  */
-export function auditWhere(filter: AuditFilter, canShowArchived: boolean) {
-  const where: Record<string, unknown> = {};
+/** Условие выборки аудита. Типизировано Prisma-типом: имена полей проверяет компилятор. */
+export function auditWhere(
+  filter: AuditFilter,
+  canShowArchived: boolean,
+): Prisma.AuditRecordWhereInput {
+  const where: Prisma.AuditRecordWhereInput = {};
 
   // BR-6: архив скрыт из обычных выборок всех ролей, кроме АДМ.
   // Для остальных ролей флаг «показать архив» игнорируется.
