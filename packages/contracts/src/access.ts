@@ -12,6 +12,7 @@ export type PermissionCode =
   | 'transfer:update'
   | 'transfer:receive'
   | 'transfer:reconcile'
+  | 'transfer:read'
   | 'stock:read'
   | 'shift_report:read'
   | 'dashboard:read'
@@ -38,6 +39,7 @@ export const ALL_PERMISSIONS: PermissionCode[] = [
   'transfer:update',
   'transfer:receive',
   'transfer:reconcile',
+  'transfer:read',
   'stock:read',
   'shift_report:read',
   'dashboard:read',
@@ -62,6 +64,7 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     'transfer:create',
     'transfer:update',
     'transfer:reconcile',
+    'transfer:read',
     'stock:read',
     'shift_report:read',
     'dashboard:read',
@@ -84,6 +87,7 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
   ],
   KSGP: [
     'timing:read',
+    'transfer:read',
     'transfer:receive',
     'transfer:reconcile',
     'stock:read',
@@ -92,6 +96,7 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
   ],
   USGP: [
     'timing:read',
+    'transfer:read',
     'transfer:reconcile',
     'stock:read',
     'dashboard:read',
@@ -99,6 +104,10 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
   ],
   S1C: [
     'timing:read',
+    // Просмотр ПЗ и Перемещений — чтобы переходить из уведомлений в целевой объект
+    // (решение владельца продукта, 03.10.2026; согласованное изменение матрицы 00 §4.2).
+    'transfer:read',
+    'production_order:read',
     'onec:read',
     'onec:process',
     'stock:read',

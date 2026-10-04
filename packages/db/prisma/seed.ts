@@ -82,6 +82,7 @@ export const PERMISSIONS = [
   { code: 'transfer:update', action: 'Изменение перемещения' },
   { code: 'transfer:receive', action: 'Приёмка перемещения' },
   { code: 'transfer:reconcile', action: 'Согласование расхождений' },
+  { code: 'transfer:read', action: 'Просмотр перемещений' },
   { code: 'stock:read', action: 'Просмотр остатков' },
   { code: 'shift_report:read', action: 'Просмотр отчётов смены' },
   { code: 'dashboard:read', action: 'Просмотр дашборда' },
@@ -105,6 +106,7 @@ export const ROLE_PERMISSION_MAP: Record<RoleCode, string[]> = {
     'transfer:create',
     'transfer:update',
     'transfer:reconcile',
+    'transfer:read',
     'stock:read',
     'shift_report:read',
     'dashboard:read',
@@ -124,6 +126,7 @@ export const ROLE_PERMISSION_MAP: Record<RoleCode, string[]> = {
   ],
   KSGP: [
     'timing:read',
+    'transfer:read',
     'transfer:receive',
     'transfer:reconcile',
     'stock:read',
@@ -131,12 +134,16 @@ export const ROLE_PERMISSION_MAP: Record<RoleCode, string[]> = {
   ],
   USGP: [
     'timing:read',
+    'transfer:read',
     'transfer:reconcile',
     'stock:read',
     'dashboard:read',
   ],
   S1C: [
     'timing:read',
+    // Просмотр ПЗ и Перемещений (решение владельца продукта, 03.10.2026).
+    'transfer:read',
+    'production_order:read',
     'onec:read',
     'onec:process',
     'stock:read',

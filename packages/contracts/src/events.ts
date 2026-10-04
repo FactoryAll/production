@@ -264,6 +264,15 @@ function orderCardLink(payload: { orderId: string }): string {
   return `/production-orders/${payload.orderId}`;
 }
 
+/**
+ * Deep-link на строку РЦ в карточке ПЗ (M09 §7: «Карточка ПЗ, строка РЦ»).
+ * Анкер `#line-<id>` проставляется в карточке; если строки в payload нет — ведём на карточку.
+ */
+function orderLineLink(payload: { orderId: string; lineId?: string }): string {
+  const card = orderCardLink(payload);
+  return payload.lineId ? `${card}#line-${payload.lineId}` : card;
+}
+
 function transferCardLink(payload: { transferId: string }): string {
   return `/transfers/${payload.transferId}`;
 }
@@ -302,7 +311,8 @@ export const EVENT_CATALOG: { [K in EventCodeValue]: NotificationEventDefinition
     name: 'Получение ПЗ подтверждено',
     title: 'Оператор подтвердил получение ПЗ',
     recipients: [{ kind: 'ROLE', role: 'NP' }],
-    deepLink: orderCardLink,
+    // Подтверждение получения — ведём на конкретную строку РЦ (M09 §7).
+    deepLink: orderLineLink,
     validatePayload: (raw) => {
       const record = asRecord(raw, 'EV-02');
       const issues: string[] = [];
@@ -439,7 +449,8 @@ export const EVENT_CATALOG: { [K in EventCodeValue]: NotificationEventDefinition
     name: 'Смена закрыта за Оператора',
     title: 'Смена закрыта за Оператора',
     recipients: [{ kind: 'LINE_OPERATOR' }, { kind: 'ROLE', role: 'S1C' }],
-    deepLink: orderCardLink,
+    // Ввод за Оператора — ведём на конкретную строку РЦ (M09 §7).
+    deepLink: orderLineLink,
     validatePayload: (raw) => {
       const record = asRecord(raw, 'EV-08');
       const issues: string[] = [];

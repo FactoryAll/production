@@ -1,15 +1,9 @@
 import { hasPermission, type PermissionCode } from '@prodtrack/contracts';
 
 /**
- * Права, покрывающие просмотр Перемещений (M07 §3 / M08 §3).
- * Отдельного права `transfer:read` в матрице нет.
+ * Просмотр Перемещений определяется правом `transfer:read` (НП, КСГП, УСГП, С1С, АДМ).
  */
-export const TRANSFER_VIEW_PERMISSIONS: PermissionCode[] = [
-  'transfer:create',
-  'transfer:update',
-  'transfer:receive',
-  'transfer:reconcile',
-];
+export const TRANSFER_VIEW_PERMISSIONS: PermissionCode[] = ['transfer:read'];
 
 export function canViewTransfers(userRoles: string[]): boolean {
   return TRANSFER_VIEW_PERMISSIONS.some((permission) => hasPermission(userRoles, permission));

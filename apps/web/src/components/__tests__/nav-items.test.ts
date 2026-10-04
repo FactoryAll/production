@@ -11,11 +11,14 @@ describe('nav-items', () => {
     }
   });
 
-  it('hides Перемещения from OPR and S1C (no transfer permissions)', () => {
-    for (const role of ['OPR', 'S1C']) {
-      expect(canViewTransfers([role])).toBe(false);
-      expect(hrefsFor([role])).not.toContain('/transfers');
-    }
+  it('hides Перемещения from OPR (нет права transfer:read)', () => {
+    expect(canViewTransfers(['OPR'])).toBe(false);
+    expect(hrefsFor(['OPR'])).not.toContain('/transfers');
+  });
+
+  it('shows Перемещения for С1С — право transfer:read (решение владельца 03.10.2026)', () => {
+    expect(canViewTransfers(['S1C'])).toBe(true);
+    expect(hrefsFor(['S1C'])).toContain('/transfers');
   });
 
   it('shows Перемещения when any of the multiple roles grants access (Р-23)', () => {
@@ -69,9 +72,13 @@ describe('nav-items', () => {
   });
 
   it('hides the production orders page from roles lacking production_order:read', () => {
-    for (const role of ['KSGP', 'USGP', 'S1C']) {
+    for (const role of ['KSGP', 'USGP']) {
       expect(hrefsFor([role])).not.toContain('/production-orders');
     }
+  });
+
+  it('shows ПЗ for С1С — право production_order:read (решение владельца 03.10.2026)', () => {
+    expect(hrefsFor(['S1C'])).toContain('/production-orders');
   });
 
   it('никогда не выводит ссылку на несуществующую страницу /shift-reports', () => {

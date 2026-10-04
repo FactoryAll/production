@@ -416,7 +416,12 @@ export default function ProductionOrderCard({ order, defectReasons, userRoles }:
             </thead>
             <tbody>
               {order.lines.map((line) => (
-                <tr key={line.id} className="hover:bg-neutral-100">
+                // Анкер строки РЦ: deep-link уведомлений EV-02/EV-08 ведёт прямо на строку (M09 §7).
+                <tr
+                  key={line.id}
+                  id={'line-' + line.id}
+                  className="scroll-mt-24 hover:bg-neutral-100"
+                >
                   <td className="border-b border-mist-metal px-4 py-3 text-graphite">
                     {line.workCenter.code} — {line.workCenter.name}
                   </td>

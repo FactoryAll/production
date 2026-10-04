@@ -86,6 +86,10 @@ describe('каталог событий M09 (00 §5, M09 §7)', () => {
     expect(EVENT_CATALOG['EV-01'].deepLink({ orderId: 'po-1' } as never)).toBe(
       '/production-orders/po-1',
     );
+    // EV-02 ведёт на строку РЦ (M09 §7), без строки в payload — на карточку ПЗ.
+    expect(
+      EVENT_CATALOG['EV-02'].deepLink({ orderId: 'po-2', lineId: 'line-9' } as never),
+    ).toBe('/production-orders/po-2#line-line-9');
     expect(EVENT_CATALOG['EV-02'].deepLink({ orderId: 'po-2' } as never)).toBe(
       '/production-orders/po-2',
     );
@@ -94,6 +98,9 @@ describe('каталог событий M09 (00 §5, M09 §7)', () => {
     expect(EVENT_CATALOG['EV-09'].deepLink({ orderId: 'po-3' } as never)).toBe(
       '/production-orders/po-3',
     );
+    expect(
+      EVENT_CATALOG['EV-08'].deepLink({ orderId: 'po-3', lineId: 'line-7' } as never),
+    ).toBe('/production-orders/po-3#line-line-7');
     expect(EVENT_CATALOG['EV-10'].deepLink({ transferId: 'tr-3' } as never)).toBe('/transfers/tr-3');
   });
 });

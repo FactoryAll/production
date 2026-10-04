@@ -8,9 +8,9 @@ import TransfersPage from './_client-page';
 import { requireSession } from '@/lib/auth/session';
 
 export default async function TransfersServerPage() {
-  const access = await checkPageAccess(['transfer:create', 'transfer:update', 'transfer:receive', 'transfer:reconcile']);
+  const access = await checkPageAccess('transfer:read');
   if (!access.allowed) {
-    return <AccessDenied action="просмотр перемещений" allowedRoles={['NP', 'KSGP', 'USGP', 'ADM']} requiredPermission='transfer:create / transfer:update / transfer:receive / transfer:reconcile' />;
+    return <AccessDenied action="просмотр перемещений" allowedRoles={['NP', 'KSGP', 'USGP', 'S1C', 'ADM']} requiredPermission='transfer:read' />;
   }
   const [transfers, session] = await Promise.all([getTransfers(), requireSession()]);
   const userRoles = session.user.roles.map((ur) => ur.role.code);

@@ -6,15 +6,10 @@ export interface NavItem {
 }
 
 /**
- * Права, покрывающие просмотр Перемещений (M07 §3 / M08 §3).
- * Отдельного права `transfer:read` в матрице нет.
+ * Просмотр Перемещений определяется правом `transfer:read` (решение владельца
+ * продукта 03.10.2026): оно есть у НП, КСГП, УСГП, С1С и АДМ.
  */
-const TRANSFER_VIEW_PERMISSIONS: PermissionCode[] = [
-  'transfer:create',
-  'transfer:update',
-  'transfer:receive',
-  'transfer:reconcile',
-];
+const TRANSFER_VIEW_PERMISSIONS: PermissionCode[] = ['transfer:read'];
 
 export function canViewTransfers(userRoles: string[]): boolean {
   return TRANSFER_VIEW_PERMISSIONS.some((permission) => hasPermission(userRoles, permission));

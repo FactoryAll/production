@@ -143,3 +143,37 @@ describe('access matrix v1.2.0: просмотр хронометража (M10 �
   });
 });
 
+describe('access matrix v1.2.0: просмотр Перемещений и доступ С1С к карточкам (решение владельца 03.10.2026)', () => {
+  it('право transfer:read добавлено в перечень всех прав', () => {
+    expect(ALL_PERMISSIONS).toContain('transfer:read');
+  });
+
+  it('transfer:read есть у НП, КСГП, УСГП, С1С и АДМ', () => {
+    for (const role of [
+      RoleCode.NP,
+      RoleCode.KSGP,
+      RoleCode.USGP,
+      RoleCode.S1C,
+      RoleCode.ADM,
+    ]) {
+      expect(hasPermission([role], 'transfer:read')).toBe(true);
+    }
+  });
+
+  it('у ОПР нет права просмотра Перемещений', () => {
+    expect(hasPermission([RoleCode.OPR], 'transfer:read')).toBe(false);
+  });
+
+  it('С1С может открыть карточку ПЗ — право production_order:read', () => {
+    expect(hasPermission([RoleCode.S1C], 'production_order:read')).toBe(true);
+    expect(ROLE_PERMISSIONS[RoleCode.S1C]).toContain('production_order:read');
+  });
+
+  it('С1С по-прежнему не может создавать и подтверждать ПЗ', () => {
+    expect(hasPermission([RoleCode.S1C], 'production_order:create')).toBe(false);
+    expect(hasPermission([RoleCode.S1C], 'production_order:confirm')).toBe(false);
+    expect(hasPermission([RoleCode.S1C], 'transfer:create')).toBe(false);
+    expect(hasPermission([RoleCode.S1C], 'transfer:receive')).toBe(false);
+  });
+});
+

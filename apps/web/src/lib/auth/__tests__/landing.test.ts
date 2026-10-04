@@ -19,12 +19,12 @@ describe('getLandingPath', () => {
     expect(getLandingPath(['USGP'])).toBe('/transfers');
   });
 
-  it('sends S1C to stock', () => {
-    expect(getLandingPath(['S1C'])).toBe('/stock');
+  it('sends S1C to production orders — право production_order:read с 03.10.2026', () => {
+    expect(getLandingPath(['S1C'])).toBe('/production-orders');
   });
 
   it('never returns a page the role cannot open', () => {
-    const forbidding = ['KSGP', 'USGP', 'S1C'];
+    const forbidding = ['KSGP', 'USGP'];
     for (const role of forbidding) {
       expect(getLandingPath([role])).not.toBe('/production-orders');
     }

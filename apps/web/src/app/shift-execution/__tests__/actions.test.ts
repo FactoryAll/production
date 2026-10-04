@@ -317,8 +317,10 @@ describe('acceptProductionOrderLine', () => {
     const data = deps.notificationCreateMany.mock.calls[0][0].data;
     expect(data).toHaveLength(1);
     expect(data[0].eventCode).toBe('EV_02');
+    // EV-02 ведёт на строку РЦ (M09 §7).
     expect(data[0].recipientId).toBe('np-user-1');
-    expect(data[0].deepLink).toBe('/production-orders/po-1');
+    // EV-02 ведёт на строку РЦ (M09 §7), анкер есть в карточке ПЗ.
+    expect(data[0].deepLink).toBe('/production-orders/po-1#line-line-1');
     const payload = JSON.parse(data[0].body);
     expect(payload).toMatchObject({ orderId: 'po-1', lineId: 'line-1', workCenterId: 'wc-01', operatorId: 'emp-1' });
   });

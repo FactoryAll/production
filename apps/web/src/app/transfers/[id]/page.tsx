@@ -14,9 +14,9 @@ interface TransferPageProps {
 }
 
 export default async function TransferPage({ params }: TransferPageProps) {
-  const access = await checkPageAccess(['transfer:create', 'transfer:update', 'transfer:receive', 'transfer:reconcile']);
+  const access = await checkPageAccess('transfer:read');
   if (!access.allowed) {
-    return <AccessDenied action="просмотр перемещений" allowedRoles={['NP', 'KSGP', 'USGP', 'ADM']} requiredPermission='transfer:create / transfer:update / transfer:receive / transfer:reconcile' />;
+    return <AccessDenied action="просмотр перемещений" allowedRoles={['NP', 'KSGP', 'USGP', 'S1C', 'ADM']} requiredPermission='transfer:read' />;
   }
   const [transfer, session] = await Promise.all([getTransferById(params.id), requireSession()]);
   if (!transfer) {
