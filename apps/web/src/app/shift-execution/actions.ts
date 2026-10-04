@@ -351,8 +351,9 @@ export async function acceptProductionOrderLine(
       operatorId: line.operatorId,
     });
 
-    await transitionToInProgress(line.order.id, tx, session);
-    await checkAndCloseProductionOrder(line.order.id, tx, session);
+    // Атрибуция в аудите — по праву действия Оператора (M13 BR-X).
+    await transitionToInProgress(line.order.id, tx, session, 'production_order:accept');
+    await checkAndCloseProductionOrder(line.order.id, tx, session, 'production_order:accept');
 
     return updated;
   });
@@ -559,7 +560,7 @@ export async function reportProductionFact(
       operatorId: line.operatorId,
     });
 
-    await checkAndCloseProductionOrder(line.order.id, tx, session);
+    await checkAndCloseProductionOrder(line.order.id, tx, session, 'production_order:report');
 
     return { facts: createdFacts, line: updatedLine };
   });

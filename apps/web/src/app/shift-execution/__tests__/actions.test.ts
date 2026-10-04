@@ -339,8 +339,19 @@ describe('acceptProductionOrderLine', () => {
       requireShiftWindow,
     });
 
-    expect(transitionToInProgress).toHaveBeenCalledWith('po-1', expect.anything(), baseSession);
-    expect(checkAndCloseProductionOrder).toHaveBeenCalledWith('po-1', expect.anything(), baseSession);
+    // Переходы Оператора атрибутируются по праву accept (M13 BR-X), а не по праву НП.
+    expect(transitionToInProgress).toHaveBeenCalledWith(
+      'po-1',
+      expect.anything(),
+      baseSession,
+      'production_order:accept',
+    );
+    expect(checkAndCloseProductionOrder).toHaveBeenCalledWith(
+      'po-1',
+      expect.anything(),
+      baseSession,
+      'production_order:accept',
+    );
   });
 
   it('blocks accepting line for another operator', async () => {
@@ -510,7 +521,12 @@ describe('reportProductionFact', () => {
     expect(deps.lineUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REPORTED' } }));
     expect(writeAudit).toHaveBeenCalledTimes(2);
     expect(writeTiming).toHaveBeenCalled();
-    expect(checkAndCloseProductionOrder).toHaveBeenCalledWith('po-1', expect.anything(), expect.anything());
+    expect(checkAndCloseProductionOrder).toHaveBeenCalledWith(
+      'po-1',
+      expect.anything(),
+      expect.anything(),
+      'production_order:report',
+    );
   });
 
   it('emits EV-03 to S1C users', async () => {

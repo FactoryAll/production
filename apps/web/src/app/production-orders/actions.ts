@@ -827,8 +827,13 @@ export async function substituteOperator(
       initiatorId: userId,
     });
 
-    await transitionToInProgress(orderId, tx as unknown as PrismaLike, session);
-    await checkAndCloseProductionOrder(orderId, tx as unknown as PrismaLike, session);
+    await transitionToInProgress(orderId, tx as unknown as PrismaLike, session, 'production_order:confirm');
+    await checkAndCloseProductionOrder(
+      orderId,
+      tx as unknown as PrismaLike,
+      session,
+      'production_order:confirm',
+    );
 
     const factIds = createdFacts.map((f) => f.id);
 

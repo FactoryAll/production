@@ -98,7 +98,7 @@ describe('checkAndCloseProductionOrder', () => {
   it('closes 1-RC order when single line is REPORTED', async () => {
     const order = makeOrder({ status: 'CONFIRMED', lines: [makeLine({ status: 'REPORTED' })] });
     const prisma = makeMockPrisma(order);
-    const result = await checkAndCloseProductionOrder('po-1', prisma, baseSession);
+    const result = await checkAndCloseProductionOrder('po-1', prisma, baseSession, 'production_order:confirm');
 
     expect(result.closed).toBe(true);
     expect(result.status).toBe('COMPLETED');
@@ -109,7 +109,7 @@ describe('checkAndCloseProductionOrder', () => {
   it('does not close 1-RC order when single line is only ACCEPTED', async () => {
     const order = makeOrder({ status: 'CONFIRMED', lines: [makeLine({ status: 'ACCEPTED' })] });
     const prisma = makeMockPrisma(order);
-    const result = await checkAndCloseProductionOrder('po-1', prisma, baseSession);
+    const result = await checkAndCloseProductionOrder('po-1', prisma, baseSession, 'production_order:confirm');
 
     expect(result.closed).toBe(false);
     expect(result.status).toBe('CONFIRMED');
@@ -126,7 +126,7 @@ describe('checkAndCloseProductionOrder', () => {
       ],
     });
     const prisma = makeMockPrisma(order);
-    const result = await checkAndCloseProductionOrder('po-1', prisma, baseSession);
+    const result = await checkAndCloseProductionOrder('po-1', prisma, baseSession, 'production_order:confirm');
 
     expect(result.closed).toBe(true);
     expect(result.status).toBe('COMPLETED');
@@ -137,7 +137,7 @@ describe('checkAndCloseProductionOrder', () => {
     const order = makeOrder({ status: 'IN_PROGRESS', lines: [makeLine({ status: 'REPORTED' })] });
     order.lines[0].status = 'ACCEPTED';
     const prisma = makeMockPrisma(order);
-    await checkAndCloseProductionOrder('po-1', prisma, baseSession);
+    await checkAndCloseProductionOrder('po-1', prisma, baseSession, 'production_order:confirm');
     expect(buildShiftSummary).not.toHaveBeenCalled();
   });
 
@@ -151,7 +151,7 @@ describe('checkAndCloseProductionOrder', () => {
       ],
     });
     const prisma = makeMockPrisma(order);
-    const result = await checkAndCloseProductionOrder('po-1', prisma, baseSession);
+    const result = await checkAndCloseProductionOrder('po-1', prisma, baseSession, 'production_order:confirm');
 
     expect(result.closed).toBe(false);
     expect(result.status).toBe('IN_PROGRESS');
@@ -167,7 +167,7 @@ describe('checkAndCloseProductionOrder', () => {
       ],
     });
     const prisma = makeMockPrisma(order);
-    const result = await checkAndCloseProductionOrder('po-1', prisma, baseSession);
+    const result = await checkAndCloseProductionOrder('po-1', prisma, baseSession, 'production_order:confirm');
 
     expect(result.closed).toBe(false);
     expect(result.status).toBe('IN_PROGRESS');
@@ -183,7 +183,7 @@ describe('checkAndCloseProductionOrder', () => {
       ],
     });
     const prisma = makeMockPrisma(order);
-    const result = await checkAndCloseProductionOrder('po-1', prisma, baseSession);
+    const result = await checkAndCloseProductionOrder('po-1', prisma, baseSession, 'production_order:confirm');
 
     expect(result.closed).toBe(false);
     expect(result.status).toBe('IN_PROGRESS');
@@ -192,7 +192,7 @@ describe('checkAndCloseProductionOrder', () => {
   it('does not close already COMPLETED order', async () => {
     const order = makeOrder({ status: 'COMPLETED', lines: [makeLine({ status: 'REPORTED' })] });
     const prisma = makeMockPrisma(order);
-    const result = await checkAndCloseProductionOrder('po-1', prisma, baseSession);
+    const result = await checkAndCloseProductionOrder('po-1', prisma, baseSession, 'production_order:confirm');
 
     expect(result.closed).toBe(false);
     expect(result.status).toBe('COMPLETED');
@@ -201,7 +201,7 @@ describe('checkAndCloseProductionOrder', () => {
   it('does not close DRAFT order', async () => {
     const order = makeOrder({ status: 'DRAFT', lines: [makeLine({ status: 'REPORTED' })] });
     const prisma = makeMockPrisma(order);
-    const result = await checkAndCloseProductionOrder('po-1', prisma, baseSession);
+    const result = await checkAndCloseProductionOrder('po-1', prisma, baseSession, 'production_order:confirm');
 
     expect(result.closed).toBe(false);
     expect(result.status).toBe('DRAFT');
@@ -216,7 +216,7 @@ describe('transitionToInProgress', () => {
   it('transitions CONFIRMED order to IN_PROGRESS when first line is ACCEPTED', async () => {
     const order = makeOrder({ status: 'CONFIRMED', lines: [makeLine({ status: 'ACCEPTED' })] });
     const prisma = makeMockPrisma(order);
-    const result = await transitionToInProgress('po-1', prisma, baseSession);
+    const result = await transitionToInProgress('po-1', prisma, baseSession, 'production_order:accept');
 
     expect(result.transitioned).toBe(true);
     expect(writeAudit).toHaveBeenCalled();
@@ -226,7 +226,7 @@ describe('transitionToInProgress', () => {
   it('does not transition CONFIRMED order without ACCEPTED lines', async () => {
     const order = makeOrder({ status: 'CONFIRMED', lines: [makeLine({ status: 'ASSIGNED' })] });
     const prisma = makeMockPrisma(order);
-    const result = await transitionToInProgress('po-1', prisma, baseSession);
+    const result = await transitionToInProgress('po-1', prisma, baseSession, 'production_order:accept');
 
     expect(result.transitioned).toBe(false);
     expect(writeAudit).not.toHaveBeenCalled();
@@ -235,7 +235,7 @@ describe('transitionToInProgress', () => {
   it('does not transition already IN_PROGRESS order', async () => {
     const order = makeOrder({ status: 'IN_PROGRESS', lines: [makeLine({ status: 'ACCEPTED' })] });
     const prisma = makeMockPrisma(order);
-    const result = await transitionToInProgress('po-1', prisma, baseSession);
+    const result = await transitionToInProgress('po-1', prisma, baseSession, 'production_order:accept');
 
     expect(result.transitioned).toBe(false);
   });
@@ -243,8 +243,43 @@ describe('transitionToInProgress', () => {
   it('does not transition DRAFT order', async () => {
     const order = makeOrder({ status: 'DRAFT', lines: [makeLine({ status: 'ACCEPTED' })] });
     const prisma = makeMockPrisma(order);
-    const result = await transitionToInProgress('po-1', prisma, baseSession);
+    const result = await transitionToInProgress('po-1', prisma, baseSession, 'production_order:accept');
 
     expect(result.transitioned).toBe(false);
+  });
+  it('регресс: переход Оператора атрибутируется правом accept, а не правом НП', async () => {
+    // Дефект ручного тестирования v1.2.0: переход CONFIRMED → IN_PROGRESS писал аудит
+    // с правом production_order:confirm. У Оператора этого права нет, и kernel-функция
+    // writeAudit падала с «No role has permission production_order:confirm» —
+    // подтверждение получения ПЗ ломалось прямо в интерфейсе.
+    const order = makeOrder({ status: 'CONFIRMED', lines: [makeLine({ status: 'ACCEPTED' })] });
+    const prisma = makeMockPrisma(order);
+    const operatorSession: SessionWithUser = {
+      ...baseSession,
+      user: { ...baseSession.user, login: 'opr1', roles: [{ role: { code: 'OPR' } }] },
+    };
+
+    await transitionToInProgress('po-1', prisma, operatorSession, 'production_order:accept');
+
+    expect(writeAudit).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ permission: 'production_order:accept' }),
+    );
+    expect(writeTiming).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ initiatorRole: 'OPR' }),
+    );
+  });
+
+  it('регресс: закрытие ПЗ по итогу смены атрибутируется правом report', async () => {
+    const order = makeOrder({ status: 'IN_PROGRESS', lines: [makeLine({ status: 'REPORTED' })] });
+    const prisma = makeMockPrisma(order);
+
+    await checkAndCloseProductionOrder('po-1', prisma, baseSession, 'production_order:report');
+
+    expect(writeAudit).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ permission: 'production_order:report' }),
+    );
   });
 });

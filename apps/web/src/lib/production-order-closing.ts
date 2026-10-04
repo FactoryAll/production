@@ -55,10 +55,19 @@ async function writeStatusTransition(ctx: ClosingContext) {
   });
 }
 
+/**
+ * Закрывает ПЗ, когда все строки отчитались.
+ *
+ * `permission` — право действия, которым вызван переход: по нему M13 BR-X атрибутирует
+ * роль в аудите (для внесения итога Оператором это `production_order:report`,
+ * для ввода за Оператора — `production_order:confirm`). Право нельзя задавать
+ * константой: у Оператора нет `production_order:confirm`, и атрибуция падала.
+ */
 export async function checkAndCloseProductionOrder(
   orderId: string,
   prisma: PrismaClient | TxClient,
   session: SessionWithUser,
+  permission: PermissionCode,
 ): Promise<{ closed: boolean; status: ProductionOrderStatus }> {
   const order = await prisma.productionOrder.findUnique({
     where: { id: orderId },
@@ -100,7 +109,7 @@ export async function checkAndCloseProductionOrder(
     order,
     session,
     newStatus: 'COMPLETED',
-    permission: 'production_order:confirm',
+    permission,
   });
 
   await buildShiftSummary(orderId, prisma as PrismaClient);
@@ -108,10 +117,12 @@ export async function checkAndCloseProductionOrder(
   return { closed: true, status: updated.status };
 }
 
+/** Переводит ПЗ в IN_PROGRESS после подтверждения получения Оператором. */
 export async function transitionToInProgress(
   orderId: string,
   prisma: PrismaClient | TxClient,
   session: SessionWithUser,
+  permission: PermissionCode,
 ): Promise<{ transitioned: boolean }> {
   const order = await prisma.productionOrder.findUnique({
     where: { id: orderId },
@@ -141,7 +152,7 @@ export async function transitionToInProgress(
     order,
     session,
     newStatus: 'IN_PROGRESS',
-    permission: 'production_order:confirm',
+    permission,
   });
 
   return { transitioned: true };
