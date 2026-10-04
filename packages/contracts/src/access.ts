@@ -78,9 +78,11 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
   OPR: [
     'timing:read',
     'production_order:read_own',
+    // Дефект №2 ручного тестирования v1.2.0: право `production_order:confirm`
+    // давало Оператору подтверждение, отмену ПЗ, ввод за Оператора и корректировку
+    // факта — по 00 §4.2 и Р-11/Р-12 это действия только НП. Право у ОПР убрано.
     'production_order:accept',
     'production_order:report',
-    'production_order:confirm',
     'stock:read',
     'dashboard:read_own',
     'nsi:read',

@@ -118,9 +118,10 @@ export const ROLE_PERMISSION_MAP: Record<RoleCode, string[]> = {
   OPR: [
     'timing:read',
     'production_order:read_own',
+    // Без `production_order:confirm`: подтверждение/отмена ПЗ, ввод за Оператора
+    // и корректировка факта — действия НП (00 §4.2, Р-11, Р-12).
     'production_order:accept',
     'production_order:report',
-    'production_order:confirm',
     'stock:read',
     'dashboard:read_own',
   ],

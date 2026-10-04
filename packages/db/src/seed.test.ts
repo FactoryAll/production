@@ -30,7 +30,9 @@ describe('seed configuration', () => {
   it('maps permissions to roles according to matrix', () => {
     expect(ROLE_PERMISSION_MAP.NP).toContain('production_order:create');
     expect(ROLE_PERMISSION_MAP.OPR).toContain('production_order:accept');
-    expect(ROLE_PERMISSION_MAP.OPR).toContain('production_order:confirm');
+    expect(ROLE_PERMISSION_MAP.OPR).toContain('production_order:report');
+    // Дефект №2 (v1.2.0): подтверждение/отмена ПЗ и ввод за Оператора — действия НП.
+    expect(ROLE_PERMISSION_MAP.OPR).not.toContain('production_order:confirm');
     expect(ROLE_PERMISSION_MAP.KSGP).toContain('transfer:receive');
     expect(ROLE_PERMISSION_MAP.USGP).toContain('transfer:reconcile');
     expect(ROLE_PERMISSION_MAP.S1C).toContain('onec:process');

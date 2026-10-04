@@ -14,7 +14,7 @@ describe('access matrix', () => {
   it('hasPermission returns true for a role with the permission', () => {
     expect(hasPermission([RoleCode.NP], 'production_order:create')).toBe(true);
     expect(hasPermission([RoleCode.OPR], 'production_order:accept')).toBe(true);
-    expect(hasPermission([RoleCode.OPR], 'production_order:confirm')).toBe(true);
+    expect(hasPermission([RoleCode.OPR], 'production_order:report')).toBe(true);
     expect(hasPermission([RoleCode.KSGP], 'transfer:receive')).toBe(true);
     expect(hasPermission([RoleCode.ADM], 'nsi:manage')).toBe(true);
   });
@@ -140,6 +140,36 @@ describe('access matrix v1.2.0: просмотр хронометража (M10 �
 
   it('право входит в перечень всех прав (для сида экрана «Роли»)', () => {
     expect(ALL_PERMISSIONS).toContain('timing:read');
+  });
+});
+
+describe('дефект №2 ручного тестирования v1.2.0: у ОПР не должно быть прав НП (00 §4.2, Р-11, Р-12)', () => {
+  it('Оператор не подтверждает, не отменяет ПЗ и не вводит данные за Оператора', () => {
+    for (const permission of [
+      'production_order:confirm',
+      'production_order:create',
+      'production_order:update',
+    ] as const) {
+      expect(hasPermission([RoleCode.OPR], permission)).toBe(false);
+      expect(ROLE_PERMISSIONS[RoleCode.OPR]).not.toContain(permission);
+    }
+  });
+
+  it('легитимные права Оператора сохраняются', () => {
+    for (const permission of [
+      'production_order:read_own',
+      'production_order:accept',
+      'production_order:report',
+      'stock:read',
+      'timing:read',
+    ] as const) {
+      expect(hasPermission([RoleCode.OPR], permission)).toBe(true);
+    }
+  });
+
+  it('НП и АДМ сохраняют право подтверждения ПЗ', () => {
+    expect(hasPermission([RoleCode.NP], 'production_order:confirm')).toBe(true);
+    expect(hasPermission([RoleCode.ADM], 'production_order:confirm')).toBe(true);
   });
 });
 
