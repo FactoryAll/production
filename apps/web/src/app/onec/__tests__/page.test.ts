@@ -11,6 +11,23 @@ import { prisma } from '@prodtrack/db';
 import { AccessDenied } from '@/components/access-denied';
 import OneCServerPage from '../page';
 
+/** Ищет ссылку с заданным href в дереве элементов серверного компонента. */
+function findHref(node: unknown, href: string): boolean {
+  if (Array.isArray(node)) {
+    return node.some((child) => findHref(child, href));
+  }
+  if (typeof node !== 'object' || node === null) {
+    return false;
+  }
+
+  const element = node as { props?: Record<string, unknown> };
+  if (element.props?.href === href) {
+    return true;
+  }
+
+  return Object.values(element.props ?? {}).some((value) => findHref(value, href));
+}
+
 function mockAccess(roles: string[], allowed = true) {
   (checkPageAccess as ReturnType<typeof vi.fn>).mockResolvedValue({
     allowed,
@@ -50,6 +67,22 @@ describe('Экран «Рабочее место 1С»: доступ и выбо
         take: 51,
       }),
     );
+  });
+
+  it('ссылка «Экспорт CSV» сохраняет фильтры списка (Р-06)', async () => {
+    mockAccess(['S1C']);
+
+    const element = await OneCServerPage({ searchParams: { type: 'TRANSFER', status: 'PENDING' } });
+
+    expect(findHref(element, '/onec/export?type=TRANSFER&status=PENDING')).toBe(true);
+  });
+
+  it('без фильтров ссылка экспорта ведёт на общий файл', async () => {
+    mockAccess(['S1C']);
+
+    const element = await OneCServerPage({ searchParams: {} });
+
+    expect(findHref(element, '/onec/export')).toBe(true);
   });
 
   it('неизвестный фильтр типа не сужает выборку', async () => {

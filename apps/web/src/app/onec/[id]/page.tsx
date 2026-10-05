@@ -14,7 +14,7 @@ import {
   oneCStatusLabel,
   oneCTypeLabel,
   taskDocumentLabel,
-} from '../labels';
+} from '@/lib/onec/labels';
 import { getOneCTaskById } from '../queries';
 
 interface OneCTaskPageProps {

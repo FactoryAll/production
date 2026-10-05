@@ -11,7 +11,7 @@ import {
   oneCTypeLabel,
   taskDocumentLabel,
   taskSummary,
-} from './labels';
+} from '@/lib/onec/labels';
 import {
   getOneCTasksPage,
   parseOneCStatusFilter,
@@ -52,6 +52,12 @@ export default async function OneCServerPage({ searchParams }: OneCPageProps) {
 
   const result = await getOneCTasksPage(filter, searchParams.page);
   const tasks = result.items;
+
+  // Экспорт отдаёт то же множество задач, что видно в списке (Р-06).
+  const exportParams = new URLSearchParams();
+  if (filter.type !== 'ALL') exportParams.set('type', filter.type);
+  if (filter.status !== 'ALL') exportParams.set('status', filter.status);
+  const exportHref = exportParams.toString() ? `/onec/export?${exportParams}` : '/onec/export';
 
   return (
     <main className="p-6">
@@ -96,6 +102,13 @@ export default async function OneCServerPage({ searchParams }: OneCPageProps) {
         >
           Показать
         </button>
+
+        <a
+          href={exportHref}
+          className="flex h-[var(--button-height)] items-center rounded-md border border-mist-metal bg-white px-6 text-sm font-medium text-graphite hover:bg-cold-white-gray"
+        >
+          Экспорт CSV
+        </a>
       </form>
 
       {tasks.length === 0 ? (

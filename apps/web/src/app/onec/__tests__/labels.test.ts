@@ -6,7 +6,7 @@ import {
   oneCTypeLabel,
   taskDocumentLabel,
   taskSummary,
-} from '../labels';
+} from '@/lib/onec/labels';
 import type { OneCTaskData } from '@/lib/onec/task-data';
 
 const production: OneCTaskData = {

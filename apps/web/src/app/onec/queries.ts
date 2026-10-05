@@ -118,6 +118,25 @@ export async function getOneCTasksPage(
   return toPageResult(records.map(toRow), params);
 }
 
+/**
+ * Предел выгрузки CSV: экспорт не должен тянуть неограниченный объём данных.
+ * Порядок строк тот же, что в списке.
+ */
+export const ONE_C_EXPORT_LIMIT = 5000;
+
+/** Задачи для CSV-экспорта с учётом текущих фильтров списка (Р-06, BR-7). */
+export async function getOneCTasksForExport(filter: OneCTaskFilter): Promise<OneCTaskRow[]> {
+  await requireAnyPermission(['onec:read']);
+
+  const records = await prisma.taskForOneC.findMany({
+    where: oneCWhere(filter),
+    orderBy: [{ status: 'asc' }, { lastChangedAt: 'desc' }],
+    take: ONE_C_EXPORT_LIMIT,
+  });
+
+  return records.map(toRow);
+}
+
 export interface OneCTaskDetail {
   task: OneCTaskRow;
   /** Логин С1С, поставившего отметку «обработано» (BR-4). */
