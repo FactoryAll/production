@@ -232,13 +232,26 @@ function toItem(record: {
   };
 }
 
+/**
+ * Отбрасывает записи, не меняющие статус.
+ *
+ * Такие «переходы» (например, `REPORTED → REPORTED` при корректировке факта, Р-18)
+ * не являются переходами по 00 §6 / M10 BR-4, но остались в базе с прошлых версий —
+ * поэтому фильтруем и при чтении.
+ */
+function onlyRealTransitions<
+  T extends { fromStatus: string; toStatus: string },
+>(records: T[]): T[] {
+  return records.filter((record) => record.fromStatus !== record.toStatus);
+}
+
 export async function getTimingRecords(filter: TimingFilter = {}): Promise<TimingRecordItem[]> {
   const records = await prisma.stageTiming.findMany({
     where: timingWhere(filter),
     orderBy: [{ transitionedAt: 'desc' }],
     take: filter.limit ?? TIMING_PAGE_SIZE,
   });
-  return records.map(toItem);
+  return onlyRealTransitions(records).map(toItem);
 }
 
 /**
@@ -257,8 +270,8 @@ export async function getTimingPage(
     skip: params.skip,
     take: params.take,
   });
-
-  return toPageResult(records.map(toItem), params);
+  // Записи без смены статуса не показываем: это не переходы (M10 BR-4).
+  return toPageResult(onlyRealTransitions(records).map(toItem), params);
 }
 
 /** Записи одного документа в порядке времени — основа расчёта длительностей. */
