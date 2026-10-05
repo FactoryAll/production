@@ -1073,7 +1073,9 @@ describe('correctFactByOperator', () => {
         newValue: expect.stringContaining('12'),
       }),
     );
-    expect(writeTiming).toHaveBeenCalledWith(
+    // Корректировка факта не является статусным переходом: хронометраж не пишется
+    // (дефект №9 — раньше появлялась запись REPORTED → REPORTED).
+    expect(writeTiming).not.toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ fromStatus: 'REPORTED', toStatus: 'REPORTED' }),
     );

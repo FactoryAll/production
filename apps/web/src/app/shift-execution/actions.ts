@@ -879,16 +879,8 @@ export async function correctFactByOperator(
       permission: 'production_order:report',
     });
 
-    await deps.writeTiming(tx, {
-      documentType: 'PRODUCTION_ORDER',
-      documentId: line.order.id,
-      entityType: 'LINE',
-      entityId: lineId,
-      fromStatus: 'REPORTED',
-      toStatus: 'REPORTED',
-      initiatorRole: attributedRole,
-      initiatorId: session.userId,
-    });
+    // Корректировка факта (Р-18) статус строки не меняет — запись хронометража
+    // не создаётся (M10 BR-4: только переходы 00 §6); корректировка есть в аудите.
 
     return createdFacts;
   });

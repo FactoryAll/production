@@ -78,9 +78,13 @@ export function buildStageDurations(
   }
 
   const sorted = dedupeConsecutiveTransitions(
-    [...records].sort(
-      (a, b) => new Date(a.transitionedAt).getTime() - new Date(b.transitionedAt).getTime(),
-    ),
+    [...records]
+      // Записи, не меняющие статус, этапом не являются (исторические следы
+      // корректировок факта, Р-18) — в цепочке длительностей их не учитываем.
+      .filter((record) => record.fromStatus !== record.toStatus)
+      .sort(
+        (a, b) => new Date(a.transitionedAt).getTime() - new Date(b.transitionedAt).getTime(),
+      ),
   );
 
   const stages: StageDuration[] = [

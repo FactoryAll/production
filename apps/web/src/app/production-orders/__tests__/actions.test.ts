@@ -1834,7 +1834,9 @@ describe('correctProductionFact', () => {
     expect(result.correctionReason).toBe('Уточнение выпуска');
     expect(deps.factUpdate).toHaveBeenCalled();
     expect(deps.writeAudit).toHaveBeenCalled();
-    expect(deps.writeTiming).toHaveBeenCalled();
+    // Корректировка факта статус не меняет, поэтому запись хронометража не создаётся
+    // (дефект №9: раньше писалась запись REPORTED → REPORTED).
+    expect(deps.writeTiming).not.toHaveBeenCalled();
   });
 
   it('corrects fact with defectQuantity and defectReasonId', async () => {

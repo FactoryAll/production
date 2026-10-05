@@ -1158,16 +1158,9 @@ export async function correctProductionFact(
       permission: 'production_order:confirm',
     });
 
-    await deps.writeTiming(tx, {
-      documentType: 'PRODUCTION_ORDER',
-      documentId: orderId,
-      entityType: 'LINE',
-      entityId: lineId,
-      fromStatus: 'REPORTED',
-      toStatus: 'REPORTED',
-      initiatorRole: attributedRole,
-      initiatorId: userId,
-    });
+    // Корректировка факта (Р-18) не меняет статус строки, поэтому запись хронометража
+    // не создаётся: M10 BR-4 фиксирует только переходы 00 §6, а сама корректировка
+    // уже отражена в аудите (дефект №9 ручного тестирования v1.2.0).
 
     return updated;
   });

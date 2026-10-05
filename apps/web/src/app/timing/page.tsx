@@ -104,15 +104,27 @@ export default async function TimingServerPage({ searchParams }: TimingPageProps
       <form method="get" className="mb-6 flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-sm text-steel-graphite">
           Тип документа
-          <select
-            name="documentType"
-            defaultValue={documentType ?? ''}
-            className="h-[var(--input-height)] rounded-md border border-mist-metal bg-white px-3 text-sm text-graphite"
-          >
-            <option value="">Все</option>
-            <option value={DocumentType.PRODUCTION_ORDER}>ПЗ</option>
-            <option value={DocumentType.GOODS_TRANSFER}>Перемещение</option>
-          </select>
+          {timingScope(roles) === 'OWN_WORK_CENTER' ? (
+            // Оператор видит только ПЗ своих РЦ (M10 §3), поэтому выбор типа недоступен —
+            // активный фильтр с «Перемещением» вводил в заблуждение (дефект №9).
+            <select
+              disabled
+              value={DocumentType.PRODUCTION_ORDER}
+              className="h-[var(--input-height)] rounded-md border border-mist-metal bg-cold-white-gray px-3 text-sm text-machine-gray"
+            >
+              <option value={DocumentType.PRODUCTION_ORDER}>ПЗ</option>
+            </select>
+          ) : (
+            <select
+              name="documentType"
+              defaultValue={documentType ?? ''}
+              className="h-[var(--input-height)] rounded-md border border-mist-metal bg-white px-3 text-sm text-graphite"
+            >
+              <option value="">Все</option>
+              <option value={DocumentType.PRODUCTION_ORDER}>ПЗ</option>
+              <option value={DocumentType.GOODS_TRANSFER}>Перемещение</option>
+            </select>
+          )}
         </label>
 
         <label className="flex flex-col gap-1 text-sm text-steel-graphite">
