@@ -77,8 +77,10 @@ export function buildStageDurations(
     return [];
   }
 
-  const sorted = [...records].sort(
-    (a, b) => new Date(a.transitionedAt).getTime() - new Date(b.transitionedAt).getTime(),
+  const sorted = dedupeConsecutiveTransitions(
+    [...records].sort(
+      (a, b) => new Date(a.transitionedAt).getTime() - new Date(b.transitionedAt).getTime(),
+    ),
   );
 
   const stages: StageDuration[] = [
@@ -128,6 +130,42 @@ export interface StageDurationGroup {
   entityType: EntityType;
   entityId: string;
   stages: StageDuration[];
+}
+
+/**
+ * Схлопывает повторные записи об одном и том же переходе.
+ *
+ * Дефект №7 v1.2.0 писал переход ПЗ `IN_PROGRESS → COMPLETED` дважды (вторая запись —
+ * без инициатора). Такие дубли уже лежат в базе, поэтому расчёт длительностей должен
+ * быть устойчив к ним: из пары одинаковых записей оставляем ту, где есть инициатор.
+ */
+export function dedupeConsecutiveTransitions(
+  sortedRecords: TimingRecordItem[],
+): TimingRecordItem[] {
+  const result: TimingRecordItem[] = [];
+
+  for (const record of sortedRecords) {
+    const previous = result[result.length - 1];
+    const isDuplicate =
+      previous !== undefined &&
+      previous.fromStatus === record.fromStatus &&
+      previous.toStatus === record.toStatus &&
+      Math.abs(
+        new Date(record.transitionedAt).getTime() -
+          new Date(previous.transitionedAt).getTime(),
+      ) < 1000;
+
+    if (!isDuplicate) {
+      result.push(record);
+      continue;
+    }
+
+    if (!previous.initiatorId && record.initiatorId) {
+      result[result.length - 1] = record;
+    }
+  }
+
+  return result;
 }
 
 /**
