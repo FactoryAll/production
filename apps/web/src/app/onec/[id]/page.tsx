@@ -130,8 +130,7 @@ export default async function OneCTaskServerPage({ params }: OneCTaskPageProps) 
                     <tr key={`${line.workCenterCode}|${line.productCode}|${line.category}`} className="border-b border-mist-metal/60">
                       <td className="py-2 pr-4 text-steel-graphite">{line.workCenterName}</td>
                       <td className="py-2 pr-4 text-graphite">
-                        {line.productName}
-                        <span className="ml-2 font-mono text-xs text-machine-gray">{line.productCode}</span>
+                        {line.productCode} — {line.productName}
                       </td>
                       <td className="py-2 pr-4 text-steel-graphite">{factCategoryLabel(line.category)}</td>
                       <td className="py-2 pr-4 font-medium text-graphite">{line.quantity}</td>
@@ -162,8 +161,7 @@ export default async function OneCTaskServerPage({ params }: OneCTaskPageProps) 
                     <tr key={`${line.workCenterCode}|${line.productCode}`} className="border-b border-mist-metal/60">
                       <td className="py-2 pr-4 text-steel-graphite">{line.workCenterName}</td>
                       <td className="py-2 pr-4 text-graphite">
-                        {line.productName}
-                        <span className="ml-2 font-mono text-xs text-machine-gray">{line.productCode}</span>
+                        {line.productCode} — {line.productName}
                       </td>
                       <td className="py-2 pr-4 font-medium text-graphite">{line.quantity}</td>
                       <td className="py-2 pr-4 text-steel-graphite">{line.unit}</td>
@@ -201,8 +199,7 @@ export default async function OneCTaskServerPage({ params }: OneCTaskPageProps) 
                 {data.lines.map((line) => (
                   <tr key={line.productCode} className="border-b border-mist-metal/60">
                     <td className="py-2 pr-4 text-graphite">
-                      {line.productName}
-                      <span className="ml-2 font-mono text-xs text-machine-gray">{line.productCode}</span>
+                      {line.productCode} — {line.productName}
                     </td>
                     <td className="py-2 pr-4 font-medium text-graphite">{line.plannedQuantity}</td>
                     <td className="py-2 pr-4 text-steel-graphite">{line.actualQuantity ?? '—'}</td>

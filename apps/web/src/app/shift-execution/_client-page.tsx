@@ -98,14 +98,19 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
 
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [dialogState, setDialogState] = useState<{ line: ProductionOrderLine; mode: Exclude<DialogMode, null> } | null>(null);
+  // T-072: диалогу нужны РЦ и номенклатура строки, а не только идентификаторы,
+  // поэтому храним строку ПЗ целиком — так, как её отдаёт страница.
+  const [dialogState, setDialogState] = useState<{
+    line: ShiftExecutionPageProps['lines'][number];
+    mode: Exclude<DialogMode, null>;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState(emptyReportForm());
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof typeof form, string>>>({});
   const [balances, setBalances] = useState<Record<string, BalanceInfo | null>>({});
   const [warnings, setWarnings] = useState<string[] | null>(null);
 
-  function openAcceptDialog(line: ProductionOrderLine) {
+  function openAcceptDialog(line: ShiftExecutionPageProps['lines'][number]) {
     setDialogState({ line, mode: 'accept' });
     setError(null);
   }
@@ -449,7 +454,10 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
         <div className="space-y-4">
           <p className="text-graphite">
             Подтвердить получение ПЗ по РЦ{' '}
-            <strong>{dialogState?.line.workCenterId}</strong>?
+            <strong>
+              {dialogState?.line.workCenter.code} — {dialogState?.line.workCenter.name}
+            </strong>
+            ?
           </p>
           <p className="text-graphite">
             Вы отмечаете, что ознакомились с заданием на смену.
@@ -477,7 +485,17 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
       >
         <div className="space-y-4">
           <p className="text-graphite">
-            ПЗ по РЦ <strong>{dialogState?.line.workCenterId}</strong>
+            ПЗ по РЦ{' '}
+            <strong>
+              {dialogState?.line.workCenter.code} — {dialogState?.line.workCenter.name}
+            </strong>
+          </p>
+          <p className="text-graphite">
+            Продукция строки:{' '}
+            <strong>
+              {dialogState?.line.product.code} — {dialogState?.line.product.name} (
+              {dialogState?.line.product.unit})
+            </strong>
           </p>
           <div className="space-y-3">
             {productCategory() === 'MASS' ? (
