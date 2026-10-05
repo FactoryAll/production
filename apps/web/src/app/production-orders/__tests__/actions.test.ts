@@ -7,6 +7,11 @@ vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
 }));
 
+// T-050: формирование задачи для 1С проверяется отдельно (lib/onec/__tests__).
+vi.mock('@/lib/onec/tasks', () => ({
+  syncProductionOrderTask: vi.fn(),
+}));
+
 const mockOrder = {
   id: 'po-1',
   shiftId: 'shift-1',
@@ -1806,6 +1811,7 @@ function buildCorrectFactDeps(
     tx,
     applyStockMovements,
     updateShiftSummary,
+    syncOneCTask: vi.fn().mockResolvedValue('updated'),
   };
 }
 
@@ -1827,6 +1833,7 @@ describe('correctProductionFact', () => {
       writeTiming: deps.writeTiming,
       applyStockMovements: deps.applyStockMovements,
       updateShiftSummary: deps.updateShiftSummary,
+      syncOneCTask: deps.syncOneCTask,
     });
 
     expect(result.quantity.toNumber()).toBe(15);
@@ -1834,6 +1841,8 @@ describe('correctProductionFact', () => {
     expect(result.correctionReason).toBe('Уточнение выпуска');
     expect(deps.factUpdate).toHaveBeenCalled();
     expect(deps.writeAudit).toHaveBeenCalled();
+    // T-050, BR-9: корректировка после закрытия ПЗ обновляет данные задачи для 1С.
+    expect(deps.syncOneCTask).toHaveBeenCalledWith(expect.anything(), 'po-1');
     // Корректировка факта статус не меняет, поэтому запись хронометража не создаётся
     // (дефект №9: раньше писалась запись REPORTED → REPORTED).
     expect(deps.writeTiming).not.toHaveBeenCalled();

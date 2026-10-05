@@ -1,6 +1,7 @@
-import { type PrismaClient, type ProductionOrderStatus } from '@prisma/client';
+import { type Prisma, type PrismaClient, type ProductionOrderStatus } from '@prisma/client';
 import { writeAudit, writeTiming, type TxClient } from '@prodtrack/db';
 import { buildShiftSummary } from '@/lib/shift-summary-service';
+import { syncProductionOrderTask } from '@/lib/onec/tasks';
 import { getAttributeRole, type PermissionCode, type RoleCode } from '@prodtrack/contracts';
 import type { SessionWithUser } from '@/lib/auth/session-token';
 
@@ -68,6 +69,14 @@ export async function checkAndCloseProductionOrder(
   prisma: PrismaClient | TxClient,
   session: SessionWithUser,
   permission: PermissionCode,
+  /**
+   * Формирование задачи для 1С (T-050, UC-M12-1). Передаётся параметром, чтобы тесты
+   * не зависели от модуля M12; по умолчанию — боевая синхронизация в той же транзакции.
+   */
+  syncTask: (
+    tx: Prisma.TransactionClient,
+    orderId: string,
+  ) => Promise<unknown> = syncProductionOrderTask,
 ): Promise<{ closed: boolean; status: ProductionOrderStatus }> {
   const order = await prisma.productionOrder.findUnique({
     where: { id: orderId },
@@ -113,6 +122,9 @@ export async function checkAndCloseProductionOrder(
   });
 
   await buildShiftSummary(orderId, prisma as PrismaClient);
+
+  // M12 (T-050): итог смены сформирован → задача типа PRODUCTION для рабочего места С1С.
+  await syncTask(prisma as Prisma.TransactionClient, orderId);
 
   return { closed: true, status: updated.status };
 }

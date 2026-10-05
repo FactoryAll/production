@@ -4,6 +4,7 @@ const Decimal = Prisma.Decimal;
 import { checkAndCloseProductionOrder, transitionToInProgress } from './production-order-closing';
 import { writeAudit, writeTiming } from '@prodtrack/db';
 import { buildShiftSummary } from '@/lib/shift-summary-service';
+import { syncProductionOrderTask } from '@/lib/onec/tasks';
 import type { SessionWithUser } from '@/lib/auth/session-token';
 
 vi.mock('@prodtrack/db', () => ({
@@ -13,6 +14,10 @@ vi.mock('@prodtrack/db', () => ({
 
 vi.mock('@/lib/shift-summary-service', () => ({
   buildShiftSummary: vi.fn(),
+}));
+
+vi.mock('@/lib/onec/tasks', () => ({
+  syncProductionOrderTask: vi.fn(),
 }));
 
 const baseSession: SessionWithUser = {
@@ -131,6 +136,22 @@ describe('checkAndCloseProductionOrder', () => {
     expect(result.closed).toBe(true);
     expect(result.status).toBe('COMPLETED');
     expect(buildShiftSummary).toHaveBeenCalledWith('po-1', prisma);
+  });
+
+  it('forms the PRODUCTION task for 1С when the order closes (T-050, UC-M12-1)', async () => {
+    const order = makeOrder({ status: 'IN_PROGRESS', lines: [makeLine({ status: 'REPORTED' })] });
+    const prisma = makeMockPrisma(order);
+    await checkAndCloseProductionOrder('po-1', prisma, baseSession, 'production_order:report');
+
+    expect(syncProductionOrderTask).toHaveBeenCalledWith(prisma, 'po-1');
+  });
+
+  it('does not form the 1С task when the order did not close', async () => {
+    const order = makeOrder({ status: 'CONFIRMED', lines: [makeLine({ status: 'ACCEPTED' })] });
+    const prisma = makeMockPrisma(order);
+    await checkAndCloseProductionOrder('po-1', prisma, baseSession, 'production_order:report');
+
+    expect(syncProductionOrderTask).not.toHaveBeenCalled();
   });
 
   it('does not call buildShiftSummary when closing did not happen', async () => {

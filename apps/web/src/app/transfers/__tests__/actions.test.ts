@@ -313,6 +313,8 @@ function buildMockDeps(overrides: Parameters<typeof buildMockPrisma>[0] = {}) {
     ]),
     getStockBalance,
     requirePermission,
+    // T-050: формирование задачи для 1С проверяется отдельно (lib/onec/__tests__).
+    syncOneCTask: vi.fn().mockResolvedValue('created'),
   };
 }
 
@@ -497,6 +499,8 @@ describe('submitGoodsTransfer', () => {
     expect(result.status).toBe('SUBMITTED');
     expect(deps.prisma.$transaction).toHaveBeenCalled();
     expect(deps.buildTransferIssueMovements).toHaveBeenCalled();
+    // T-050, UC-M12-1: при отправке формируется задача типа TRANSFER.
+    expect(deps.syncOneCTask).toHaveBeenCalledWith(expect.anything(), 'tr-1');
     expect(deps.applyStockMovements).toHaveBeenCalled();
 
     const movements = deps.applyStockMovements.mock.calls[0][1];
@@ -763,6 +767,9 @@ describe('cancelGoodsTransfer', () => {
     expect(emitCall.eventCode).toBe('EV_10');
     expect(emitCall.recipientIds).toEqual(['ksgp-user-1', 'np-user-1']);
     expect(emitCall.payload.status).toBe('CANCELLED');
+
+    // T-050, BR-9: после отмены данные задачи для 1С синхронизируются с источником.
+    expect(deps.syncOneCTask).toHaveBeenCalledWith(expect.anything(), 'tr-1');
   });
 
   it('cancels SUBMITTED transfer with RETURN movements and emits EV-10', async () => {
@@ -949,6 +956,8 @@ describe('receiveGoodsTransfer', () => {
     expect(result.status).toBe('RECEIVED');
     expect(deps.buildTransferReceiptMovements).toHaveBeenCalled();
     expect(deps.applyStockMovements).toHaveBeenCalled();
+    // T-050, BR-9: приёмка меняет фактические количества — данные задачи обновляются.
+    expect(deps.syncOneCTask).toHaveBeenCalledWith(expect.anything(), 'tr-1');
 
     const auditInputs = deps.writeAudit.mock.calls.map((call) =>
       call[1] as {
@@ -1243,6 +1252,8 @@ describe('reconcileDiscrepancies', () => {
 
     expect(result.status).toBe('RECONCILED');
     expect(deps.applyStockMovements).not.toHaveBeenCalled();
+    // T-050, BR-9: согласование меняет количества — данные задачи обновляются.
+    expect(deps.syncOneCTask).toHaveBeenCalledWith(expect.anything(), 'tr-1');
 
     const auditInputs = deps.writeAudit.mock.calls.map((call) =>
       call[1] as {

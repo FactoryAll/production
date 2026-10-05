@@ -6,6 +6,7 @@ import type { GoodsTransfer, TransferLine, Warehouse, Product, StockCategory, St
 import { prisma, writeAudit, writeTiming, emitEvent } from '@prodtrack/db';
 import { requirePermission } from '@/lib/auth/access';
 import { notifyEvent } from '@/lib/events/notify';
+import { syncTransferTask } from '@/lib/onec/tasks';
 import { getAttributeRole } from '@prodtrack/contracts';
 import {
   applyStockMovements,
@@ -56,6 +57,8 @@ export interface SubmitGoodsTransferDeps {
   applyStockMovements: typeof applyStockMovements;
   buildTransferIssueMovements: typeof buildTransferIssueMovements;
   getStockBalance: typeof getStockBalance;
+  /** Формирование задачи для 1С (T-050): данные документа «Перемещение». */
+  syncOneCTask: typeof syncTransferTask;
 }
 
 export type CancelGoodsTransferResult =
@@ -70,6 +73,8 @@ export interface CancelGoodsTransferDeps {
   requirePermission: typeof requirePermission;
   applyStockMovements: typeof applyStockMovements;
   buildTransferReturnMovements: typeof import('@/lib/stock-service').buildTransferReturnMovements;
+  /** Формирование задачи для 1С (T-050): данные документа «Перемещение». */
+  syncOneCTask: typeof syncTransferTask;
 }
 
 export type ReceiveGoodsTransferResult =
@@ -89,6 +94,8 @@ export interface ReceiveGoodsTransferDeps {
   requirePermission: typeof requirePermission;
   applyStockMovements: typeof applyStockMovements;
   buildTransferReceiptMovements: typeof buildTransferReceiptMovements;
+  /** Формирование задачи для 1С (T-050): данные документа «Перемещение». */
+  syncOneCTask: typeof syncTransferTask;
 }
 
 export type ReconcileDiscrepanciesResult =
@@ -107,6 +114,8 @@ export interface ReconcileDiscrepanciesDeps {
   emitEvent: typeof emitEvent;
   requirePermission: typeof requirePermission;
   applyStockMovements: typeof applyStockMovements;
+  /** Формирование задачи для 1С (T-050): данные документа «Перемещение». */
+  syncOneCTask: typeof syncTransferTask;
 }
 
 function toDecimal(value: number | string): Prisma.Decimal {
@@ -267,6 +276,7 @@ export async function submitGoodsTransfer(
     applyStockMovements,
     buildTransferIssueMovements,
     getStockBalance,
+    syncOneCTask: syncTransferTask,
   },
 ): Promise<GoodsTransfer & { lines: TransferLine[] }> {
   const session = await deps.requirePermission('transfer:update');
@@ -388,6 +398,9 @@ export async function submitGoodsTransfer(
       { emit: deps.emitEvent },
     );
 
+    // M12 (T-050, UC-M12-1): Перемещение отправлено → задача типа TRANSFER для С1С.
+    await deps.syncOneCTask(tx, transfer.id);
+
     return updated;
   });
 
@@ -416,6 +429,7 @@ export async function cancelGoodsTransfer(
     requirePermission,
     applyStockMovements,
     buildTransferReturnMovements,
+    syncOneCTask: syncTransferTask,
   },
 ): Promise<GoodsTransfer & { lines: TransferLine[] }> {
   const session = await deps.requirePermission('transfer:update');
@@ -524,6 +538,9 @@ export async function cancelGoodsTransfer(
       },
       { emit: deps.emitEvent },
     );
+
+    // M12 (BR-9): данные задачи отражают последнюю версию Перемещения.
+    await deps.syncOneCTask(tx, transfer.id);
 
     return updated;
   });
@@ -776,6 +793,7 @@ export async function receiveGoodsTransfer(
     requirePermission,
     applyStockMovements,
     buildTransferReceiptMovements,
+    syncOneCTask: syncTransferTask,
   },
 ): Promise<GoodsTransfer & { lines: TransferLine[] }> {
   const session = await deps.requirePermission('transfer:receive');
@@ -985,6 +1003,9 @@ export async function receiveGoodsTransfer(
       { emit: deps.emitEvent },
     );
 
+    // M12 (BR-9): приёмка меняет фактические количества — данные задачи обновляются.
+    await deps.syncOneCTask(tx, transfer.id);
+
     return updated;
   });
 
@@ -1019,6 +1040,7 @@ export async function reconcileDiscrepancies(
     emitEvent,
     requirePermission,
     applyStockMovements,
+    syncOneCTask: syncTransferTask,
   },
 ): Promise<GoodsTransfer & { lines: TransferLine[] }> {
   const session = await deps.requirePermission('transfer:reconcile');
@@ -1185,6 +1207,9 @@ export async function reconcileDiscrepancies(
       },
       { emit: deps.emitEvent },
     );
+
+    // M12 (BR-9): согласование меняет количества — данные задачи обновляются.
+    await deps.syncOneCTask(tx, transfer.id);
 
     return updated;
   });

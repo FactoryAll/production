@@ -19,6 +19,7 @@ import {
   factCategoryToStockCategory,
 } from '@/lib/stock-service';
 import { updateShiftSummary } from '@/lib/shift-summary-service';
+import { syncProductionOrderTask } from '@/lib/onec/tasks';
 import {
   validateProductionOrder,
   parsePositiveDecimal,
@@ -61,6 +62,8 @@ export interface CreateProductionOrderDeps {
   requirePermission: typeof requirePermission;
   applyStockMovements?: typeof applyStockMovements;
   updateShiftSummary?: typeof updateShiftSummary;
+  /** Формирование задачи для 1С (T-050): данные документа «Производство» (BR-9). */
+  syncOneCTask?: typeof syncProductionOrderTask;
 }
 
 export type PrismaLike = CreateProductionOrderDeps['prisma'];
@@ -1121,6 +1124,9 @@ export async function correctProductionFact(
     }
 
     await (deps.updateShiftSummary ?? updateShiftSummary)(lineId, tx);
+
+    // M12 (BR-9): корректировка факта меняет данные итога смены — задача С1С обновляется.
+    await (deps.syncOneCTask ?? syncProductionOrderTask)(tx, orderId);
 
     await deps.writeAudit(tx, {
       action: 'UPDATE',

@@ -573,6 +573,8 @@ model TaskForOneC {
   lastChangedAt DateTime          @updatedAt
   createdAt     DateTime          @default(now())
 
+  // Р-24: одна задача на источник (итог смены ПЗ | Перемещение).
+  @@unique([type, sourceId])
   @@map("tasks_for_one_c")
 }
 
