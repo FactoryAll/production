@@ -66,9 +66,18 @@ describe('nav-items', () => {
       '/shift-execution',
       '/stock',
       '/transfers',
+      '/onec',
       '/audit',
       '/timing',
     ]);
+  });
+
+  it('shows рабочее место 1С only for С1С и АДМ (M12 §3: просмотр данных для 1С — R)', () => {
+    expect(hrefsFor(['S1C'])).toContain('/onec');
+    expect(hrefsFor(['ADM'])).toContain('/onec');
+    for (const role of ['NP', 'OPR', 'KSGP', 'USGP']) {
+      expect(hrefsFor([role])).not.toContain('/onec');
+    }
   });
 
   it('hides the production orders page from roles lacking production_order:read', () => {

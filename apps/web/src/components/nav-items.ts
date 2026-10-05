@@ -44,6 +44,11 @@ export function getNavItems(userRoles: string[]): NavItem[] {
     items.push({ label: 'Перемещения', href: '/transfers' });
   }
 
+  // Рабочее место 1С M12 — С1С и АДМ (M12 §3: просмотр данных для 1С — R у С1С и АДМ).
+  if (hasPermission(userRoles, 'onec:read')) {
+    items.push({ label: '1С', href: '/onec' });
+  }
+
   // Аудит M13 доступен НП и АДМ (M13 §3, BR-3).
   if (hasPermission(userRoles, 'audit:read')) {
     items.push({ label: 'Аудит', href: '/audit' });

@@ -226,3 +226,25 @@ export function buildTransferTaskData(transfer: OneCTransferSource): OneCTransfe
 
 /** Объединённый тип данных задачи — используется списком и CSV-экспортом (BR-7, BR-10). */
 export type OneCTaskData = OneCProductionTaskData | OneCTransferTaskData;
+
+/**
+ * Разбирает JSON из БД в данные задачи.
+ *
+ * Запись ведётся только кодом формирования (\`lib/onec/tasks.ts\`), но список С1С
+ * не должен падать 500 из-за неожиданного содержимого: при несоответствии возвращается null,
+ * а экран показывает задачу без реквизитов.
+ */
+export function parseTaskData(value: unknown): OneCTaskData | null {
+  if (typeof value !== 'object' || value === null) return null;
+
+  const candidate = value as { taskType?: unknown };
+  if (candidate.taskType === 'PRODUCTION') {
+    const data = candidate as OneCProductionTaskData;
+    return Array.isArray(data.output) && Array.isArray(data.consumption) ? data : null;
+  }
+  if (candidate.taskType === 'TRANSFER') {
+    const data = candidate as OneCTransferTaskData;
+    return Array.isArray(data.lines) ? data : null;
+  }
+  return null;
+}
