@@ -67,10 +67,16 @@ function makeTx(options: MockOptions = {}) {
       findUnique: vi.fn().mockResolvedValue(options.task ?? null),
       create: vi.fn().mockResolvedValue({ id: 'task-1' }),
       update: vi.fn().mockResolvedValue({ id: 'task-1' }),
+      delete: vi.fn().mockResolvedValue({ id: 'task-1' }),
     },
   };
   return tx as unknown as Prisma.TransactionClient & {
-    taskForOneC: { findUnique: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> };
+    taskForOneC: {
+      findUnique: ReturnType<typeof vi.fn>;
+      create: ReturnType<typeof vi.fn>;
+      update: ReturnType<typeof vi.fn>;
+      delete: ReturnType<typeof vi.fn>;
+    };
     productionOrder: { findUnique: ReturnType<typeof vi.fn> };
     goodsTransfer: { findUnique: ReturnType<typeof vi.fn> };
   };
@@ -284,8 +290,8 @@ describe('syncTransferTask', () => {
     vi.clearAllMocks();
   });
 
-  it('loads the transfer with lines and creates the TRANSFER task', async () => {
-    const tx = makeTx({ transfer: transferFixture });
+  it('creates the TRANSFER task once the receiving side accepted the transfer (RECEIVED)', async () => {
+    const tx = makeTx({ transfer: { ...transferFixture, status: 'RECEIVED' } });
 
     const outcome = await syncTransferTask(tx, 'tr-1');
 
@@ -304,10 +310,52 @@ describe('syncTransferTask', () => {
     expect(created.data.sourceType).toBe(ONE_C_SOURCE_TYPES.TRANSFER);
     expect(created.data.data).toMatchObject({
       taskType: 'TRANSFER',
-      status: 'SUBMITTED',
+      status: 'RECEIVED',
       sourceWarehouse: 'Производственный склад',
       destinationWarehouse: 'Склад ГП',
     });
+  });
+
+  it('does not create a task while the receiving side has not confirmed the quantity (SUBMITTED)', async () => {
+    const tx = makeTx({ transfer: { ...transferFixture, status: 'SUBMITTED' } });
+
+    const outcome = await syncTransferTask(tx, 'tr-1');
+
+    expect(outcome).toBe('skipped');
+    expect(tx.taskForOneC.create).not.toHaveBeenCalled();
+  });
+
+  it('does not create a task while the quantities are still disputed (DISCREPANCY)', async () => {
+    const tx = makeTx({ transfer: { ...transferFixture, status: 'DISCREPANCY' } });
+
+    const outcome = await syncTransferTask(tx, 'tr-1');
+
+    expect(outcome).toBe('skipped');
+    expect(tx.taskForOneC.create).not.toHaveBeenCalled();
+  });
+
+  it('removes a prematurely created task while the transfer is not accepted yet', async () => {
+    const tx = makeTx({
+      transfer: { ...transferFixture, status: 'SUBMITTED' },
+      task: { id: 'task-1', sourceType: ONE_C_SOURCE_TYPES.TRANSFER, data: { taskType: 'TRANSFER' } },
+    });
+
+    const outcome = await syncTransferTask(tx, 'tr-1');
+
+    expect(outcome).toBe('removed');
+    expect(tx.taskForOneC.delete).toHaveBeenCalledWith({ where: { id: 'task-1' } });
+  });
+
+  it('removes the task when the transfer was cancelled', async () => {
+    const tx = makeTx({
+      transfer: { ...transferFixture, status: 'CANCELLED' },
+      task: { id: 'task-1', sourceType: ONE_C_SOURCE_TYPES.TRANSFER, data: { taskType: 'TRANSFER' } },
+    });
+
+    const outcome = await syncTransferTask(tx, 'tr-1');
+
+    expect(outcome).toBe('removed');
+    expect(tx.taskForOneC.delete).toHaveBeenCalled();
   });
 
   it('refreshes an existing task when the transfer status changed (BR-9)', async () => {

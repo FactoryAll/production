@@ -398,7 +398,8 @@ export async function submitGoodsTransfer(
       { emit: deps.emitEvent },
     );
 
-    // M12 (T-050, UC-M12-1): Перемещение отправлено → задача типа TRANSFER для С1С.
+    // M12 (T-050, UC-M12-1): отправка ещё не даёт готовых данных для 1С — принимающая сторона
+    // количество не подтвердила, поэтому задача по этому переходу не создаётся (решение владельца).
     await deps.syncOneCTask(tx, transfer.id);
 
     return updated;
@@ -539,7 +540,7 @@ export async function cancelGoodsTransfer(
       { emit: deps.emitEvent },
     );
 
-    // M12 (BR-9): данные задачи отражают последнюю версию Перемещения.
+    // M12: Перемещение отменено — готовых данных для 1С нет, преждевременная задача убирается.
     await deps.syncOneCTask(tx, transfer.id);
 
     return updated;
@@ -1003,7 +1004,8 @@ export async function receiveGoodsTransfer(
       { emit: deps.emitEvent },
     );
 
-    // M12 (BR-9): приёмка меняет фактические количества — данные задачи обновляются.
+    // M12 (BR-3): приёмка без расхождений даёт готовые данные для 1С (RECEIVED); при расхождении
+    // количества ещё не согласованы, поэтому задача не создаётся (решение владельца 05.10.2026).
     await deps.syncOneCTask(tx, transfer.id);
 
     return updated;

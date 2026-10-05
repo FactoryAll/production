@@ -18,7 +18,7 @@ export const ONE_C_SOURCE_TYPES = {
   TRANSFER: 'GOODS_TRANSFER',
 } as const;
 
-export type OneCTaskSyncOutcome = 'created' | 'updated' | 'unchanged';
+export type OneCTaskSyncOutcome = 'created' | 'updated' | 'unchanged' | 'removed' | 'skipped';
 
 export interface SyncTaskForOneCInput {
   type: TaskForOneCType;
@@ -77,6 +77,30 @@ export async function syncTaskForOneC(
 }
 
 /**
+ * Убирает задачу, если источник ещё не готов для 1С (или больше не существует).
+ *
+ * Задача — системная запись, порождаемая источником: если источник не даёт готовых данных,
+ * задачи быть не должно. Пометки С1С при этом не теряются бесследно: и отметка, и её отмена
+ * записаны в аудите (Р-17).
+ */
+async function removeTaskForOneC(
+  tx: Prisma.TransactionClient,
+  type: TaskForOneCType,
+  sourceId: string,
+): Promise<OneCTaskSyncOutcome> {
+  const existing = await tx.taskForOneC.findUnique({
+    where: { type_sourceId: { type, sourceId } },
+  });
+
+  if (!existing) {
+    return 'skipped';
+  }
+
+  await tx.taskForOneC.delete({ where: { id: existing.id } });
+  return 'removed';
+}
+
+/**
  * Задача типа PRODUCTION по итогу смены (UC-M12-1).
  *
  * Вызывается при завершении ПЗ (итог смены сформирован) и при корректировке факта после
@@ -117,10 +141,24 @@ export async function syncProductionOrderTask(
 }
 
 /**
+ * Статусы Перемещения, в которых данные готовы для 1С.
+ *
+ * Решение владельца продукта (05.10.2026): С1С обрабатывает только те Перемещения, которые
+ * приняла принимающая сторона, — то есть когда обе стороны согласовали итоговое количество.
+ * Это `RECEIVED` (принято без расхождений) и `RECONCILED` (расхождение согласовано).
+ * Пока Перемещение `DRAFT`/`SUBMITTED`/`DISCREPANCY`, документ «Перемещение» создавать в 1С
+ * нельзя: количества ещё не подтверждены принимающей стороной.
+ */
+export const TRANSFER_READY_STATUSES = ['RECEIVED', 'RECONCILED'] as const;
+
+/**
  * Задача типа TRANSFER по Перемещению (UC-M12-1, BR-3).
  *
- * Вызывается при отправке, приёмке, согласовании расхождений и отмене Перемещения — данные
- * задачи всегда отражают последнюю версию документа (BR-9).
+ * Вызывается на каждом переходе Перемещения (отправка, приёмка, согласование, отмена):
+ * - если Перемещение принято или расхождение согласовано — задача создаётся либо обновляется,
+ *   чтобы С1С видел последнюю версию данных (BR-9);
+ * - если данные ещё не готовы (черновик, отправлено, расхождение) или Перемещение отменено —
+ *   задачи быть не должно, и преждевременно созданная задача убирается.
  */
 export async function syncTransferTask(
   tx: Prisma.TransactionClient,
@@ -137,6 +175,10 @@ export async function syncTransferTask(
 
   if (!transfer) {
     throw new Error('Перемещение не найдено');
+  }
+
+  if (!(TRANSFER_READY_STATUSES as readonly string[]).includes(transfer.status)) {
+    return removeTaskForOneC(tx, 'TRANSFER', transfer.id);
   }
 
   return syncTaskForOneC(tx, {
