@@ -80,8 +80,24 @@ describe('Экран «Хронометраж»: доступ, фильтры и
     );
   });
 
-  it('при выбранном документе дополнительно считает длительности этапов', async () => {
+  it('при выбранном документе дополнительно считает длительности этапов по полному id', async () => {
     mockAccess(['NP']);
+    // Записи находятся по префиксу в фильтре, а длительности считаются по полному id
+    // из найденной записи (дефект №6: раньше блок оставался пустым).
+    (prisma.stageTiming.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        id: 't-1',
+        documentType: 'PRODUCTION_ORDER',
+        documentId: 'po-1-full-uuid',
+        entityType: 'DOCUMENT',
+        entityId: 'po-1-full-uuid',
+        fromStatus: 'DRAFT',
+        toStatus: 'CONFIRMED',
+        transitionedAt: new Date('2026-10-04T14:25:13Z'),
+        initiatorRole: 'NP',
+        initiatorId: 'user-1',
+      },
+    ]);
 
     await TimingServerPage({
       searchParams: { documentType: 'PRODUCTION_ORDER', documentId: 'po-1' },
@@ -90,7 +106,7 @@ describe('Экран «Хронометраж»: доступ, фильтры и
     const calls = (prisma.stageTiming.findMany as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls).toHaveLength(2);
     expect(calls[1][0]).toMatchObject({
-      where: { documentType: 'PRODUCTION_ORDER', documentId: 'po-1' },
+      where: { documentType: 'PRODUCTION_ORDER', documentId: 'po-1-full-uuid' },
       orderBy: [{ transitionedAt: 'asc' }],
     });
   });

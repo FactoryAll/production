@@ -71,11 +71,20 @@ export default async function TimingServerPage({ searchParams }: TimingPageProps
   const records = result.items;
 
   // Длительности этапов показываем, когда выбран конкретный документ (M10 §8).
-  const stages = documentId
+  //
+  // Дефект №6 ручного тестирования v1.2.0: в фильтре пользователь вводит префикс
+  // идентификатора (как он показан в таблице), а расчёт искал точное совпадение
+  // с полным UUID — блок оставался пустым. Полный id и тип берём из найденных
+  // записей: они уже отфильтрованы (и, для ОПР, ограничены своими РЦ).
+  const matchedRecord = documentId
+    ? records.find((record) => record.documentId.startsWith(documentId))
+    : undefined;
+
+  const stages = matchedRecord
     ? buildStageDurations(
         await getDocumentTimingRecords(
-          filter.documentType ?? DocumentType.PRODUCTION_ORDER,
-          documentId,
+          matchedRecord.documentType,
+          matchedRecord.documentId,
         ),
       )
     : [];
