@@ -13,7 +13,7 @@ import {
   transitionLabel,
 } from './labels';
 import {
-  buildStageDurations,
+  buildStageDurationGroups,
   getDocumentTimingRecords,
   getOwnDocumentIds,
   getTimingPage,
@@ -80,8 +80,10 @@ export default async function TimingServerPage({ searchParams }: TimingPageProps
     ? records.find((record) => record.documentId.startsWith(documentId))
     : undefined;
 
-  const stages = matchedRecord
-    ? buildStageDurations(
+  // Длительности считаем раздельно по сущностям: документ и каждая строка РЦ
+  // (дефект №7: смешанная цепочка давала бессмысленные этапы).
+  const stageGroups = matchedRecord
+    ? buildStageDurationGroups(
         await getDocumentTimingRecords(
           matchedRecord.documentType,
           matchedRecord.documentId,
@@ -135,9 +137,15 @@ export default async function TimingServerPage({ searchParams }: TimingPageProps
       {documentId && (
         <section className="mb-8">
           <h2 className="mb-3 text-lg font-semibold text-graphite">Длительность этапов</h2>
-          {stages.length === 0 ? (
+          {stageGroups.length === 0 ? (
             <p className="text-sm text-machine-gray">Записей по документу нет.</p>
           ) : (
+            stageGroups.map((group) => (
+            <div key={group.entityType + group.entityId} className="mb-6">
+              <h3 className="mb-2 text-sm font-semibold text-steel-graphite">
+                {group.entityType === 'DOCUMENT' ? 'Документ' : 'Строка РЦ'}
+                {group.entityType === 'LINE' ? ' ' + group.entityId.slice(0, 8) : ''}
+              </h3>
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b border-mist-metal text-left text-machine-gray">
@@ -148,7 +156,7 @@ export default async function TimingServerPage({ searchParams }: TimingPageProps
                 </tr>
               </thead>
               <tbody>
-                {stages.map((stage, index) => (
+                {group.stages.map((stage, index) => (
                   <tr
                     key={stage.fromStatus + '-' + String(stage.toStatus) + '-' + String(index)}
                     className="border-b border-mist-metal/60"
@@ -174,6 +182,8 @@ export default async function TimingServerPage({ searchParams }: TimingPageProps
                 ))}
               </tbody>
             </table>
+            </div>
+            ))
           )}
         </section>
       )}

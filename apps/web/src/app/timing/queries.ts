@@ -65,6 +65,9 @@ export function timingWhere(filter: TimingFilter): Prisma.StageTimingWhereInput 
 /**
  * Длительности этапов по документу (UC-M10-2).
  * Каждый переход закрывает предыдущий этап; незавершённый этап считается до `now`.
+ *
+ * Функция рассчитана на записи одной сущности: смешивать переходы документа
+ * и строк РЦ нельзя — получается бессмысленная цепочка (дефект №7 v1.2.0).
  */
 export function buildStageDurations(
   records: TimingRecordItem[],
@@ -119,6 +122,46 @@ export function buildStageDurations(
   }
 
   return stages;
+}
+
+export interface StageDurationGroup {
+  entityType: EntityType;
+  entityId: string;
+  stages: StageDuration[];
+}
+
+/**
+ * Длительности этапов, сгруппированные по сущности: отдельно документ и отдельно строки РЦ.
+ * Документ идёт первым.
+ */
+export function buildStageDurationGroups(
+  records: TimingRecordItem[],
+  now: Date = new Date(),
+): StageDurationGroup[] {
+  const grouped = new Map<string, TimingRecordItem[]>();
+
+  for (const record of records) {
+    const key = record.entityType + ':' + record.entityId;
+    const list = grouped.get(key);
+    if (list) {
+      list.push(record);
+    } else {
+      grouped.set(key, [record]);
+    }
+  }
+
+  return [...grouped.values()]
+    .map((groupRecords) => ({
+      entityType: groupRecords[0].entityType,
+      entityId: groupRecords[0].entityId,
+      stages: buildStageDurations(groupRecords, now),
+    }))
+    .sort((left, right) => {
+      if (left.entityType === right.entityType) {
+        return left.entityId.localeCompare(right.entityId);
+      }
+      return left.entityType === 'DOCUMENT' ? -1 : 1;
+    });
 }
 
 function toItem(record: {

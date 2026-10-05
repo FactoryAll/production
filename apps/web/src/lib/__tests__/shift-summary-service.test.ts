@@ -305,14 +305,15 @@ describe('buildShiftSummary', () => {
     expect(auditRecords[0]).toMatchObject({ action: 'CREATE', objectType: 'ShiftSummary' });
   });
 
-  it('writes timing record on close', async () => {
+  it('не пишет хронометраж перехода ПЗ — это делает вызывающая сторона (дефект №7)', async () => {
+    // Ранее buildShiftSummary писала запись IN_PROGRESS → COMPLETED без инициатора,
+    // и в хронометраже появлялись две записи об одном переходе.
     const { client, timings } = makeMockPrisma();
     (client.productionOrder.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(makeOrder({ lines: [makeLine()] }));
 
     await buildShiftSummary('po-1', client);
 
-    expect(timings.length).toBe(1);
-    expect(timings[0]).toMatchObject({ documentType: 'PRODUCTION_ORDER', documentId: 'po-1' });
+    expect(timings).toHaveLength(0);
   });
 });
 

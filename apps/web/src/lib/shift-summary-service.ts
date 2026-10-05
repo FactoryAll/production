@@ -241,14 +241,9 @@ export async function buildShiftSummary(
       );
     }
 
-    await writeTiming(tx, {
-      documentType: 'PRODUCTION_ORDER',
-      documentId: orderId,
-      entityType: 'DOCUMENT',
-      entityId: orderId,
-      fromStatus: 'IN_PROGRESS',
-      toStatus: 'COMPLETED',
-    });
+    // Переход ПЗ IN_PROGRESS → COMPLETED записывает вызывающая сторона
+    // (production-order-closing) вместе с инициатором и правом действия.
+    // Дублирующая запись без инициатора ломала хронометраж (дефект №7 v1.2.0).
   };
 
   if ('$transaction' in client) {
