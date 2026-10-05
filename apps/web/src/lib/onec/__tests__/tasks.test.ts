@@ -128,6 +128,83 @@ describe('syncTaskForOneC', () => {
     expect(tx.taskForOneC.create).not.toHaveBeenCalled();
   });
 
+  it('reopens a processed task when the source data changed (BR-5 + BR-9, вариант B)', async () => {
+    const tx = makeTx({
+      task: {
+        id: 'task-1',
+        sourceType: 'PRODUCTION_ORDER',
+        status: 'PROCESSED',
+        data: { taskType: 'PRODUCTION', stale: true },
+      },
+    });
+    const data = buildProductionTaskData(orderFixture);
+
+    const outcome = await syncTaskForOneC(tx, {
+      type: 'PRODUCTION',
+      sourceType: ONE_C_SOURCE_TYPES.PRODUCTION,
+      sourceId: 'po-1',
+      data,
+    });
+
+    expect(outcome).toBe('updated');
+    expect(tx.taskForOneC.update).toHaveBeenCalledWith({
+      where: { id: 'task-1' },
+      data: {
+        sourceType: 'PRODUCTION_ORDER',
+        data,
+        status: 'PENDING',
+        processedAt: null,
+        processedById: null,
+      },
+    });
+  });
+
+  it('keeps a processed task marked as processed while the source data is unchanged', async () => {
+    const data = buildProductionTaskData(orderFixture);
+    const tx = makeTx({
+      task: {
+        id: 'task-1',
+        sourceType: 'PRODUCTION_ORDER',
+        status: 'PROCESSED',
+        data: JSON.parse(JSON.stringify(data)),
+      },
+    });
+
+    const outcome = await syncTaskForOneC(tx, {
+      type: 'PRODUCTION',
+      sourceType: ONE_C_SOURCE_TYPES.PRODUCTION,
+      sourceId: 'po-1',
+      data,
+    });
+
+    expect(outcome).toBe('unchanged');
+    expect(tx.taskForOneC.update).not.toHaveBeenCalled();
+  });
+
+  it('does not set processed fields when reopening a pending task', async () => {
+    const tx = makeTx({
+      task: {
+        id: 'task-1',
+        sourceType: 'PRODUCTION_ORDER',
+        status: 'PENDING',
+        data: { taskType: 'PRODUCTION', stale: true },
+      },
+    });
+    const data = buildProductionTaskData(orderFixture);
+
+    await syncTaskForOneC(tx, {
+      type: 'PRODUCTION',
+      sourceType: ONE_C_SOURCE_TYPES.PRODUCTION,
+      sourceId: 'po-1',
+      data,
+    });
+
+    expect(tx.taskForOneC.update).toHaveBeenCalledWith({
+      where: { id: 'task-1' },
+      data: { sourceType: 'PRODUCTION_ORDER', data },
+    });
+  });
+
   it('leaves the task untouched when the data is unchanged (no false «последнее изменение»)', async () => {
     const data = buildProductionTaskData(orderFixture);
     const tx = makeTx({

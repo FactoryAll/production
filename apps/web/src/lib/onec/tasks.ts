@@ -31,8 +31,10 @@ export interface SyncTaskForOneCInput {
  * Создаёт или обновляет задачу по её источнику.
  *
  * Задача в статусе «Обработано» не редактируется пользователем (BR-5), но данные всегда
- * соответствуют источнику (BR-9): обновление выполняется только системой и только тогда,
- * когда набор данных действительно изменился.
+ * соответствуют источнику (BR-9). Если источник изменился уже после отметки «обработано»,
+ * задача возвращается в «Ожидает» (решение владельца продукта, 06.10.2026, вариант B):
+ * документ в 1С создан по прежним данным, и С1С должен перепроверить его. Причина отмены
+ * в этом случае не запрашивается — Р-17 регулирует только ручную отмену.
  */
 export async function syncTaskForOneC(
   tx: Prisma.TransactionClient,
@@ -49,9 +51,16 @@ export async function syncTaskForOneC(
       return 'unchanged';
     }
 
+    // BR-5 + BR-9: системное изменение данных снимает отметку «обработано».
+    const reopen = existing.status === 'PROCESSED';
+
     await tx.taskForOneC.update({
       where: { id: existing.id },
-      data: { sourceType: input.sourceType, data },
+      data: {
+        sourceType: input.sourceType,
+        data,
+        ...(reopen ? { status: 'PENDING', processedAt: null, processedById: null } : {}),
+      },
     });
     return 'updated';
   }
