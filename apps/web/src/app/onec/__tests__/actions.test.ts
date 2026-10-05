@@ -39,7 +39,7 @@ function buildDeps(task: Record<string, unknown> | null, status = 'PENDING') {
 
   return {
     deps: {
-      prisma: prisma as unknown as Parameters<typeof markTaskProcessed>[1]['prisma'],
+      prisma: prisma as unknown as NonNullable<Parameters<typeof markTaskProcessed>[1]>['prisma'],
       writeAudit,
       requirePermission,
     },
