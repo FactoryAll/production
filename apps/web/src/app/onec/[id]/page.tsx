@@ -3,7 +3,10 @@ export const dynamic = 'force-dynamic';
 import Link from 'next/link';
 import { AccessDenied } from '@/components/access-denied';
 import { checkPageAccess } from '@/lib/auth/page-guard';
+import { hasPermission } from '@prodtrack/contracts';
 import { transferStatusLabel } from '@/app/transfers/labels';
+
+import TaskActions from './_task-actions';
 
 import {
   factCategoryLabel,
@@ -54,6 +57,8 @@ export default async function OneCTaskServerPage({ params }: OneCTaskPageProps) 
 
   const { task, processedByLogin } = detail;
   const data = task.data;
+  // BR-4: отметку «обработано» ставит только С1С (право onec:process).
+  const canProcess = hasPermission(access.roles, 'onec:process');
 
   return (
     <main className="p-6">
@@ -84,6 +89,18 @@ export default async function OneCTaskServerPage({ params }: OneCTaskPageProps) 
           )}
         </dl>
       </div>
+
+      {canProcess && (
+        <div className="mb-6">
+          <TaskActions taskId={task.id} status={task.status} />
+        </div>
+      )}
+
+      {!canProcess && (
+        <p className="mb-6 text-sm text-machine-gray">
+          Отметку «обработано» ставит специалист 1С (роль С1С).
+        </p>
+      )}
 
       {!data && (
         <p className="text-sm text-signal-amber">

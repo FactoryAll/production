@@ -30,6 +30,7 @@ export const AUDIT_OBJECT_LABELS: Record<string, string> = {
   DefectReason: 'причина брака',
   SubstitutionReason: 'причина ввода за Оператора',
   Warehouse: 'склад',
+  TaskForOneC: 'задача для 1С',
 };
 
 export function auditActionLabel(action: string): string {
