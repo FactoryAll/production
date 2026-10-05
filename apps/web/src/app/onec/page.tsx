@@ -31,7 +31,7 @@ interface OneCPageProps {
  *
  * Единый список задач TaskForOneC обоих типов (Р-24) с фильтром по типу и статусу,
  * колонкой «последнее изменение» (Р-18) и переходом в карточку задачи.
- * Доступ: право \`onec:read\` — С1С и АДМ (00 §4.2).
+ * Доступ: право `onec:read` — С1С и АДМ (00 §4.2).
  */
 export default async function OneCServerPage({ searchParams }: OneCPageProps) {
   const access = await checkPageAccess('onec:read');

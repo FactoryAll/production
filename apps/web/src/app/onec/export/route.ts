@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
  * CSV-экспорт задач для 1С (T-053, M12 §8, BR-7/BR-10, Р-06/Р-24).
  *
  * Отдаёт единый файл по обоим типам задач с учётом фильтров списка.
- * Доступ — право \`onec:read\` (С1С и АДМ, 00 §4.2).
+ * Доступ — право `onec:read` (С1С и АДМ, 00 §4.2).
  */
 export async function GET(request: Request): Promise<Response> {
   try {
