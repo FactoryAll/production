@@ -146,7 +146,8 @@ async function login(page: import('@playwright/test').Page, login: string, passw
   await page.getByLabel('Логин').fill(login);
   await page.getByLabel('Пароль').fill(password);
   await page.getByRole('button', { name: 'Войти' }).click();
-  await page.waitForURL(/\/production-orders|\/shift-execution/, { timeout: 60000 });
+  // Вход ведёт на домашнюю страницу приложения — сводный дашборд (M11).
+  await page.waitForURL(/\/dashboard/, { timeout: 60000 });
 }
 
 test('E2E: production cycle with two operators', async ({ page }) => {
