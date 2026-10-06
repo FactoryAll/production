@@ -4,15 +4,24 @@ import { getProductionOrderCreateData } from '../actions';
 import ProductionOrderForm from './_client-form';
 
 export default async function NewProductionOrderPage() {
-  const { shifts, workCenters, products, workerEmployees, operatorEmployees } =
-    await getProductionOrderCreateData();
+  const {
+    workCenters,
+    products,
+    workerEmployees,
+    operatorEmployees,
+    shiftOptions,
+    defaultShiftDate,
+    defaultShiftNumber,
+  } = await getProductionOrderCreateData();
   return (
     <ProductionOrderForm
-      shifts={shifts}
       workCenters={workCenters}
       products={products}
       workerEmployees={workerEmployees}
       operatorEmployees={operatorEmployees}
+      shiftOptions={shiftOptions}
+      defaultShiftDate={defaultShiftDate}
+      defaultShiftNumber={defaultShiftNumber}
     />
   );
 }

@@ -629,10 +629,15 @@ describe('createProductionOrderAction', () => {
   it('returns success with order id on valid input', async () => {
     const deps = buildMockDeps();
     vi.resetModules();
+    const parseShiftTarget = vi.fn().mockReturnValue({ dateKey: '2026-10-06', number: 1 });
+    const resolveShiftId = vi.fn().mockResolvedValue('shift-1');
     vi.doMock('@prodtrack/db', () => ({
       prisma: deps.prisma,
       writeAudit: deps.writeAudit,
       writeTiming: deps.writeTiming,
+      // T-075: смена задаётся датой и номером, разбор и создание записи смены живут в @prodtrack/db.
+      parseShiftTarget,
+      resolveShiftId,
     }));
     vi.doMock('@/lib/auth/access', () => ({
       requirePermission: deps.requirePermission,
@@ -640,7 +645,8 @@ describe('createProductionOrderAction', () => {
 
     const { createProductionOrderAction: action } = await import('../actions');
     const formData = new FormData();
-    formData.set('shiftId', 'shift-1');
+    formData.set('shiftDate', '2026-10-06');
+    formData.set('shiftNumber', '1');
     formData.set(
       'lines',
       JSON.stringify([
@@ -658,6 +664,9 @@ describe('createProductionOrderAction', () => {
     if (result.success) {
       expect(result.id).toBe('po-1');
     }
+    // Дата и номер из формы превращаются в смену до создания ПЗ.
+    expect(parseShiftTarget).toHaveBeenCalledWith('2026-10-06', '1');
+    expect(resolveShiftId).toHaveBeenCalledWith(deps.prisma, { dateKey: '2026-10-06', number: 1 });
   });
 });
 

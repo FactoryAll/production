@@ -2,13 +2,21 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@prodtrack/db', () => ({
   prisma: {
-    shift: { findMany: vi.fn() },
     workCenter: { findMany: vi.fn() },
     product: { findMany: vi.fn() },
     employee: { findMany: vi.fn() },
   },
   writeAudit: vi.fn(),
   writeTiming: vi.fn(),
+  // T-075: форма ПЗ получает расписание смен и значения по умолчанию из @prodtrack/db.
+  SHIFT_TIMES: {
+    1: { start: '08:00', end: '20:00' },
+    2: { start: '20:00', end: '08:00' },
+  },
+  localDateKey: () => '2026-10-06',
+  currentShiftNumber: () => 1,
+  parseShiftTarget: vi.fn(),
+  resolveShiftId: vi.fn(),
 }));
 vi.mock('@/lib/auth/access', () => ({
   requirePermission: vi.fn(),
@@ -45,7 +53,6 @@ describe('getProductionOrderCreateData: списки сотрудников (T-0
   beforeEach(() => {
     vi.clearAllMocks();
     (requirePermission as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: 'u1', user: { roles: [] } });
-    (prisma.shift.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.workCenter.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.product.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.employee.findMany as ReturnType<typeof vi.fn>)

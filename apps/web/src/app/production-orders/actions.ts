@@ -9,7 +9,16 @@ import type {
   ProductionFact,
 } from '@prisma/client';
 import { Prisma } from '@prisma/client';
-import { prisma, writeAudit, writeTiming } from '@prodtrack/db';
+import {
+  currentShiftNumber,
+  localDateKey,
+  parseShiftTarget,
+  prisma,
+  resolveShiftId,
+  SHIFT_TIMES,
+  writeAudit,
+  writeTiming,
+} from '@prodtrack/db';
 import { notifyEvent } from '@/lib/events/notify';
 import { hasPermission, requireAnyPermission, requirePermission } from '@/lib/auth/access';
 import { getAttributeRole, RoleCode } from '@prodtrack/contracts';
@@ -173,9 +182,14 @@ export async function createProductionOrder(
 
 export async function createProductionOrderAction(formData: FormData): Promise<CreateProductionOrderResult> {
   try {
-    const shiftId = formData.get('shiftId') as string;
     const linesRaw = formData.get('lines') as string;
     const lines: ProductionOrderLineInput[] = linesRaw ? JSON.parse(linesRaw) : [];
+    // T-075: смена задаётся датой и номером, запись смены создаётся здесь (идемпотентно).
+    const target = parseShiftTarget(
+      (formData.get('shiftDate') as string) ?? '',
+      (formData.get('shiftNumber') as string) ?? '',
+    );
+    const shiftId = await resolveShiftId(prisma, target);
 
     const order = await createProductionOrder({ shiftId, lines });
     return { success: true, id: order.id };
@@ -185,14 +199,19 @@ export async function createProductionOrderAction(formData: FormData): Promise<C
   }
 }
 
+/** Варианты номера смены для формы ПЗ; расписание берётся из Р-05 (T-075). */
+function buildShiftOptions(): { value: string; label: string }[] {
+  return [1, 2].map((number) => ({
+    value: String(number),
+    label: number + '-я смена (' + SHIFT_TIMES[number].start + '–' + SHIFT_TIMES[number].end + ')',
+  }));
+}
+
 export async function getProductionOrderCreateData() {
   await requirePermission('production_order:create');
 
-  const [shifts, workCenters, products, workerEmployees, operatorEmployees] = await Promise.all([
-    prisma.shift.findMany({
-      where: { active: true },
-      orderBy: [{ date: 'desc' }, { number: 'asc' }],
-    }),
+  const now = new Date();
+  const [workCenters, products, workerEmployees, operatorEmployees] = await Promise.all([
     prisma.workCenter.findMany({
       where: { active: true },
       orderBy: { code: 'asc' },
@@ -219,7 +238,16 @@ export async function getProductionOrderCreateData() {
     }),
   ]);
 
-  return { shifts, workCenters, products, workerEmployees, operatorEmployees };
+  // T-075: смена выбирается в форме ПЗ как «дата + номер смены», запись смены система создаёт сама.
+  return {
+    workCenters,
+    products,
+    workerEmployees,
+    operatorEmployees,
+    shiftOptions: buildShiftOptions(),
+    defaultShiftDate: localDateKey(now),
+    defaultShiftNumber: currentShiftNumber(now),
+  };
 }
 
 export async function confirmProductionOrder(
@@ -469,9 +497,14 @@ export async function updateProductionOrderAction(
   formData: FormData,
 ): Promise<UpdateProductionOrderResult> {
   try {
-    const shiftId = formData.get('shiftId') as string;
     const linesRaw = formData.get('lines') as string;
     const lines: ProductionOrderLineInput[] = linesRaw ? JSON.parse(linesRaw) : [];
+    // T-075: смена задаётся датой и номером, запись смены создаётся здесь (идемпотентно).
+    const target = parseShiftTarget(
+      (formData.get('shiftDate') as string) ?? '',
+      (formData.get('shiftNumber') as string) ?? '',
+    );
+    const shiftId = await resolveShiftId(prisma, target);
 
     await updateProductionOrder(orderId, { shiftId, lines });
     return { success: true };

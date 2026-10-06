@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import {
+  currentShiftNumber,
   localDateKey,
   parseShiftTarget,
   resolveShiftId,
@@ -16,6 +17,13 @@ describe('Смена по дате и номеру (T-075, Р-05)', () => {
 
   it('дата для колонки @db.Date — полночь UTC от календарной даты', () => {
     expect(shiftDateColumn('2026-10-06').toISOString()).toBe('2026-10-06T00:00:00.000Z');
+  });
+
+  it('номер текущей смены определяется временем суток (Р-05)', () => {
+    expect(currentShiftNumber(new Date(2026, 9, 6, 8, 0))).toBe(1);
+    expect(currentShiftNumber(new Date(2026, 9, 6, 19, 59))).toBe(1);
+    expect(currentShiftNumber(new Date(2026, 9, 6, 20, 0))).toBe(2);
+    expect(currentShiftNumber(new Date(2026, 9, 6, 3, 0))).toBe(2);
   });
 
   it('расписание смен задано Р-05', () => {

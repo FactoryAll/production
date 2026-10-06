@@ -33,18 +33,19 @@ interface ProductionOrderEditFormProps {
       }
     >;
   };
-  shifts: Shift[];
   workCenters: WorkCenter[];
   products: Product[];
   /** Сотрудники с признаком допуска — только они попадают в список «Работники» (T-071). */
   workerEmployees: Employee[];
   /** Сотрудники с активной учётной записью роли ОПР — только они могут быть Оператором (T-070). */
   operatorEmployees: Employee[];
+  /** Варианты номера смены с расписанием из Р-05 (T-075). */
+  shiftOptions: { value: string; label: string }[];
 }
 
-function formatShift(shift: Shift): string {
-  const date = new Date(shift.date).toLocaleDateString('ru-RU');
-  return 'Смена ' + shift.number + ' (' + date + ', ' + shift.start + '–' + shift.end + ')';
+/** Дата смены для поля type="date": колонка @db.Date приходит как полночь UTC. */
+function shiftDateInputValue(shift: Shift): string {
+  return new Date(shift.date).toISOString().slice(0, 10);
 }
 
 interface LineDraft {
@@ -84,15 +85,16 @@ function emptyLine(): LineDraft {
 
 export default function ProductionOrderEditForm({
   order,
-  shifts,
   workCenters,
   products,
   workerEmployees,
   operatorEmployees,
+  shiftOptions,
 }: ProductionOrderEditFormProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [shiftId, setShiftId] = useState(order.shiftId);
+  const [shiftDate, setShiftDate] = useState(shiftDateInputValue(order.shift));
+  const [shiftNumber, setShiftNumber] = useState(String(order.shift.number));
   const [lines, setLines] = useState<LineDraft[]>(order.lines.map(lineToDraft));
   const [error, setError] = useState<string | null>(null);
 
@@ -138,7 +140,8 @@ export default function ProductionOrderEditForm({
     }));
 
     const formData = new FormData();
-    formData.set('shiftId', shiftId);
+    formData.set('shiftDate', shiftDate);
+    formData.set('shiftNumber', shiftNumber);
     formData.set('lines', JSON.stringify(payloadLines));
 
     startTransition(async () => {
@@ -150,11 +153,6 @@ export default function ProductionOrderEditForm({
       }
     });
   }
-
-  const shiftOptions = shifts.map((shift) => ({
-    value: shift.id,
-    label: formatShift(shift) + (shift.active ? '' : ' (деактивирована)'),
-  }));
 
   const workCenterOptions = workCenters.map((wc) => ({
     value: wc.id,
@@ -175,7 +173,8 @@ export default function ProductionOrderEditForm({
 
   const canSubmit =
     !isPending &&
-    shiftId !== '' &&
+    shiftDate !== '' &&
+    shiftNumber !== '' &&
     lines.every(
       (line) =>
         line.workCenterId !== '' &&
@@ -197,19 +196,27 @@ export default function ProductionOrderEditForm({
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <Card className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="shift">Смена</Label>
-            <Select
-              id="shift"
-              value={shiftId}
-              onChange={(e) => setShiftId(e.target.value)}
-              options={shiftOptions}
-              placeholder="Выберите смену"
-              required
-            />
-            {shiftId && !shifts.find((s) => s.id === shiftId)?.active && (
-              <p className="text-sm text-signal-amber">Эта смена деактивирована. Выберите другую.</p>
-            )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="shiftDate">Дата смены</Label>
+              <Input
+                id="shiftDate"
+                type="date"
+                value={shiftDate}
+                onChange={(e) => setShiftDate(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="shiftNumber">Смена</Label>
+              <Select
+                id="shiftNumber"
+                value={shiftNumber}
+                onChange={(e) => setShiftNumber(e.target.value)}
+                options={shiftOptions}
+                required
+              />
+            </div>
           </div>
         </Card>
 

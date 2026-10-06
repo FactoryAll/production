@@ -150,7 +150,7 @@ test('Сквозной смоук контура: ПЗ → факт → пере
 
   // 3. ПЗ создаётся через форму
   await page.goto('/production-orders/new');
-  await page.getByLabel('Смена', { exact: true }).selectOption({ index: 1 });
+  // T-075: дата смены и её номер подставлены по умолчанию (сегодня и текущая смена по Р-05).
   await page.getByLabel('Рабочий центр').selectOption({ label: ctx.workCenterLabel });
   await page.getByLabel('Номенклатура').selectOption({ label: ctx.productLabel });
   await page.getByLabel('Плановое количество').fill('50');

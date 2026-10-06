@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button, Select, Input, Label, CheckboxList, Card } from '@prodtrack/ui';
 import { createProductionOrderAction } from '../actions';
 import type { ProductionOrderLineInput } from '@/lib/validation/production-order';
-import type { Shift, WorkCenter, Product, Employee } from '@prisma/client';
+import type { WorkCenter, Product, Employee } from '@prisma/client';
 import {
   buildEmployeeOptions,
   isEligible,
@@ -14,18 +14,18 @@ import {
 } from '../employee-options';
 
 interface ProductionOrderFormProps {
-  shifts: Shift[];
   workCenters: WorkCenter[];
   products: Product[];
   /** Сотрудники с признаком допуска — только они попадают в список «Работники» (T-071). */
   workerEmployees: Employee[];
   /** Сотрудники с активной учётной записью роли ОПР — только они могут быть Оператором (T-070). */
   operatorEmployees: Employee[];
-}
-
-function formatShift(shift: Shift): string {
-  const date = new Date(shift.date).toLocaleDateString('ru-RU');
-  return 'Смена ' + shift.number + ' (' + date + ', ' + shift.start + '–' + shift.end + ')';
+  /** Варианты номера смены с расписанием из Р-05 (T-075). */
+  shiftOptions: { value: string; label: string }[];
+  /** Дата смены по умолчанию — сегодняшняя. */
+  defaultShiftDate: string;
+  /** Номер текущей смены по Р-05. */
+  defaultShiftNumber: number;
 }
 
 interface LineDraft {
@@ -53,15 +53,18 @@ function emptyLine(): LineDraft {
 }
 
 export default function ProductionOrderForm({
-  shifts,
   workCenters,
   products,
   workerEmployees,
   operatorEmployees,
+  shiftOptions,
+  defaultShiftDate,
+  defaultShiftNumber,
 }: ProductionOrderFormProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [shiftId, setShiftId] = useState('');
+  const [shiftDate, setShiftDate] = useState(defaultShiftDate);
+  const [shiftNumber, setShiftNumber] = useState(String(defaultShiftNumber));
   const [lines, setLines] = useState<LineDraft[]>([emptyLine()]);
   const [error, setError] = useState<string | null>(null);
 
@@ -108,7 +111,8 @@ export default function ProductionOrderForm({
     }));
 
     const formData = new FormData();
-    formData.set('shiftId', shiftId);
+    formData.set('shiftDate', shiftDate);
+    formData.set('shiftNumber', shiftNumber);
     formData.set('lines', JSON.stringify(payloadLines));
 
     startTransition(async () => {
@@ -121,11 +125,6 @@ export default function ProductionOrderForm({
     });
   }
 
-  const shiftOptions = shifts.map((shift) => ({
-    value: shift.id,
-    label: formatShift(shift) + (shift.active ? '' : ' (деактивирована)'),
-  }));
-
   const workCenterOptions = workCenters.map((wc) => ({
     value: wc.id,
     label: wc.code + ' – ' + wc.name + (wc.producesMass ? ' (Масса)' : ' (ГП)') + (wc.active ? '' : ' (деактивирован)'),
@@ -136,7 +135,8 @@ export default function ProductionOrderForm({
 
   const canSubmit =
     !isPending &&
-    shiftId !== '' &&
+    shiftDate !== '' &&
+    shiftNumber !== '' &&
     lines.every(
       (line) =>
         line.workCenterId !== '' &&
@@ -153,20 +153,31 @@ export default function ProductionOrderForm({
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <Card className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="shift">Смена</Label>
-            <Select
-              id="shift"
-              value={shiftId}
-              onChange={(e) => setShiftId(e.target.value)}
-              options={shiftOptions}
-              placeholder="Выберите смену"
-              required
-            />
-            {shiftId && !shifts.find((s) => s.id === shiftId)?.active && (
-              <p className="text-sm text-signal-amber">Эта смена деактивирована. Выберите другую.</p>
-            )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="shiftDate">Дата смены</Label>
+              <Input
+                id="shiftDate"
+                type="date"
+                value={shiftDate}
+                onChange={(e) => setShiftDate(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="shiftNumber">Смена</Label>
+              <Select
+                id="shiftNumber"
+                value={shiftNumber}
+                onChange={(e) => setShiftNumber(e.target.value)}
+                options={shiftOptions}
+                required
+              />
+            </div>
           </div>
+          <p className="text-sm text-neutral-500">
+            Запись смены создаётся автоматически на выбранную дату и номер (Р-05), отдельно её заводить не нужно.
+          </p>
         </Card>
 
         <div className="space-y-4">

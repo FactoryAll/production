@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import type { Employee, Product, Shift, WorkCenter } from '@prisma/client';
+import type { Employee, Product, WorkCenter } from '@prisma/client';
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
@@ -29,10 +29,6 @@ const operator = employee('emp-opr', 'Оператор О.О.');
 const worker = employee('emp-worker', 'Рабочий Р.Р.');
 const storekeeper = employee('emp-store', 'Складчиков С.С.', { canBeWorker: false });
 
-const shift: Shift = {
-  id: 'shift-1', number: 1, date: new Date('2026-10-06'), start: '08:00', end: '20:00',
-  active: true, createdAt: new Date(), updatedAt: new Date(),
-};
 const workCenter: WorkCenter = {
   id: 'wc-01', code: '01', name: '01.Реактор', producesMass: true, active: true,
   createdAt: new Date(), updatedAt: new Date(),
@@ -45,11 +41,16 @@ const product: Product = {
 function renderForm(overrides: { workerEmployees?: Employee[]; operatorEmployees?: Employee[] } = {}) {
   return render(
     <ProductionOrderForm
-      shifts={[shift]}
       workCenters={[workCenter]}
       products={[product]}
       workerEmployees={overrides.workerEmployees ?? [operator, worker]}
       operatorEmployees={overrides.operatorEmployees ?? [operator]}
+      shiftOptions={[
+        { value: '1', label: '1-я смена (08:00–20:00)' },
+        { value: '2', label: '2-я смена (20:00–08:00)' },
+      ]}
+      defaultShiftDate="2026-10-06"
+      defaultShiftNumber={1}
     />,
   );
 }

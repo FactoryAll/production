@@ -20,6 +20,12 @@ export const SHIFT_TIMES: Record<number, { start: string; end: string }> = {
   2: { start: '20:00', end: '08:00' },
 };
 
+/** Номер текущей смены по Р-05: 1 — 08:00–20:00, 2 — 20:00–08:00. */
+export function currentShiftNumber(now: Date): number {
+  const hours = now.getHours();
+  return hours >= 8 && hours < 20 ? 1 : 2;
+}
+
 /** Календарная дата локального момента — то, что видит пользователь на экране. */
 export function localDateKey(now: Date): string {
   const month = String(now.getMonth() + 1).padStart(2, '0');
