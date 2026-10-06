@@ -67,7 +67,12 @@ describe('ProductionOrderCard: ошибка подтверждения ПЗ ви
     });
 
     render(
-      <ProductionOrderCard order={makeOrder('DRAFT')} defectReasons={[] as DefectReason[]} userRoles={['NP']} />,
+      <ProductionOrderCard
+        order={makeOrder('DRAFT')}
+        defectReasons={[] as DefectReason[]}
+        consumableProducts={[]}
+        userRoles={['NP']}
+      />,
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Подтвердить ПЗ' }));
