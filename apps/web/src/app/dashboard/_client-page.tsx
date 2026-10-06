@@ -6,7 +6,7 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { Button, Card } from '@prodtrack/ui';
 import { formatDuration } from '@/lib/format';
 import { documentTypeLabel, statusLabel } from '@/app/timing/labels';
-import { formatAge } from '@/lib/dashboard/aggregates';
+import { formatAge, plural } from '@/lib/dashboard/aggregates';
 import {
   DASHBOARD_PERIODS,
   DASHBOARD_PERIOD_LABELS,
@@ -200,12 +200,16 @@ export default function DashboardPage({
 
         <KpiCard title="В перемещении (открытые)">
           <KpiValue value={formatQuantity(transfers.plannedQuantity)} unit="шт" />
-          <p className="mt-1 text-xs text-machine-gray">{transfers.count} перемещений</p>
+          <p className="mt-1 text-xs text-machine-gray">
+            {transfers.count} {plural(transfers.count, 'перемещение', 'перемещения', 'перемещений')}
+          </p>
         </KpiCard>
 
         <KpiCard title="Принято на склад ГП за период">
           <KpiValue value={formatQuantity(received.quantity)} unit="шт" />
-          <p className="mt-1 text-xs text-machine-gray">{received.count} приёмок</p>
+          <p className="mt-1 text-xs text-machine-gray">
+            {received.count} {plural(received.count, 'приёмка', 'приёмки', 'приёмок')}
+          </p>
         </KpiCard>
       </div>
 

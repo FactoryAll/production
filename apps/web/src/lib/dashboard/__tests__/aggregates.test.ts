@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { documentAgeMs, formatAge, summarizeStageDurations } from '../aggregates';
+import { documentAgeMs, formatAge, plural, summarizeStageDurations } from '../aggregates';
 
 describe('Возраст документа (M11 §8, M10 §5)', () => {
   const now = new Date(2026, 9, 6, 12, 0, 0);
@@ -23,6 +23,33 @@ describe('Возраст документа (M11 §8, M10 §5)', () => {
 
   it('без данных — прочерк', () => {
     expect(formatAge(null)).toBe('—');
+  });
+
+  it('от суток возраст показывает дни, а не «1006:59»', () => {
+    const age = documentAgeMs(now, new Date(2026, 7, 25, 12, 0, 0), now);
+
+    expect(formatAge(age)).toBe('42 д 00:00');
+  });
+
+  it('ровно сутки — уже «день»', () => {
+    expect(formatAge(24 * 60 * 60 * 1000)).toBe('1 д 00:00');
+  });
+});
+
+describe('Согласование числа и существительного', () => {
+  it('выбирает форму по правилам русского языка', () => {
+    expect(plural(1, 'перемещение', 'перемещения', 'перемещений')).toBe('перемещение');
+    expect(plural(2, 'перемещение', 'перемещения', 'перемещений')).toBe('перемещения');
+    expect(plural(5, 'перемещение', 'перемещения', 'перемещений')).toBe('перемещений');
+  });
+
+  it('не ошибается на 11–14 и на круглых десятках', () => {
+    expect(plural(11, 'приёмка', 'приёмки', 'приёмок')).toBe('приёмок');
+    expect(plural(12, 'приёмка', 'приёмки', 'приёмок')).toBe('приёмок');
+    expect(plural(21, 'приёмка', 'приёмки', 'приёмок')).toBe('приёмка');
+    expect(plural(22, 'приёмка', 'приёмки', 'приёмок')).toBe('приёмки');
+    expect(plural(0, 'приёмка', 'приёмки', 'приёмок')).toBe('приёмок');
+    expect(plural(111, 'приёмка', 'приёмки', 'приёмок')).toBe('приёмок');
   });
 });
 

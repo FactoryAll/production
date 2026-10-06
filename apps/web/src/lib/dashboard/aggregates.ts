@@ -27,9 +27,35 @@ export function documentAgeMs(now: Date, lastTransitionAt: Date | null, createdA
   return Math.max(0, now.getTime() - since.getTime());
 }
 
-/** Возраст в формате «чч:мм» (Р-05). */
+/**
+ * Возраст документа (M11 §8).
+ *
+ * До суток — «чч:мм», как длительности в отчётах (Р-05). От суток добавляются дни:
+ * «1006:59» нечитаемо, а возраст документов в списке легко превышает сутки.
+ */
 export function formatAge(ms: number | null): string {
-  return ms === null ? '—' : formatDuration(ms / 60000);
+  if (ms === null) {
+    return '—';
+  }
+  const minutes = Math.max(0, Math.round(ms / 60000));
+  const days = Math.floor(minutes / (24 * 60));
+  return days === 0 ? formatDuration(minutes) : days + ' д ' + formatDuration(minutes - days * 24 * 60);
+}
+
+/**
+ * Русская форма существительного при числе: 1 перемещение, 2 перемещения, 5 перемещений.
+ * Без неё в подписях виджетов получается «2 перемещений».
+ */
+export function plural(count: number, one: string, few: string, many: string): string {
+  const mod100 = Math.abs(count) % 100;
+  const mod10 = mod100 % 10;
+  if (mod100 >= 11 && mod100 <= 14) {
+    return many;
+  }
+  if (mod10 === 1) {
+    return one;
+  }
+  return mod10 >= 2 && mod10 <= 4 ? few : many;
 }
 
 export interface StageDurationItem {
