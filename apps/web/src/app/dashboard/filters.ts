@@ -7,11 +7,21 @@ import {
 } from '@/lib/dashboard/document-filter';
 import { statusLabel } from '@/app/timing/labels';
 
-export const DOCUMENT_TYPE_OPTIONS: { value: DashboardDocumentFilterType; label: string }[] = [
+const ALL_DOCUMENT_TYPE_OPTIONS: { value: DashboardDocumentFilterType; label: string }[] = [
   { value: 'ALL', label: 'Все документы' },
   { value: 'PRODUCTION_ORDER', label: 'ПЗ' },
   { value: 'GOODS_TRANSFER', label: 'Перемещения' },
 ];
+
+/**
+ * Варианты фильтра по типу. Перемещения предлагаются только тем, кто вправе их читать
+ * (`transfer:read`): у ОПР этого права нет (M02, решение владельца 03.10.2026).
+ */
+export function documentTypeOptions(canReadTransfers: boolean) {
+  return canReadTransfers
+    ? ALL_DOCUMENT_TYPE_OPTIONS
+    : ALL_DOCUMENT_TYPE_OPTIONS.filter((option) => option.value !== 'GOODS_TRANSFER');
+}
 
 /**
  * Статусы обоих типов документов без повторов (DRAFT и CANCELLED общие),
@@ -25,7 +35,7 @@ export const DOCUMENT_STATUS_OPTIONS: { value: string; label: string }[] = [
 ];
 
 export function parseDocumentType(value: string | undefined | null): DashboardDocumentFilterType {
-  return DOCUMENT_TYPE_OPTIONS.some((option) => option.value === value)
+  return ALL_DOCUMENT_TYPE_OPTIONS.some((option) => option.value === value)
     ? (value as DashboardDocumentFilterType)
     : 'ALL';
 }

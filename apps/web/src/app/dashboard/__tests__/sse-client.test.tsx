@@ -27,6 +27,7 @@ import DashboardPage from '../_client-page';
 
 const baseProps = {
   revision: 'r-1',
+  canReadTransfers: true,
   period: 'SHIFT' as const,
   filter: { type: 'ALL' as const, status: 'ALL' },
   scope: 'ALL' as const,

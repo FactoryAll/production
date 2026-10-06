@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   DOCUMENT_STATUS_OPTIONS,
-  DOCUMENT_TYPE_OPTIONS,
+  documentTypeOptions,
   parseDocumentStatus,
   parseDocumentType,
 } from '../filters';
@@ -37,10 +37,17 @@ describe('Фильтры списка документов дашборда (M11
   });
 
   it('типы документов подписаны', () => {
-    expect(DOCUMENT_TYPE_OPTIONS.map((option) => option.label)).toEqual([
+    expect(documentTypeOptions(true).map((option) => option.label)).toEqual([
       'Все документы',
       'ПЗ',
       'Перемещения',
+    ]);
+  });
+
+  it('без права transfer:read Перемещения в фильтре не предлагаются (у ОПР его нет)', () => {
+    expect(documentTypeOptions(false).map((option) => option.value)).toEqual([
+      'ALL',
+      'PRODUCTION_ORDER',
     ]);
   });
 });

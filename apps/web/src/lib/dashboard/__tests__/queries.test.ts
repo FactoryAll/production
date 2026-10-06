@@ -228,6 +228,15 @@ describe('Виджеты дашборда: выборки (M11 §8)', () => {
     expect(prisma.goodsTransfer.findMany).not.toHaveBeenCalled();
   });
 
+  it('список документов: без права transfer:read Перемещения не показываются', async () => {
+    (prisma.productionOrder.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (prisma.stageTiming.groupBy as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    await getDashboardDocuments(now, { type: 'ALL', status: 'ALL' }, undefined, false);
+
+    expect(prisma.goodsTransfer.findMany).not.toHaveBeenCalled();
+  });
+
   it('список документов: статус другого типа не применяется к ПЗ', async () => {
     (prisma.goodsTransfer.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.stageTiming.groupBy as ReturnType<typeof vi.fn>).mockResolvedValue([]);

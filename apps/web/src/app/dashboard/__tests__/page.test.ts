@@ -19,7 +19,7 @@ import { checkPageAccess } from '@/lib/auth/page-guard';
 import { AccessDenied } from '@/components/access-denied';
 import DashboardServerPage from '../page';
 
-function mockAccess(roles: string[], allowed = true) {
+function mockAccess(roles: string[], allowed = true, employeeId: string | null = 'emp-1') {
   (checkPageAccess as ReturnType<typeof vi.fn>).mockResolvedValue({
     allowed,
     roles,
@@ -27,7 +27,7 @@ function mockAccess(roles: string[], allowed = true) {
       userId: 'user-1',
       user: {
         id: 'user-1',
-        employeeId: 'emp-1',
+        employeeId,
         roles: roles.map((code) => ({ role: { code } })),
       },
     },
@@ -117,6 +117,25 @@ describe('Экран «Сводный дашборд»: доступ и данн
     );
     expect(prisma.productionOrderLine.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ select: { orderId: true } }),
+    );
+  });
+
+  it('Оператор без привязанного сотрудника не видит данные вместо всего предприятия', async () => {
+    mockAccess(['OPR'], true, null);
+
+    const element = await DashboardServerPage({ searchParams: {} });
+
+    expect(propsOf(element).scope).toBe('OWN_WORK_CENTER');
+    // Пустой список РЦ даёт выборку «ничего»: отсутствие фильтра открыло бы данные всего цеха.
+    expect(prisma.productionOrderLine.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ workCenterId: { in: [] } }),
+      }),
+    );
+    expect(prisma.productionOrder.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ lines: { some: { workCenterId: { in: [] } } } }),
+      }),
     );
   });
 

@@ -297,6 +297,8 @@ export async function getDashboardDocuments(
   now: Date,
   filter: DashboardDocumentFilter,
   workCenterIds?: string[],
+  /** Есть ли право читать Перемещения (`transfer:read`): у ОПР его нет (M02, решение 03.10.2026). */
+  canReadTransfers = true,
 ): Promise<DashboardDocumentRow[]> {
   const orderStatus =
     filter.status !== 'ALL' && (PRODUCTION_ORDER_STATUSES as string[]).includes(filter.status)
@@ -309,8 +311,12 @@ export async function getDashboardDocuments(
 
   const wantOrders =
     filter.type !== 'GOODS_TRANSFER' && (filter.status === 'ALL' || orderStatus !== undefined);
+  // Документы, которые роль не имеет права открыть, в список не попадают: иначе ссылка
+  // ведёт на экран «Доступ запрещён» (у ОПР нет `transfer:read`).
   const wantTransfers =
-    filter.type !== 'PRODUCTION_ORDER' && (filter.status === 'ALL' || transferStatus !== undefined);
+    canReadTransfers &&
+    filter.type !== 'PRODUCTION_ORDER' &&
+    (filter.status === 'ALL' || transferStatus !== undefined);
 
   const [orders, transfers] = await Promise.all([
     wantOrders

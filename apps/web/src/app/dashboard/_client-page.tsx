@@ -21,11 +21,13 @@ import type {
   TransferTotals,
 } from '@/lib/dashboard/queries';
 import type { CategoryTotals, StageDurationSummary } from '@/lib/dashboard/aggregates';
-import { DOCUMENT_STATUS_OPTIONS, DOCUMENT_TYPE_OPTIONS } from './filters';
+import { DOCUMENT_STATUS_OPTIONS, documentTypeOptions } from './filters';
 
 interface DashboardPageProps {
   /** Отпечаток состояния данных на момент рендера (M11 BR-2): с ним сравнивается кадр канала. */
   revision: string;
+  /** Есть ли право читать Перемещения (`transfer:read`): у ОПР его нет. */
+  canReadTransfers: boolean;
   period: DashboardPeriod;
   filter: DashboardDocumentFilter;
   scope: DashboardScope;
@@ -69,6 +71,7 @@ function KpiValue({ value, unit }: { value: string; unit?: string }) {
 
 export default function DashboardPage({
   revision,
+  canReadTransfers,
   period,
   filter,
   scope,
@@ -151,7 +154,7 @@ export default function DashboardPage({
             defaultValue={filter.type}
             className="h-[var(--button-height-sm)] rounded-md border border-mist-metal bg-white px-3 font-sans text-graphite"
           >
-            {DOCUMENT_TYPE_OPTIONS.map((option) => (
+            {documentTypeOptions(canReadTransfers).map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
@@ -198,12 +201,14 @@ export default function DashboardPage({
           </p>
         </KpiCard>
 
-        <KpiCard title="В перемещении (открытые)">
-          <KpiValue value={formatQuantity(transfers.plannedQuantity)} unit="шт" />
-          <p className="mt-1 text-xs text-machine-gray">
-            {transfers.count} {plural(transfers.count, 'перемещение', 'перемещения', 'перемещений')}
-          </p>
-        </KpiCard>
+        {canReadTransfers && (
+          <KpiCard title="В перемещении (открытые)">
+            <KpiValue value={formatQuantity(transfers.plannedQuantity)} unit="шт" />
+            <p className="mt-1 text-xs text-machine-gray">
+              {transfers.count} {plural(transfers.count, 'перемещение', 'перемещения', 'перемещений')}
+            </p>
+          </KpiCard>
+        )}
 
         <KpiCard title="Принято на склад ГП за период">
           <KpiValue value={formatQuantity(received.quantity)} unit="шт" />
