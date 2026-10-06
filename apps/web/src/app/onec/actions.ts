@@ -44,6 +44,8 @@ export async function markTaskProcessed(
   const processedAt = new Date();
 
   await deps.prisma.$transaction(async (tx) => {
+    // Вариант B (решение владельца 06.10.2026): отметка не меняет «последнее изменение» —
+    // это время изменения данных источника (BR-9), а не действие над задачей.
     await tx.taskForOneC.update({
       where: { id: taskId },
       data: { status: 'PROCESSED', processedAt, processedById: session.userId },
@@ -93,6 +95,7 @@ export async function unmarkTaskProcessed(
   }
 
   await deps.prisma.$transaction(async (tx) => {
+    // Отмена отметки также не трогает «последнее изменение» (вариант B).
     await tx.taskForOneC.update({
       where: { id: taskId },
       data: { status: 'PENDING', processedAt: null, processedById: null },

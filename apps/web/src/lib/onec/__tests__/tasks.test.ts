@@ -108,6 +108,8 @@ describe('syncTaskForOneC', () => {
         sourceType: 'PRODUCTION_ORDER',
         sourceId: 'po-1',
         data,
+        // Вариант B: время изменения данных проставляет синхронизация.
+        lastChangedAt: expect.any(Date),
       },
     });
     expect(tx.taskForOneC.update).not.toHaveBeenCalled();
@@ -129,7 +131,7 @@ describe('syncTaskForOneC', () => {
     expect(outcome).toBe('updated');
     expect(tx.taskForOneC.update).toHaveBeenCalledWith({
       where: { id: 'task-1' },
-      data: { sourceType: 'PRODUCTION_ORDER', data },
+      data: { sourceType: 'PRODUCTION_ORDER', data, lastChangedAt: expect.any(Date) },
     });
     expect(tx.taskForOneC.create).not.toHaveBeenCalled();
   });
@@ -158,6 +160,7 @@ describe('syncTaskForOneC', () => {
       data: {
         sourceType: 'PRODUCTION_ORDER',
         data,
+        lastChangedAt: expect.any(Date),
         status: 'PENDING',
         processedAt: null,
         processedById: null,
@@ -207,7 +210,7 @@ describe('syncTaskForOneC', () => {
 
     expect(tx.taskForOneC.update).toHaveBeenCalledWith({
       where: { id: 'task-1' },
-      data: { sourceType: 'PRODUCTION_ORDER', data },
+      data: { sourceType: 'PRODUCTION_ORDER', data, lastChangedAt: expect.any(Date) },
     });
   });
 

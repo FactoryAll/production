@@ -59,6 +59,8 @@ export async function syncTaskForOneC(
       data: {
         sourceType: input.sourceType,
         data,
+        // Р-18/BR-9: время изменения данных источника (вариант B, решение владельца 06.10.2026).
+        lastChangedAt: new Date(),
         ...(reopen ? { status: 'PENDING', processedAt: null, processedById: null } : {}),
       },
     });
@@ -71,6 +73,7 @@ export async function syncTaskForOneC(
       sourceType: input.sourceType,
       sourceId: input.sourceId,
       data,
+      lastChangedAt: new Date(),
     },
   });
   return 'created';

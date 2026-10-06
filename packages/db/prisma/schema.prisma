@@ -570,7 +570,10 @@ model TaskForOneC {
   status        TaskForOneCStatus @default(PENDING)
   processedAt   DateTime?
   processedById String?
-  lastChangedAt DateTime          @updatedAt
+  // Последнее изменение данных задачи (Р-18, BR-9). Обновляется только синхронизацией с источником
+  // (решение владельца продукта 06.10.2026, вариант B): отметка «обработано» и её отмена — действия
+  // над задачей, а не изменение данных, и это поле они не трогают.
+  lastChangedAt DateTime
   createdAt     DateTime          @default(now())
 
   // Р-24: одна задача на источник (итог смены ПЗ | Перемещение).

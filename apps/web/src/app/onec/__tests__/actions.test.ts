@@ -90,6 +90,14 @@ describe('markTaskProcessed (BR-4, UC-M12-2)', () => {
     );
   });
 
+  it('не меняет «последнее изменение» данных при отметке (вариант B, решение владельца 06.10.2026)', async () => {
+    const { deps, tx } = buildDeps({});
+
+    await markTaskProcessed('task-1', deps);
+
+    expect(tx.taskForOneC.update.mock.calls[0][0].data).not.toHaveProperty('lastChangedAt');
+  });
+
   it('не даёт отметить уже обработанную задачу', async () => {
     const { deps } = buildDeps({}, 'PROCESSED');
     await expect(markTaskProcessed('task-1', deps)).rejects.toThrow(
@@ -148,6 +156,14 @@ describe('unmarkTaskProcessed (Р-17, BR-8, UC-M12-3)', () => {
       field: 'reason',
       newValue: 'Документ создан ошибочно',
     });
+  });
+
+  it('не меняет «последнее изменение» данных при отмене отметки (вариант B)', async () => {
+    const { deps, tx } = buildDeps({}, 'PROCESSED');
+
+    await unmarkTaskProcessed('task-1', { reason: 'Документ создан ошибочно' }, deps);
+
+    expect(tx.taskForOneC.update.mock.calls[0][0].data).not.toHaveProperty('lastChangedAt');
   });
 
   it('не даёт отменить обработку задачи в статусе «Ожидает»', async () => {
