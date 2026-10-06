@@ -54,6 +54,12 @@ export function getNavItems(userRoles: string[]): NavItem[] {
     items.push({ label: 'Аудит', href: '/audit' });
   }
 
+  // Данные: очистка тестовых данных (T-076). Экран доступен только администратору,
+  // поэтому пункт меню тоже показывается только ему.
+  if (userRoles.includes('ADM')) {
+    items.push({ label: 'Данные', href: '/data' });
+  }
+
   // Роли M02: экран /roles защищён правом `roles:manage` (только АДМ). До T-069
   // пункта меню не было ни у одной роли, и экран открывался лишь по прямому адресу.
   if (hasPermission(userRoles, 'roles:manage')) {

@@ -31,6 +31,8 @@ export const AUDIT_OBJECT_LABELS: Record<string, string> = {
   SubstitutionReason: 'причина ввода за Оператора',
   Warehouse: 'склад',
   TaskForOneC: 'задача для 1С',
+  // Экран «Данные» (T-076): очистка операционных данных администратором.
+  DataCleanup: 'очистка данных',
 };
 
 export function auditActionLabel(action: string): string {

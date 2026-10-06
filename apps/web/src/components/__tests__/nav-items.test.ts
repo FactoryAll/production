@@ -68,9 +68,17 @@ describe('nav-items', () => {
       '/transfers',
       '/onec',
       '/audit',
+      '/data',
       '/roles',
       '/timing',
     ]);
+  });
+
+  it('показывает «Данные» только администратору (T-076)', () => {
+    expect(hrefsFor(['ADM'])).toContain('/data');
+    for (const role of ['NP', 'OPR', 'KSGP', 'USGP', 'S1C']) {
+      expect(hrefsFor([role])).not.toContain('/data');
+    }
   });
 
   it('shows рабочее место 1С only for С1С и АДМ (M12 §3: просмотр данных для 1С — R)', () => {
