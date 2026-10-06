@@ -32,6 +32,8 @@ const product: Product = {
   category: 'GP',
   unit: 'шт',
   active: true,
+  createdAt: new Date(),
+  updatedAt: new Date(),
 };
 
 const transfer = {
