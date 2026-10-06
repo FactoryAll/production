@@ -178,8 +178,10 @@ test('E2E: production cycle with two operators', async ({ page }) => {
   await page.getByRole('button', { name: 'Подтвердить получение' }).first().click();
   await page.locator('button:has-text("Подтвердить")').nth(1).evaluate((el) => (el as HTMLButtonElement).click());
   await page.getByRole('button', { name: 'Внести итог' }).first().click();
-  await page.locator('div:has(> label:has-text("Категория факта")) select').selectOption('GP');
-  await page.locator('div:has(> label:has-text("Выпуск")) > input').fill('50');
+  // РЦ 03 Массу не производит, поэтому выпуск вводится двумя полями — «Выпуск ГП» и
+  // «Выпуск ПФ» (Р-01). Строка выпускает только ГП, ПФ остаётся нулевым.
+  await page.locator('div:has(> label:has-text("Выпуск ГП")) > input').fill('50');
+  await page.locator('div:has(> label:has-text("Выпуск ПФ")) > input').fill('0');
   await page.locator('div:has(> label:has-text("Брак")) > input').fill('1');
   await page.locator('div:has(> label:has-text("Причина брака")) select').selectOption({ index: 1 });
   await page.locator('div:has(> label:has-text("Остановки, шт.")) > input').fill('2');
