@@ -28,11 +28,14 @@ export function shiftWhere(filter: { q?: string; active?: ActiveFilter }) {
   return where;
 }
 
+/** Смена вместе с числом привязанных к ней ПЗ (T-075: экран стал просмотровым). */
+export type ShiftRow = Shift & { _count: { orders: number } };
+
 /** Страница смен: поиск по дате/номеру и пагинация без отдельного `count`. */
 export async function getShiftsPage(
   filter: { q?: string; active?: ActiveFilter },
   pageParam?: string,
-): Promise<PageResult<Shift>> {
+): Promise<PageResult<ShiftRow>> {
   const params = parsePageParam(pageParam, SHIFTS_PAGE_SIZE);
 
   const rows = await prisma.shift.findMany({
@@ -40,6 +43,7 @@ export async function getShiftsPage(
     orderBy: [{ date: 'desc' }, { number: 'asc' }],
     skip: params.skip,
     take: params.take,
+    include: { _count: { select: { orders: true } } },
   });
 
   return toPageResult(rows, params);

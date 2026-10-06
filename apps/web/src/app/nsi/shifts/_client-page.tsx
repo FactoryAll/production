@@ -9,15 +9,12 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table';
-import { Button, Card } from '@prodtrack/ui';
+import { Card } from '@prodtrack/ui';
 import { emptyListLabel, NsiListControls } from '@/components/nsi-list-controls';
-import { ShiftDialog } from './_components/shift-dialog';
-import { ToggleShiftButton } from './_components/toggle-shift-button';
-import type { Shift } from '@prisma/client';
+import type { ShiftRow } from './queries';
 
 interface ShiftsPageProps {
-  shifts: Shift[];
-  canManage: boolean;
+  shifts: ShiftRow[];
   /** Текущий поисковый запрос (применяется на сервере, M01 §8). */
   query: string;
   /** Текущий фильтр активности (применяется на сервере). */
@@ -26,23 +23,22 @@ interface ShiftsPageProps {
 
 function formatDate(date: Date): string {
   const d = new Date(date);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  const year = d.getUTCFullYear();
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
 
-export default function ShiftsPage({
-  shifts,
-  canManage,
-  query,
-  activeFilter,
-}: ShiftsPageProps) {
+/**
+ * Смены — только просмотр (T-075, решение владельца 06.10.2026).
+ *
+ * Запись смены создаётся автоматически при сохранении ПЗ: НП выбирает дату и номер,
+ * поэтому создавать, править и деактивировать смены вручную больше не нужно.
+ */
+export default function ShiftsPage({ shifts, query, activeFilter }: ShiftsPageProps) {
   const [sorting, setSorting] = useState<SortingState>([{ id: 'date', desc: true }]);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<Shift | null>(null);
 
-  const columns = useMemo<ColumnDef<Shift, unknown>[]>(
+  const columns = useMemo<ColumnDef<ShiftRow, unknown>[]>(
     () => [
       {
         accessorKey: 'date',
@@ -52,7 +48,7 @@ export default function ShiftsPage({
       {
         accessorKey: 'number',
         header: 'Смена',
-        cell: ({ getValue }) => `Смена ${getValue() as number}`,
+        cell: ({ getValue }) => `Смена ${getValue() as number}` ,
       },
       {
         accessorKey: 'start',
@@ -65,44 +61,17 @@ export default function ShiftsPage({
         cell: ({ getValue }) => getValue() as string,
       },
       {
-        accessorKey: 'active',
-        header: 'Статус',
-        cell: ({ row, getValue }) => {
-          const s = row.original;
-          return (
-            <span className={!s.active ? 'opacity-60' : undefined}>
-              {(getValue() as boolean) ? 'Активна' : 'Неактивна'} {!s.active && '(неактивно)'}
-            </span>
-          );
-        },
+        id: 'orders',
+        header: 'ПЗ',
+        cell: ({ row }) => row.original._count.orders,
       },
       {
-        id: 'actions',
-        header: 'Действия',
-        cell: ({ row }) => {
-          const s = row.original;
-          if (!canManage) {
-            return null;
-          }
-          return (
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  setEditing(s);
-                  setDialogOpen(true);
-                }}
-              >
-                Редактировать
-              </Button>
-              <ToggleShiftButton id={s.id} active={s.active} />
-            </div>
-          );
-        },
+        accessorKey: 'active',
+        header: 'Статус',
+        cell: ({ getValue }) => ((getValue() as boolean) ? 'Активна' : 'Неактивна'),
       },
     ],
-    [canManage],
+    [],
   );
 
   const table = useReactTable({
@@ -116,19 +85,11 @@ export default function ShiftsPage({
 
   return (
     <div className="space-y-4 p-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-graphite">Смены</h1>
-        {canManage && (
-          <Button
-            onClick={() => {
-              setEditing(null);
-              setDialogOpen(true);
-            }}
-          >
-            Создать
-          </Button>
-        )}
-      </div>
+      <h1 className="text-2xl font-semibold text-graphite">Смены</h1>
+      <p className="text-sm text-neutral-600">
+        Смены создаются автоматически при сохранении ПЗ: НП выбирает дату и номер смены, запись заводится
+        системой. Экран — только для просмотра (T-075).
+      </p>
 
       <NsiListControls
         action="/nsi/shifts"
@@ -193,18 +154,6 @@ export default function ShiftsPage({
           </table>
         </div>
       </Card>
-
-      <ShiftDialog
-        // Диалог смонтирован постоянно, поэтому состояние формы сбрасывается сменой ключа:
-        // иначе поля остаются от предыдущего открытия (дефект, найденный на v2.0.0).
-        key={editing?.id ?? 'new'}
-        open={dialogOpen}
-        onClose={() => {
-          setDialogOpen(false);
-          setEditing(null);
-        }}
-        initial={editing}
-      />
     </div>
   );
 }
