@@ -4,14 +4,14 @@ import { getProductionOrderCreateData } from '../actions';
 import ProductionOrderForm from './_client-form';
 
 export default async function NewProductionOrderPage() {
-  const { shifts, workCenters, products, employees, operatorEmployees } =
+  const { shifts, workCenters, products, workerEmployees, operatorEmployees } =
     await getProductionOrderCreateData();
   return (
     <ProductionOrderForm
       shifts={shifts}
       workCenters={workCenters}
       products={products}
-      employees={employees}
+      workerEmployees={workerEmployees}
       operatorEmployees={operatorEmployees}
     />
   );

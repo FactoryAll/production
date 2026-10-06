@@ -39,6 +39,7 @@ const base: Employee = {
   fullName: 'Иванов Иван Иванович',
   tabNumber: '000123',
   active: true,
+  canBeWorker: true,
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -50,19 +51,19 @@ describe('createEmployee', () => {
 
   it('rejects empty tab number', async () => {
     const { createEmployee } = await import('../actions');
-    await expect(createEmployee({ fullName: 'Name', tabNumber: '   ' })).rejects.toThrow('Табельный номер обязателен');
+    await expect(createEmployee({ fullName: 'Name', tabNumber: '   ', canBeWorker: true })).rejects.toThrow('Табельный номер обязателен');
   });
 
   it('rejects empty full name', async () => {
     const { createEmployee } = await import('../actions');
-    await expect(createEmployee({ fullName: '', tabNumber: '000124' })).rejects.toThrow('ФИО обязательно');
+    await expect(createEmployee({ fullName: '', tabNumber: '000124', canBeWorker: true })).rejects.toThrow('ФИО обязательно');
   });
 
   it('rejects duplicate tab number', async () => {
     const { prisma } = await import('@prodtrack/db');
     (prisma.employee.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(base);
     const { createEmployee } = await import('../actions');
-    await expect(createEmployee({ fullName: 'Other', tabNumber: '000123' })).rejects.toThrow('Сотрудник с таким табельным номером уже существует');
+    await expect(createEmployee({ fullName: 'Other', tabNumber: '000123', canBeWorker: true })).rejects.toThrow('Сотрудник с таким табельным номером уже существует');
   });
 
   it('creates employee and writes audit', async () => {
@@ -82,13 +83,29 @@ describe('createEmployee', () => {
       return cb(mockTx);
     });
     const { createEmployee } = await import('../actions');
-    const created = await createEmployee({ fullName: 'Петров Петр Петрович', tabNumber: '000124' });
+    const created = await createEmployee({ fullName: 'Петров Петр Петрович', tabNumber: '000124', canBeWorker: true });
     expect(created.tabNumber).toBe('000124');
     expect(writeAudit).toHaveBeenCalled();
     const auditCall = (writeAudit as ReturnType<typeof vi.fn>).mock.calls[0][1];
     expect(auditCall.userRoles).toEqual(['ADM']);
     expect(auditCall.permission).toBe('nsi:manage');
     expect(auditCall.action).toBe('CREATE');
+  });
+
+  it('сохраняет признак «Может привлекаться работником РЦ» и пишет его в аудит (T-071, M01 §4.1)', async () => {
+    const { prisma, writeAudit } = await import('@prodtrack/db');
+    (prisma.employee.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    const create = vi.fn().mockResolvedValue({ ...base, id: 'new', canBeWorker: false });
+    (prisma as unknown as { $transaction: (cb: (tx: { employee: { create: typeof create } }) => Promise<unknown>) => Promise<unknown> }).$transaction = vi.fn(async (cb) => cb({ employee: { create } }));
+
+    const { createEmployee } = await import('../actions');
+    await createEmployee({ fullName: 'Кладовщиков К.К.', tabNumber: '000126', canBeWorker: false });
+
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ canBeWorker: false }),
+    });
+    const auditCall = (writeAudit as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    expect(auditCall.newValue).toContain('"canBeWorker":false');
   });
 });
 
@@ -101,7 +118,7 @@ describe('updateEmployee', () => {
     const { prisma } = await import('@prodtrack/db');
     (prisma.employee.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ ...base, id: 'other-id' });
     const { updateEmployee } = await import('../actions');
-    await expect(updateEmployee('e-1', { fullName: 'X', tabNumber: '000123' })).rejects.toThrow('Сотрудник с таким табельным номером уже существует');
+    await expect(updateEmployee('e-1', { fullName: 'X', tabNumber: '000123', canBeWorker: true })).rejects.toThrow('Сотрудник с таким табельным номером уже существует');
   });
 
   it('updates employee and writes audit', async () => {
@@ -117,7 +134,7 @@ describe('updateEmployee', () => {
       return cb(mockTx);
     });
     const { updateEmployee } = await import('../actions');
-    const updated = await updateEmployee('e-1', { fullName: 'Сидоров Сидор', tabNumber: '000125' });
+    const updated = await updateEmployee('e-1', { fullName: 'Сидоров Сидор', tabNumber: '000125', canBeWorker: true });
     expect(updated.tabNumber).toBe('000125');
     expect(writeAudit).toHaveBeenCalled();
     const auditCall = (writeAudit as ReturnType<typeof vi.fn>).mock.calls[0][1];

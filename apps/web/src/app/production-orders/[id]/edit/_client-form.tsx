@@ -14,7 +14,12 @@ import type {
   Product,
   Employee,
 } from '@prisma/client';
-import { buildOperatorOptions, canOperate } from '../../operator-options';
+import {
+  buildEmployeeOptions,
+  isEligible,
+  NOT_OPERATOR_NOTE,
+  NOT_WORKER_NOTE,
+} from '../../employee-options';
 
 interface ProductionOrderEditFormProps {
   order: ProductionOrder & {
@@ -31,7 +36,8 @@ interface ProductionOrderEditFormProps {
   shifts: Shift[];
   workCenters: WorkCenter[];
   products: Product[];
-  employees: Employee[];
+  /** Сотрудники с признаком допуска — только они попадают в список «Работники» (T-071). */
+  workerEmployees: Employee[];
   /** Сотрудники с активной учётной записью роли ОПР — только они могут быть Оператором (T-070). */
   operatorEmployees: Employee[];
 }
@@ -81,7 +87,7 @@ export default function ProductionOrderEditForm({
   shifts,
   workCenters,
   products,
-  employees,
+  workerEmployees,
   operatorEmployees,
 }: ProductionOrderEditFormProps) {
   const router = useRouter();
@@ -155,17 +161,17 @@ export default function ProductionOrderEditForm({
     label: wc.code + ' – ' + wc.name + (wc.producesMass ? ' (Масса)' : ' (ГП)') + (wc.active ? '' : ' (деактивирован)'),
   }));
 
-  const employeeOptions = employees.map((emp) => ({
-    value: emp.id,
-    label: emp.fullName + (emp.active ? '' : ' (деактивирован)'),
-  }));
-
-  // Назначенные Операторы остаются в списке, даже если их учётная запись деактивирована
-  // или роль ОПР снята: иначе сохранение молча стёрло бы Оператора (T-070).
+  // Уже назначенные сотрудники остаются в списках, даже если перестали проходить правило
+  // допуска: иначе сохранение молча стёрло бы назначение (T-070, T-071).
   const assignedOperators = order.lines
     .map((line) => line.operator)
     .filter((employee): employee is Employee => Boolean(employee));
-  const operatorOptions = buildOperatorOptions(operatorEmployees, assignedOperators);
+  const assignedWorkers = order.lines.flatMap((line) =>
+    line.workerAssignments.map((assignment) => assignment.employee),
+  );
+
+  const workerOptions = buildEmployeeOptions(workerEmployees, assignedWorkers, NOT_WORKER_NOTE);
+  const operatorOptions = buildEmployeeOptions(operatorEmployees, assignedOperators, NOT_OPERATOR_NOTE);
 
   const canSubmit =
     !isPending &&
@@ -293,7 +299,7 @@ export default function ProductionOrderEditForm({
                       placeholder="Выберите Оператора"
                       required
                     />
-                    {line.operatorId && !canOperate(line.operatorId, operatorEmployees) && (
+                    {line.operatorId && !isEligible(line.operatorId, operatorEmployees) && (
                       <p className="text-sm text-signal-amber">
                         У этого сотрудника нет активной учётной записи с ролью ОПР: он не получит
                         уведомление и не сможет внести итог. Выберите другого.
@@ -306,7 +312,7 @@ export default function ProductionOrderEditForm({
                   <Label>Работники (необязательно)</Label>
                   <CheckboxList
                     name={line.id + '_workers'}
-                    options={employeeOptions}
+                    options={workerOptions}
                     selected={line.workerIds}
                     onChange={(selected) => updateLine(line.id, { workerIds: selected })}
                   />

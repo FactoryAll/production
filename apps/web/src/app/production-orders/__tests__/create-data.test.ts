@@ -21,14 +21,27 @@ import { prisma } from '@prodtrack/db';
 import { requirePermission } from '@/lib/auth/access';
 import { getProductionOrderCreateData } from '../actions';
 
-function employee(id: string, fullName: string): Employee {
-  return { id, tabNumber: id, fullName, active: true, createdAt: new Date(), updatedAt: new Date() };
+function employee(id: string, fullName: string, overrides: Partial<Employee> = {}): Employee {
+  return {
+    id,
+    tabNumber: id,
+    fullName,
+    active: true,
+    canBeWorker: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  };
 }
 
+/** Оператор: есть активная учётная запись роли ОПР. */
 const operator = employee('emp-opr', 'Оператор О.О.');
-const storekeeper = employee('emp-store', 'Складчиков С.С.');
+/** Работник РЦ без учётной записи — Оператором быть не может, работником может. */
+const worker = employee('emp-worker', 'Рабочий Р.Р.');
+/** Кладовщик: допуска работником РЦ нет (T-071). */
+const storekeeper = employee('emp-store', 'Складчиков С.С.', { canBeWorker: false });
 
-describe('getProductionOrderCreateData: список Операторов (T-070)', () => {
+describe('getProductionOrderCreateData: списки сотрудников (T-070, T-071)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (requirePermission as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: 'u1', user: { roles: [] } });
@@ -36,9 +49,8 @@ describe('getProductionOrderCreateData: список Операторов (T-070
     (prisma.workCenter.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.product.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.employee.findMany as ReturnType<typeof vi.fn>)
-      // 1-й запрос — все активные сотрудники для поля «Работники»
-      .mockResolvedValueOnce([operator, storekeeper])
-      // 2-й запрос — только сотрудники с активной учётной записью роли ОПР
+      // 1-й запрос — работники РЦ, 2-й — Операторы
+      .mockResolvedValueOnce([operator, worker])
       .mockResolvedValueOnce([operator]);
   });
 
@@ -48,14 +60,23 @@ describe('getProductionOrderCreateData: список Операторов (T-070
     expect(requirePermission).toHaveBeenCalledWith('production_order:create');
   });
 
-  it('отдаёт для «Работников» всех активных, а для «Оператора» — только с учётной записью ОПР', async () => {
+  it('отдаёт раздельные списки для «Работников» и «Оператора»', async () => {
     const data = await getProductionOrderCreateData();
 
-    expect(data.employees).toEqual([operator, storekeeper]);
+    expect(data.workerEmployees).toEqual([operator, worker]);
     expect(data.operatorEmployees).toEqual([operator]);
   });
 
-  it('ограничивает выбор Оператора активной учётной записью с ролью ОПР (M02 BR-1)', async () => {
+  it('ограничивает список работников признаком «Может привлекаться работником РЦ» (T-071)', async () => {
+    await getProductionOrderCreateData();
+
+    expect(prisma.employee.findMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ where: { active: true, canBeWorker: true } }),
+    );
+  });
+
+  it('ограничивает выбор Оператора активной учётной записью с ролью ОПР (T-070, M02 BR-1)', async () => {
     await getProductionOrderCreateData();
 
     expect(prisma.employee.findMany).toHaveBeenNthCalledWith(

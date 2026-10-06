@@ -6,13 +6,19 @@ import { Button, Select, Input, Label, CheckboxList, Card } from '@prodtrack/ui'
 import { createProductionOrderAction } from '../actions';
 import type { ProductionOrderLineInput } from '@/lib/validation/production-order';
 import type { Shift, WorkCenter, Product, Employee } from '@prisma/client';
-import { buildOperatorOptions, canOperate } from '../operator-options';
+import {
+  buildEmployeeOptions,
+  isEligible,
+  NOT_OPERATOR_NOTE,
+  NOT_WORKER_NOTE,
+} from '../employee-options';
 
 interface ProductionOrderFormProps {
   shifts: Shift[];
   workCenters: WorkCenter[];
   products: Product[];
-  employees: Employee[];
+  /** Сотрудники с признаком допуска — только они попадают в список «Работники» (T-071). */
+  workerEmployees: Employee[];
   /** Сотрудники с активной учётной записью роли ОПР — только они могут быть Оператором (T-070). */
   operatorEmployees: Employee[];
 }
@@ -50,7 +56,7 @@ export default function ProductionOrderForm({
   shifts,
   workCenters,
   products,
-  employees,
+  workerEmployees,
   operatorEmployees,
 }: ProductionOrderFormProps) {
   const router = useRouter();
@@ -125,12 +131,8 @@ export default function ProductionOrderForm({
     label: wc.code + ' – ' + wc.name + (wc.producesMass ? ' (Масса)' : ' (ГП)') + (wc.active ? '' : ' (деактивирован)'),
   }));
 
-  const employeeOptions = employees.map((emp) => ({
-    value: emp.id,
-    label: emp.fullName + (emp.active ? '' : ' (деактивирован)'),
-  }));
-
-  const operatorOptions = buildOperatorOptions(operatorEmployees);
+  const workerOptions = buildEmployeeOptions(workerEmployees, [], NOT_WORKER_NOTE);
+  const operatorOptions = buildEmployeeOptions(operatorEmployees, [], NOT_OPERATOR_NOTE);
 
   const canSubmit =
     !isPending &&
@@ -265,7 +267,7 @@ export default function ProductionOrderForm({
                   placeholder="Выберите Оператора"
                   required
                 />
-                {line.operatorId && !canOperate(line.operatorId, operatorEmployees) && (
+                {line.operatorId && !isEligible(line.operatorId, operatorEmployees) && (
                   <p className="text-sm text-signal-amber">
                     У этого сотрудника нет активной учётной записи с ролью ОПР: он не получит уведомление
                     и не сможет внести итог. Выберите другого.
@@ -283,7 +285,7 @@ export default function ProductionOrderForm({
               <Label>Работники (необязательно)</Label>
               <CheckboxList
                 name={line.id + '_workers'}
-                options={employeeOptions}
+                options={workerOptions}
                 selected={line.workerIds}
                 onChange={(selected) => updateLine(line.id, { workerIds: selected })}
               />

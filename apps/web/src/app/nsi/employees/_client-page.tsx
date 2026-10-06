@@ -58,6 +58,12 @@ export default function EmployeesPage({
         cell: ({ getValue }) => ((getValue() as boolean) ? 'Активен' : 'Неактивен'),
       },
       {
+        // T-071 (M01 §4.1): признак допуска к работе на РЦ.
+        accessorKey: 'canBeWorker',
+        header: 'Работник РЦ',
+        cell: ({ getValue }) => ((getValue() as boolean) ? 'Да' : 'Нет'),
+      },
+      {
         id: 'actions',
         header: 'Действия',
         cell: ({ row }) => {

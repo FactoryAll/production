@@ -12,12 +12,22 @@ vi.mock('../actions', () => ({
 
 import ProductionOrderForm from '../new/_client-form';
 
-function employee(id: string, fullName: string): Employee {
-  return { id, tabNumber: id, fullName, active: true, createdAt: new Date(), updatedAt: new Date() };
+function employee(id: string, fullName: string, overrides: Partial<Employee> = {}): Employee {
+  return {
+    id,
+    tabNumber: id,
+    fullName,
+    active: true,
+    canBeWorker: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  };
 }
 
 const operator = employee('emp-opr', 'Оператор О.О.');
-const storekeeper = employee('emp-store', 'Складчиков С.С.');
+const worker = employee('emp-worker', 'Рабочий Р.Р.');
+const storekeeper = employee('emp-store', 'Складчиков С.С.', { canBeWorker: false });
 
 const shift: Shift = {
   id: 'shift-1', number: 1, date: new Date('2026-10-06'), start: '08:00', end: '20:00',
@@ -32,45 +42,40 @@ const product: Product = {
   createdAt: new Date(), updatedAt: new Date(),
 };
 
-function renderForm() {
+function renderForm(overrides: { workerEmployees?: Employee[]; operatorEmployees?: Employee[] } = {}) {
   return render(
     <ProductionOrderForm
       shifts={[shift]}
       workCenters={[workCenter]}
       products={[product]}
-      employees={[operator, storekeeper]}
-      operatorEmployees={[operator]}
+      workerEmployees={overrides.workerEmployees ?? [operator, worker]}
+      operatorEmployees={overrides.operatorEmployees ?? [operator]}
     />,
   );
 }
 
-describe('Форма ПЗ: поле «Оператор» (T-070)', () => {
-  it('предлагает только сотрудников с активной учётной записью роли ОПР', () => {
+describe('Форма ПЗ: списки сотрудников (T-070, T-071)', () => {
+  it('предлагает в поле «Оператор» только сотрудников с активной учётной записью роли ОПР', () => {
     renderForm();
 
-    const select = screen.getByLabelText('Оператор') as HTMLSelectElement;
-    const labels = Array.from(select.options).map((option) => option.text);
+    const labels = Array.from((screen.getByLabelText('Оператор') as HTMLSelectElement).options).map(
+      (option) => option.text,
+    );
 
     expect(labels).toContain('Оператор О.О.');
+    expect(labels).not.toContain('Рабочий Р.Р.');
     expect(labels).not.toContain('Складчиков С.С.');
   });
 
-  it('оставляет в списке «Работники» всех активных сотрудников', () => {
+  it('предлагает в «Работниках» только сотрудников с допуском к работе на РЦ', () => {
     renderForm();
 
-    expect(screen.queryByLabelText('Складчиков С.С.')).not.toBeNull();
+    expect(screen.queryByLabelText('Рабочий Р.Р.')).not.toBeNull();
+    expect(screen.queryByLabelText('Складчиков С.С.')).toBeNull();
   });
 
   it('объясняет, что Оператора назначить нельзя, если нет ни одной учётной записи ОПР', () => {
-    render(
-      <ProductionOrderForm
-        shifts={[shift]}
-        workCenters={[workCenter]}
-        products={[product]}
-        employees={[storekeeper]}
-        operatorEmployees={[]}
-      />,
-    );
+    renderForm({ operatorEmployees: [] });
 
     expect(screen.getByText(/Нет сотрудников с активной учётной записью роли ОПР/)).toBeTruthy();
   });

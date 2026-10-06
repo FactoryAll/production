@@ -8,6 +8,8 @@ import type { Employee } from '@prisma/client';
 export interface EmployeeInput {
   fullName: string;
   tabNumber: string;
+  /** Может привлекаться работником РЦ (T-071, M01 §4.1). */
+  canBeWorker: boolean;
 }
 
 function normalizeTabNumber(tabNumber: string): string {
@@ -48,6 +50,7 @@ export async function createEmployee(input: EmployeeInput): Promise<Employee> {
         fullName: input.fullName.trim(),
         tabNumber: normalizedTabNumber,
         active: true,
+        canBeWorker: input.canBeWorker,
       },
     });
 
@@ -61,6 +64,7 @@ export async function createEmployee(input: EmployeeInput): Promise<Employee> {
       newValue: JSON.stringify({
         fullName: created.fullName,
         tabNumber: created.tabNumber,
+        canBeWorker: created.canBeWorker,
       }),
     });
 
@@ -82,6 +86,7 @@ export async function updateEmployee(id: string, input: EmployeeInput): Promise<
   const oldValue = JSON.stringify({
     fullName: existing.fullName,
     tabNumber: existing.tabNumber,
+    canBeWorker: existing.canBeWorker,
   });
 
   const result = await prisma.$transaction(async (tx) => {
@@ -90,6 +95,7 @@ export async function updateEmployee(id: string, input: EmployeeInput): Promise<
       data: {
         fullName: input.fullName.trim(),
         tabNumber: normalizedTabNumber,
+        canBeWorker: input.canBeWorker,
       },
     });
 
@@ -100,11 +106,12 @@ export async function updateEmployee(id: string, input: EmployeeInput): Promise<
       userId,
       userRoles: roles,
       permission: 'nsi:manage',
-      field: 'fullName,tabNumber',
+      field: 'fullName,tabNumber,canBeWorker',
       oldValue,
       newValue: JSON.stringify({
         fullName: updated.fullName,
         tabNumber: updated.tabNumber,
+        canBeWorker: updated.canBeWorker,
       }),
     });
 

@@ -45,6 +45,8 @@ model Employee {
   tabNumber String   @unique
   fullName  String
   active    Boolean  @default(true)
+  /// Может привлекаться работником РЦ (T-071, M01 §4.1).
+  canBeWorker Boolean @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Dialog, Input } from '@prodtrack/ui';
+import { Button, Dialog, Input, Switch } from '@prodtrack/ui';
 import { createEmployee, updateEmployee, type EmployeeInput } from '../actions';
 import type { Employee } from '@prisma/client';
 
@@ -15,6 +15,7 @@ export function EmployeeDialog({ open, onClose, initial }: EmployeeDialogProps) 
   const isEdit = Boolean(initial);
   const [fullName, setFullName] = useState(initial?.fullName ?? '');
   const [tabNumber, setTabNumber] = useState(initial?.tabNumber ?? '');
+  const [canBeWorker, setCanBeWorker] = useState(initial?.canBeWorker ?? true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,6 +27,7 @@ export function EmployeeDialog({ open, onClose, initial }: EmployeeDialogProps) 
     const input: EmployeeInput = {
       fullName: fullName.trim(),
       tabNumber: tabNumber.trim(),
+      canBeWorker,
     };
 
     try {
@@ -36,6 +38,7 @@ export function EmployeeDialog({ open, onClose, initial }: EmployeeDialogProps) 
       }
       setFullName('');
       setTabNumber('');
+      setCanBeWorker(true);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Неизвестная ошибка');
@@ -68,6 +71,16 @@ export function EmployeeDialog({ open, onClose, initial }: EmployeeDialogProps) 
             disabled={loading}
             required
           />
+        </div>
+        <div className="space-y-1">
+          <Switch
+            checked={canBeWorker}
+            onChange={setCanBeWorker}
+            label="Может привлекаться работником РЦ"
+          />
+          <p className="text-sm text-neutral-500">
+            Снятый признак убирает сотрудника из списка работников в форме ПЗ (T-071).
+          </p>
         </div>
         {error && (
           <p className="text-sm text-signal-amber">{error}</p>

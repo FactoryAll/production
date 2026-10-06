@@ -188,7 +188,7 @@ export async function createProductionOrderAction(formData: FormData): Promise<C
 export async function getProductionOrderCreateData() {
   await requirePermission('production_order:create');
 
-  const [shifts, workCenters, products, employees, operatorEmployees] = await Promise.all([
+  const [shifts, workCenters, products, workerEmployees, operatorEmployees] = await Promise.all([
     prisma.shift.findMany({
       where: { active: true },
       orderBy: [{ date: 'desc' }, { number: 'asc' }],
@@ -201,9 +201,9 @@ export async function getProductionOrderCreateData() {
       where: { active: true },
       orderBy: { code: 'asc' },
     }),
-    // Все активные сотрудники — для поля «Работники».
+    // T-071: работником РЦ можно привлечь только сотрудника с признаком допуска (M01 §4.1).
     prisma.employee.findMany({
-      where: { active: true },
+      where: { active: true, canBeWorker: true },
       orderBy: { fullName: 'asc' },
     }),
     // T-070: Оператором можно назначить только сотрудника, который сможет исполнить ПЗ
@@ -219,7 +219,7 @@ export async function getProductionOrderCreateData() {
     }),
   ]);
 
-  return { shifts, workCenters, products, employees, operatorEmployees };
+  return { shifts, workCenters, products, workerEmployees, operatorEmployees };
 }
 
 export async function confirmProductionOrder(
