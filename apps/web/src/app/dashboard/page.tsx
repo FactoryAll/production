@@ -6,6 +6,7 @@ import { getOwnDocumentIds } from '@/app/timing/queries';
 import { dashboardPeriodRange, parseDashboardPeriod } from '@/lib/dashboard/period';
 import {
   getDashboardDocuments,
+  getDashboardRevision,
   getInProduction,
   getInTransferTotals,
   getProducedTotals,
@@ -54,17 +55,20 @@ export default async function DashboardServerPage({ searchParams }: DashboardSer
   const ownDocumentIds =
     scope === 'OWN_WORK_CENTER' && employeeId ? await getOwnDocumentIds(employeeId) : undefined;
 
-  const [inProduction, produced, transfers, received, durations, documents] = await Promise.all([
-    getInProduction(now, ownWorkCenterIds),
-    getProducedTotals(range, ownWorkCenterIds),
-    getInTransferTotals(),
-    getReceivedToFinishedGoods(range),
-    getStageDurationSummary(range, ownDocumentIds),
-    getDashboardDocuments(now, filter, ownWorkCenterIds),
-  ]);
+  const [inProduction, produced, transfers, received, durations, documents, revision] =
+    await Promise.all([
+      getInProduction(now, ownWorkCenterIds),
+      getProducedTotals(range, ownWorkCenterIds),
+      getInTransferTotals(),
+      getReceivedToFinishedGoods(range),
+      getStageDurationSummary(range, ownDocumentIds),
+      getDashboardDocuments(now, filter, ownWorkCenterIds),
+      getDashboardRevision(),
+    ]);
 
   return (
     <DashboardPage
+      revision={revision}
       period={period}
       filter={filter}
       scope={scope}

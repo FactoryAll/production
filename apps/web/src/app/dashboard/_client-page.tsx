@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Button, Card } from '@prodtrack/ui';
 import { formatDuration } from '@/lib/format';
@@ -22,6 +24,8 @@ import type { CategoryTotals, StageDurationSummary } from '@/lib/dashboard/aggre
 import { DOCUMENT_STATUS_OPTIONS, DOCUMENT_TYPE_OPTIONS } from './filters';
 
 interface DashboardPageProps {
+  /** Отпечаток состояния данных на момент рендера (M11 BR-2): с ним сравнивается кадр канала. */
+  revision: string;
   period: DashboardPeriod;
   filter: DashboardDocumentFilter;
   scope: DashboardScope;
@@ -31,6 +35,8 @@ interface DashboardPageProps {
   received: ReceivedTotals;
   durations: StageDurationSummary[];
   documents: DashboardDocumentRow[];
+  /** Интервал опроса SSE-канала, мс (0 отключает подписку — используется в тестах). */
+  refreshIntervalMs?: number;
 }
 
 const CATEGORY_LABELS: { key: keyof CategoryTotals; label: string; unit: string }[] = [
@@ -62,6 +68,7 @@ function KpiValue({ value, unit }: { value: string; unit?: string }) {
 }
 
 export default function DashboardPage({
+  revision,
   period,
   filter,
   scope,
@@ -71,7 +78,36 @@ export default function DashboardPage({
   received,
   durations,
   documents,
+  refreshIntervalMs = 5000,
 }: DashboardPageProps) {
+  const router = useRouter();
+
+  // Real-time (M11 BR-2, UC-M11-2): канал дашборда присылает отпечаток состояния данных.
+  // Обновляем экран только когда он отличается от того, что был при рендере, — иначе
+  // каждое подключение вызывало бы лишнюю перезагрузку данных.
+  useEffect(() => {
+    if (refreshIntervalMs <= 0 || typeof EventSource === 'undefined') {
+      return undefined;
+    }
+
+    const source = new EventSource('/api/events/dashboard');
+    source.onmessage = (event: MessageEvent<string>) => {
+      try {
+        const payload = JSON.parse(event.data) as { revision: string };
+        if (payload.revision !== revision) {
+          router.refresh();
+        }
+      } catch {
+        // Некорректный кадр канала не должен ломать экран.
+      }
+    };
+    source.onerror = () => {
+      // Канал сам переподключится; падать не нужно.
+    };
+
+    return () => source.close();
+  }, [refreshIntervalMs, revision, router]);
+
   const durationChart = durations.map((item) => ({
     stage: statusLabel(item.fromStatus) + ' → ' + statusLabel(item.toStatus),
     minutes: Math.round(item.averageMs / 60000),

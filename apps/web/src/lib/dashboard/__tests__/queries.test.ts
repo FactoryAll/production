@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@prodtrack/db', () => ({
   prisma: {
-    productionOrderLine: { findMany: vi.fn() },
+    productionOrderLine: { findMany: vi.fn(), aggregate: vi.fn() },
     shiftSummary: { aggregate: vi.fn() },
     goodsTransfer: { findMany: vi.fn() },
     stockMovement: { aggregate: vi.fn() },
-    productionOrder: { findMany: vi.fn() },
-    stageTiming: { findMany: vi.fn(), groupBy: vi.fn() },
+    productionOrder: { findMany: vi.fn(), aggregate: vi.fn() },
+    stageTiming: { findMany: vi.fn(), groupBy: vi.fn(), aggregate: vi.fn() },
   },
 }));
 vi.mock('@/app/timing/queries', () => ({
@@ -18,6 +18,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@prodtrack/db';
 import {
   getDashboardDocuments,
+  getDashboardRevision,
   getInProduction,
   getInTransferTotals,
   getProducedTotals,
@@ -143,6 +144,54 @@ describe('Виджеты дашборда: выборки (M11 §8)', () => {
         }),
       }),
     );
+  });
+
+  it('отпечаток состояния собирается из таблиц, которые читает дашборд (BR-2)', async () => {
+    (prisma.productionOrder.aggregate as ReturnType<typeof vi.fn>).mockResolvedValue({
+      _count: { _all: 2 },
+      _max: { updatedAt: new Date('2026-10-06T08:00:00.000Z') },
+    });
+    (prisma.productionOrderLine.aggregate as ReturnType<typeof vi.fn>).mockResolvedValue({
+      _count: { _all: 4 },
+      _max: { updatedAt: null },
+    });
+    (prisma.stageTiming.aggregate as ReturnType<typeof vi.fn>).mockResolvedValue({
+      _count: { _all: 7 },
+      _max: { transitionedAt: new Date('2026-10-06T08:05:00.000Z') },
+    });
+    (prisma.stockMovement.aggregate as ReturnType<typeof vi.fn>).mockResolvedValue({
+      _count: { _all: 1 },
+      _max: { createdAt: new Date('2026-10-06T08:06:00.000Z') },
+    });
+
+    const revision = await getDashboardRevision();
+
+    expect(revision).toBe(
+      '2@2026-10-06T08:00:00.000Z|4@-|7@2026-10-06T08:05:00.000Z|1@2026-10-06T08:06:00.000Z',
+    );
+  });
+
+  it('отпечаток меняется, когда появляется новый переход', async () => {
+    (prisma.productionOrder.aggregate as ReturnType<typeof vi.fn>).mockResolvedValue({
+      _count: { _all: 2 },
+      _max: { updatedAt: null },
+    });
+    (prisma.productionOrderLine.aggregate as ReturnType<typeof vi.fn>).mockResolvedValue({
+      _count: { _all: 4 },
+      _max: { updatedAt: null },
+    });
+    (prisma.stockMovement.aggregate as ReturnType<typeof vi.fn>).mockResolvedValue({
+      _count: { _all: 1 },
+      _max: { createdAt: null },
+    });
+    (prisma.stageTiming.aggregate as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ _count: { _all: 7 }, _max: { transitionedAt: null } })
+      .mockResolvedValueOnce({ _count: { _all: 8 }, _max: { transitionedAt: null } });
+
+    const before = await getDashboardRevision();
+    const after = await getDashboardRevision();
+
+    expect(after).not.toBe(before);
   });
 
   it('список документов: возраст считается от последнего перехода, старые сверху', async () => {

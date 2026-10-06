@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@prodtrack/db', () => ({
   prisma: {
-    productionOrderLine: { findMany: vi.fn() },
+    productionOrderLine: { findMany: vi.fn(), aggregate: vi.fn() },
     shiftSummary: { aggregate: vi.fn() },
     goodsTransfer: { findMany: vi.fn() },
     stockMovement: { aggregate: vi.fn() },
-    productionOrder: { findMany: vi.fn() },
-    stageTiming: { findMany: vi.fn(), groupBy: vi.fn() },
+    productionOrder: { findMany: vi.fn(), aggregate: vi.fn() },
+    stageTiming: { findMany: vi.fn(), groupBy: vi.fn(), aggregate: vi.fn() },
   },
   writeAudit: vi.fn(),
   writeTiming: vi.fn(),
@@ -47,10 +47,23 @@ describe('Экран «Сводный дашборд»: доступ и данн
     (prisma.stockMovement.aggregate as ReturnType<typeof vi.fn>).mockResolvedValue({
       _sum: {},
       _count: { _all: 0 },
+      _max: {},
     });
     (prisma.productionOrder.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.stageTiming.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.stageTiming.groupBy as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (prisma.productionOrder.aggregate as ReturnType<typeof vi.fn>).mockResolvedValue({
+      _count: { _all: 0 },
+      _max: {},
+    });
+    (prisma.productionOrderLine.aggregate as ReturnType<typeof vi.fn>).mockResolvedValue({
+      _count: { _all: 0 },
+      _max: {},
+    });
+    (prisma.stageTiming.aggregate as ReturnType<typeof vi.fn>).mockResolvedValue({
+      _count: { _all: 0 },
+      _max: {},
+    });
   });
 
   it('требует право на просмотр дашборда — своё или сводное (M11 §3)', async () => {

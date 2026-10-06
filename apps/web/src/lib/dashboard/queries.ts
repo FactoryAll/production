@@ -24,6 +24,7 @@ import {
   type StageDurationSummary,
 } from './aggregates';
 import { currentShiftNumber, type DateRange } from './period';
+import { buildDashboardRevision } from './stream';
 
 /** Максимум строк в списке документов дашборда (M11 §8). */
 export const DASHBOARD_DOCUMENT_LIMIT = 50;
@@ -70,6 +71,28 @@ export interface TransferTotals {
 export interface ReceivedTotals {
   count: number;
   quantity: number;
+}
+
+/**
+ * Отпечаток состояния данных дашборда (M11 BR-2).
+ *
+ * Им пользуются и экран, и SSE-канал: канал шлёт его клиенту, а клиент сравнивает с тем,
+ * что было при рендере, и обновляет страницу только при реальном изменении.
+ */
+export async function getDashboardRevision(): Promise<string> {
+  const [orders, lines, timings, movements] = await Promise.all([
+    prisma.productionOrder.aggregate({ _count: { _all: true }, _max: { updatedAt: true } }),
+    prisma.productionOrderLine.aggregate({ _count: { _all: true }, _max: { updatedAt: true } }),
+    prisma.stageTiming.aggregate({ _count: { _all: true }, _max: { transitionedAt: true } }),
+    prisma.stockMovement.aggregate({ _count: { _all: true }, _max: { createdAt: true } }),
+  ]);
+
+  return buildDashboardRevision([
+    { count: orders._count._all, lastAt: orders._max.updatedAt },
+    { count: lines._count._all, lastAt: lines._max.updatedAt },
+    { count: timings._count._all, lastAt: timings._max.transitionedAt },
+    { count: movements._count._all, lastAt: movements._max.createdAt },
+  ]);
 }
 
 /**
