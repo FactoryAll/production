@@ -40,6 +40,7 @@ export default async function ProductionOrderEditPage({ params }: ProductionOrde
       workCenters={createData.workCenters}
       products={createData.products}
       employees={createData.employees}
+      operatorEmployees={createData.operatorEmployees}
     />
   );
 }

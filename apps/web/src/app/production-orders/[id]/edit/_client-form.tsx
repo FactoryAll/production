@@ -14,6 +14,7 @@ import type {
   Product,
   Employee,
 } from '@prisma/client';
+import { buildOperatorOptions, canOperate } from '../../operator-options';
 
 interface ProductionOrderEditFormProps {
   order: ProductionOrder & {
@@ -31,6 +32,8 @@ interface ProductionOrderEditFormProps {
   workCenters: WorkCenter[];
   products: Product[];
   employees: Employee[];
+  /** Сотрудники с активной учётной записью роли ОПР — только они могут быть Оператором (T-070). */
+  operatorEmployees: Employee[];
 }
 
 function formatShift(shift: Shift): string {
@@ -79,6 +82,7 @@ export default function ProductionOrderEditForm({
   workCenters,
   products,
   employees,
+  operatorEmployees,
 }: ProductionOrderEditFormProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -155,6 +159,13 @@ export default function ProductionOrderEditForm({
     value: emp.id,
     label: emp.fullName + (emp.active ? '' : ' (деактивирован)'),
   }));
+
+  // Назначенные Операторы остаются в списке, даже если их учётная запись деактивирована
+  // или роль ОПР снята: иначе сохранение молча стёрло бы Оператора (T-070).
+  const assignedOperators = order.lines
+    .map((line) => line.operator)
+    .filter((employee): employee is Employee => Boolean(employee));
+  const operatorOptions = buildOperatorOptions(operatorEmployees, assignedOperators);
 
   const canSubmit =
     !isPending &&
@@ -278,12 +289,15 @@ export default function ProductionOrderEditForm({
                       id={line.id + '_operator'}
                       value={line.operatorId}
                       onChange={(e) => updateLine(line.id, { operatorId: e.target.value })}
-                      options={employeeOptions}
+                      options={operatorOptions}
                       placeholder="Выберите Оператора"
                       required
                     />
-                    {line.operatorId && !employees.find((emp) => emp.id === line.operatorId)?.active && (
-                      <p className="text-sm text-signal-amber">Этот сотрудник деактивирован. Выберите другого.</p>
+                    {line.operatorId && !canOperate(line.operatorId, operatorEmployees) && (
+                      <p className="text-sm text-signal-amber">
+                        У этого сотрудника нет активной учётной записи с ролью ОПР: он не получит
+                        уведомление и не сможет внести итог. Выберите другого.
+                      </p>
                     )}
                   </div>
                 </div>

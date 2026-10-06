@@ -6,12 +6,15 @@ import { Button, Select, Input, Label, CheckboxList, Card } from '@prodtrack/ui'
 import { createProductionOrderAction } from '../actions';
 import type { ProductionOrderLineInput } from '@/lib/validation/production-order';
 import type { Shift, WorkCenter, Product, Employee } from '@prisma/client';
+import { buildOperatorOptions, canOperate } from '../operator-options';
 
 interface ProductionOrderFormProps {
   shifts: Shift[];
   workCenters: WorkCenter[];
   products: Product[];
   employees: Employee[];
+  /** Сотрудники с активной учётной записью роли ОПР — только они могут быть Оператором (T-070). */
+  operatorEmployees: Employee[];
 }
 
 function formatShift(shift: Shift): string {
@@ -48,6 +51,7 @@ export default function ProductionOrderForm({
   workCenters,
   products,
   employees,
+  operatorEmployees,
 }: ProductionOrderFormProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -125,6 +129,8 @@ export default function ProductionOrderForm({
     value: emp.id,
     label: emp.fullName + (emp.active ? '' : ' (деактивирован)'),
   }));
+
+  const operatorOptions = buildOperatorOptions(operatorEmployees);
 
   const canSubmit =
     !isPending &&
@@ -255,12 +261,20 @@ export default function ProductionOrderForm({
                   onChange={(e) =>
                     updateLine(line.id, { operatorId: e.target.value })
                   }
-                  options={employeeOptions}
+                  options={operatorOptions}
                   placeholder="Выберите Оператора"
                   required
                 />
-                {line.operatorId && !employees.find((emp) => emp.id === line.operatorId)?.active && (
-                  <p className="text-sm text-signal-amber">Этот сотрудник деактивирован. Выберите другого.</p>
+                {line.operatorId && !canOperate(line.operatorId, operatorEmployees) && (
+                  <p className="text-sm text-signal-amber">
+                    У этого сотрудника нет активной учётной записи с ролью ОПР: он не получит уведомление
+                    и не сможет внести итог. Выберите другого.
+                  </p>
+                )}
+                {operatorOptions.length === 0 && (
+                  <p className="text-sm text-signal-amber">
+                    Нет сотрудников с активной учётной записью роли ОПР — назначить Оператора нельзя.
+                  </p>
                 )}
               </div>
             </div>

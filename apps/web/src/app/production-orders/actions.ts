@@ -12,7 +12,7 @@ import { Prisma } from '@prisma/client';
 import { prisma, writeAudit, writeTiming } from '@prodtrack/db';
 import { notifyEvent } from '@/lib/events/notify';
 import { hasPermission, requireAnyPermission, requirePermission } from '@/lib/auth/access';
-import { getAttributeRole } from '@prodtrack/contracts';
+import { getAttributeRole, RoleCode } from '@prodtrack/contracts';
 import {
   applyStockMovements,
   buildProductionFactMovements,
@@ -188,7 +188,7 @@ export async function createProductionOrderAction(formData: FormData): Promise<C
 export async function getProductionOrderCreateData() {
   await requirePermission('production_order:create');
 
-  const [shifts, workCenters, products, employees] = await Promise.all([
+  const [shifts, workCenters, products, employees, operatorEmployees] = await Promise.all([
     prisma.shift.findMany({
       where: { active: true },
       orderBy: [{ date: 'desc' }, { number: 'asc' }],
@@ -201,13 +201,25 @@ export async function getProductionOrderCreateData() {
       where: { active: true },
       orderBy: { code: 'asc' },
     }),
+    // Все активные сотрудники — для поля «Работники».
     prisma.employee.findMany({
       where: { active: true },
       orderBy: { fullName: 'asc' },
     }),
+    // T-070: Оператором можно назначить только сотрудника, который сможет исполнить ПЗ
+    // со своей учётной записи (M02 BR-1, EV-01 разрешается через `user.employeeId`).
+    // Сотрудник без активной учётной записи роли ОПР не получит EV-01 и не сможет
+    // подтвердить получение и внести итог.
+    prisma.employee.findMany({
+      where: {
+        active: true,
+        user: { active: true, roles: { some: { role: { code: RoleCode.OPR } } } },
+      },
+      orderBy: { fullName: 'asc' },
+    }),
   ]);
 
-  return { shifts, workCenters, products, employees };
+  return { shifts, workCenters, products, employees, operatorEmployees };
 }
 
 export async function confirmProductionOrder(
