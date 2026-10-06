@@ -27,6 +27,8 @@ vi.mock('@prodtrack/db', async () => {
       },
     },
     writeAudit: vi.fn(),
+    // Запрос незавершённых документов (Р-22) проверяется отдельно — в packages/db/src/deactivation.test.ts.
+    getDeactivationWarnings: vi.fn(),
   };
 });
 
@@ -132,16 +134,23 @@ describe('updateWorkCenter', () => {
   });
 });
 
-describe('UC-M01-2: deactivation warnings (Phase 2/3 stub)', () => {
+describe('UC-M01-2: предупреждение о незавершённых документах при деактивации (Р-22, T-068)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('getDeactivationWarnings requires admin and returns empty list', async () => {
+  it('требует право и передаёт тип сущности в запрос незавершённых документов', async () => {
     const { requirePermission } = await import('@/lib/auth/access');
+    const { getDeactivationWarnings: dbWarnings } = await import('@prodtrack/db');
+    (dbWarnings as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { type: 'PRODUCTION_ORDER', id: 'po-1', label: 'ПЗ po-1 · В работе' },
+    ]);
     const { getDeactivationWarnings } = await import('../actions');
+
     const warnings = await getDeactivationWarnings('wc-1');
-    expect(requirePermission).toHaveBeenCalled();
-    expect(warnings).toEqual([]);
+
+    expect(requirePermission).toHaveBeenCalledWith('nsi:manage');
+    expect(dbWarnings).toHaveBeenCalledWith('WorkCenter', 'wc-1');
+    expect(warnings).toHaveLength(1);
   });
 });

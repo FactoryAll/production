@@ -1,7 +1,9 @@
-// import { prisma } from './prisma';
+// Предупреждение Р-22 (M01 §5 UC-M01-2, BR-13): перед деактивацией позиции НСИ система
+// показывает список незавершённых документов, в которых эта позиция используется.
+// Деактивация при этом разрешена — предупреждение информирует, а не блокирует.
 
-// TODO Фаза 2/3: заменить заглушку на реальные запросы к ProductionOrder, GoodsTransfer, ProductionFact.
-// Сейчас возвращаем пустой список, чтобы в Фазе 1 диалог деактивации работал в штатном режиме.
+import type { GoodsTransferStatus, PrismaClient, ProductionOrderStatus } from '@prisma/client';
+import { prisma } from './prisma';
 
 export type DeactivatableEntityType =
   | 'WorkCenter'
@@ -17,26 +19,136 @@ export interface DeactivationWarning {
   label: string;
 }
 
-export async function getDeactivationWarnings(
-  _entityType: DeactivatableEntityType,
-  _entityId: string,
-): Promise<DeactivationWarning[]> {
-  // В Фазе 1 незавершённые документы ещё не реализованы, поэтому возвращаем пустой список.
-  // TODO Фаза 2/3: реализовать запросы:
-  // - WorkCenter: ПЗ в DRAFT/CONFIRMED/IN_PROGRESS со строками на этом РЦ.
-  // - Product: ПЗ в DRAFT/CONFIRMED/IN_PROGRESS + Перемещения в DRAFT/SUBMITTED со строками на эту номенклатуру.
-  // - Employee: ПЗ в DRAFT/CONFIRMED/IN_PROGRESS, где сотрудник — Оператор или работник строки.
-  // - DefectReason: ProductionFact с этой причиной в незавершённых сменах.
-  // - SubstitutionReason: строки ПЗ со статусом REPORTED и этой причиной ввода за Оператора.
-  // - Shift: ПЗ в DRAFT/CONFIRMED/IN_PROGRESS, привязанные к этой смене.
-  return [];
+/** Статусы, в которых документ считается незавершённым (00 §3). */
+const UNFINISHED_ORDER_STATUSES: ProductionOrderStatus[] = ['DRAFT', 'CONFIRMED', 'IN_PROGRESS'];
+const UNFINISHED_TRANSFER_STATUSES: GoodsTransferStatus[] = ['DRAFT', 'SUBMITTED'];
+
+const ORDER_STATUS_LABELS: Record<string, string> = {
+  DRAFT: 'Черновик',
+  CONFIRMED: 'Подтверждено',
+  IN_PROGRESS: 'В работе',
+};
+
+const TRANSFER_STATUS_LABELS: Record<string, string> = {
+  DRAFT: 'Черновик',
+  SUBMITTED: 'Отправлено',
+};
+
+const ORDER_SELECT = { id: true, status: true } as const;
+
+function orderWarning(order: { id: string; status: string }): DeactivationWarning {
+  return {
+    type: 'PRODUCTION_ORDER',
+    id: order.id,
+    label: `ПЗ ${order.id.slice(0, 8)} · ${ORDER_STATUS_LABELS[order.status] ?? order.status}`,
+  };
 }
 
-export async function getDeactivationWarningsAdmin(
-  _entityType: DeactivatableEntityType,
-  _entityId: string,
+function transferWarning(transfer: { id: string; status: string }): DeactivationWarning {
+  return {
+    type: 'GOODS_TRANSFER',
+    id: transfer.id,
+    label: `Перемещение ${transfer.id.slice(0, 8)} · ${TRANSFER_STATUS_LABELS[transfer.status] ?? transfer.status}`,
+  };
+}
+
+/**
+ * Список незавершённых документов, в которых используется позиция справочника (Р-22).
+ *
+ * `client` передаётся для тестов; в приложении используется общий клиент Prisma.
+ */
+export async function getDeactivationWarnings(
+  entityType: DeactivatableEntityType,
+  entityId: string,
+  client: PrismaClient = prisma,
 ): Promise<DeactivationWarning[]> {
-  // TODO T-017: добавить requireAdmin, когда @/lib/auth/require-admin станет доступен из packages/db
-  // или когда появится центральная матрица доступа.
-  return [];
+  switch (entityType) {
+    case 'WorkCenter': {
+      // ПЗ, у которых есть строка на этом РЦ.
+      const orders = await client.productionOrder.findMany({
+        where: {
+          status: { in: UNFINISHED_ORDER_STATUSES },
+          lines: { some: { workCenterId: entityId } },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: ORDER_SELECT,
+      });
+      return orders.map(orderWarning);
+    }
+    case 'Product': {
+      // ПЗ и Перемещения со строками на эту номенклатуру.
+      const [orders, transfers] = await Promise.all([
+        client.productionOrder.findMany({
+          where: {
+            status: { in: UNFINISHED_ORDER_STATUSES },
+            lines: { some: { productId: entityId } },
+          },
+          orderBy: { createdAt: 'desc' },
+          select: ORDER_SELECT,
+        }),
+        client.goodsTransfer.findMany({
+          where: {
+            status: { in: UNFINISHED_TRANSFER_STATUSES },
+            lines: { some: { productId: entityId } },
+          },
+          orderBy: { createdAt: 'desc' },
+          select: ORDER_SELECT,
+        }),
+      ]);
+      return [...orders.map(orderWarning), ...transfers.map(transferWarning)];
+    }
+    case 'Employee': {
+      // ПЗ, где сотрудник — Оператор строки или назначенный работник РЦ.
+      const orders = await client.productionOrder.findMany({
+        where: {
+          status: { in: UNFINISHED_ORDER_STATUSES },
+          lines: {
+            some: {
+              OR: [
+                { operatorId: entityId },
+                { workerAssignments: { some: { employeeId: entityId } } },
+              ],
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: ORDER_SELECT,
+      });
+      return orders.map(orderWarning);
+    }
+    case 'DefectReason': {
+      // ПЗ, в факте которых указана эта причина брака.
+      const orders = await client.productionOrder.findMany({
+        where: {
+          status: { in: UNFINISHED_ORDER_STATUSES },
+          lines: { some: { facts: { some: { defectReasonId: entityId } } } },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: ORDER_SELECT,
+      });
+      return orders.map(orderWarning);
+    }
+    case 'SubstitutionReason': {
+      // ПЗ, где итог за Оператора уже внесён с этой причиной (Р-11/Р-13).
+      const orders = await client.productionOrder.findMany({
+        where: {
+          lines: { some: { substitutionReasonId: entityId, status: 'REPORTED' } },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: ORDER_SELECT,
+      });
+      return orders.map(orderWarning);
+    }
+    case 'Shift': {
+      // ПЗ, привязанные к этой смене.
+      const orders = await client.productionOrder.findMany({
+        where: { shiftId: entityId, status: { in: UNFINISHED_ORDER_STATUSES } },
+        orderBy: { createdAt: 'desc' },
+        select: ORDER_SELECT,
+      });
+      return orders.map(orderWarning);
+    }
+    default:
+      return [];
+  }
 }
