@@ -16,6 +16,8 @@ vi.mock('@prodtrack/db', () => ({
   prisma: {
     productionOrder: { findUnique: (...args: unknown[]) => findUnique(...args) },
     defectReason: { findMany: vi.fn().mockResolvedValue([]) },
+    // T-073: карточка получает список потребляемых позиций (Р-10).
+    product: { findMany: vi.fn().mockResolvedValue([]) },
   },
   writeAudit: vi.fn(),
   writeTiming: vi.fn(),
@@ -72,6 +74,14 @@ describe('Карточка ПЗ и права (регресс: 500 при пер
     const result = await getProductionOrderById('po-1');
 
     expect(result.order).toBeNull();
+  });
+
+  it('отдаёт список потребляемых позиций для правки потребления (T-073)', async () => {
+    requireAnyPermission.mockResolvedValue(session(['NP'], null));
+
+    const result = await getProductionOrderById('po-1');
+
+    expect(result.consumableProducts).toEqual([]);
   });
 
   it('запрос разрешён и по праву read_own (ОПР не получает Forbidden)', async () => {

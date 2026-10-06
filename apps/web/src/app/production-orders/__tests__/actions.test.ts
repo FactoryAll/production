@@ -1723,6 +1723,7 @@ function buildMockProductionFact(
     stopsDurationMinutes: number;
     postCompletionCorrection: boolean;
     correctionReason: string | null;
+    consumptions: { productId: string; quantity: Prisma.Decimal; product?: unknown }[];
     line: ReturnType<typeof buildSubstitutableOrder>['lines'][number] & { order: ReturnType<typeof buildSubstitutableOrder> };
   }> = {},
 ): {
@@ -1738,6 +1739,7 @@ function buildMockProductionFact(
   createdById: string;
   postCompletionCorrection: boolean;
   correctionReason: string | null;
+  consumptions: { productId: string; quantity: Prisma.Decimal; product?: unknown }[];
   createdAt: Date;
   updatedAt: Date;
   line: ReturnType<typeof buildSubstitutableOrder>['lines'][number] & { order: ReturnType<typeof buildSubstitutableOrder> };
@@ -1760,6 +1762,7 @@ function buildMockProductionFact(
     createdById: 'user-opr',
     postCompletionCorrection: false,
     correctionReason: null,
+    consumptions: [],
     createdAt: new Date(),
     updatedAt: new Date(),
     line,
@@ -1770,6 +1773,7 @@ function buildMockProductionFact(
 function buildCorrectFactDeps(
   fact: ReturnType<typeof buildMockProductionFact>,
   userRoles: string[] = ['NP'],
+  consumptionProducts: { id: string; category: 'MASS' | 'GP' | 'PF'; active: boolean }[] = [],
 ) {
   const writeAudit = vi.fn();
   const writeTiming = vi.fn();
@@ -1785,10 +1789,17 @@ function buildCorrectFactDeps(
   );
   const factFindUnique = vi.fn().mockResolvedValue(fact);
 
+  const consumptionDeleteMany = vi.fn().mockResolvedValue(undefined);
+  const consumptionCreateMany = vi.fn().mockResolvedValue(undefined);
+
   const tx = {
     productionFact: {
       update: factUpdate,
       findUnique: factFindUnique,
+    },
+    factConsumption: {
+      deleteMany: consumptionDeleteMany,
+      createMany: consumptionCreateMany,
     },
     warehouse: {
       findFirstOrThrow: vi.fn().mockResolvedValue({ id: 'wh-prod', type: 'PRODUCTION' }),
@@ -1798,6 +1809,9 @@ function buildCorrectFactDeps(
   const prisma = {
     productionFact: {
       findUnique: factFindUnique,
+    },
+    product: {
+      findMany: vi.fn().mockResolvedValue(consumptionProducts),
     },
     $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(tx)),
   } as unknown as NonNullable<Parameters<typeof correctProductionFact>[2]>['prisma'];
@@ -1809,6 +1823,8 @@ function buildCorrectFactDeps(
     writeTiming,
     factUpdate,
     tx,
+    consumptionDeleteMany,
+    consumptionCreateMany,
     applyStockMovements,
     updateShiftSummary,
     syncOneCTask: vi.fn().mockResolvedValue('updated'),
@@ -1988,5 +2004,164 @@ describe('correctProductionFact', () => {
         writeTiming: deps.writeTiming,
       }),
     ).rejects.toThrow('Forbidden');
+  });
+
+  function buildGpFactWithConsumption(
+    consumptions: { productId: string; quantity: Prisma.Decimal }[],
+  ): ReturnType<typeof buildMockProductionFact> {
+    const order = buildSubstitutableOrder('COMPLETED', [
+      buildSubstitutableLine('REPORTED', {
+        workCenterId: 'wc-03',
+        productId: 'gp-1',
+        product: {
+          id: 'gp-1',
+          code: 'GP-001',
+          name: 'Крем',
+          unit: 'шт',
+          category: 'GP',
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        workCenter: {
+          id: 'wc-03',
+          code: '03',
+          name: '03.Тубировка крем',
+          active: true,
+          producesMass: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      } as Partial<MockOrderLine>),
+    ]);
+
+    return buildMockProductionFact({
+      line: { ...order.lines[0], order },
+      consumptions,
+    });
+  }
+
+  const massConsumable = { id: 'mass-1', category: 'MASS' as const, active: true };
+  const pfConsumable = { id: 'pf-1', category: 'GP' as const, active: true };
+
+  function correctionDeps(deps: ReturnType<typeof buildCorrectFactDeps>) {
+    return {
+      prisma: deps.prisma,
+      requirePermission: deps.requirePermission,
+      writeAudit: deps.writeAudit,
+      writeTiming: deps.writeTiming,
+      applyStockMovements: deps.applyStockMovements,
+      updateShiftSummary: deps.updateShiftSummary,
+      syncOneCTask: deps.syncOneCTask,
+    };
+  }
+
+  it('corrects consumption and recalculates stock movements (T-073, Р-10)', async () => {
+    const fact = buildGpFactWithConsumption([{ productId: 'mass-1', quantity: new Decimal(30) }]);
+    const deps = buildCorrectFactDeps(fact, ['NP'], [massConsumable, pfConsumable]);
+
+    await correctProductionFact(
+      'fact-1',
+      {
+        quantity: 45,
+        correctionReason: 'Уточнение выпуска и потребления',
+        consumption: [
+          { productId: 'mass-1', quantity: 20 },
+          { productId: 'pf-1', quantity: 5 },
+        ],
+      },
+      correctionDeps(deps),
+    );
+
+    expect(deps.consumptionDeleteMany).toHaveBeenCalledWith({ where: { productionFactId: 'fact-1' } });
+    expect(deps.consumptionCreateMany).toHaveBeenCalledWith({
+      data: [
+        { productionFactId: 'fact-1', productId: 'mass-1', quantity: new Decimal(20) },
+        { productionFactId: 'fact-1', productId: 'pf-1', quantity: new Decimal(5) },
+      ],
+    });
+
+    const movements = deps.applyStockMovements.mock.calls.flatMap((call) => call[1]);
+    expect(movements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ productId: 'mass-1', type: 'RECEIPT', stockCategory: 'MASS' }),
+        // Потребление ГП-позиции списывается как ПФ (M04 Р-10, M05).
+        expect.objectContaining({ productId: 'pf-1', type: 'CONSUMPTION', stockCategory: 'PF' }),
+      ]),
+    );
+
+    const auditInputs = deps.writeAudit.mock.calls.map((call) => call[1]) as {
+      field?: string | null;
+      oldValue?: string | null;
+      newValue?: string | null;
+    }[];
+    const consumptionAudit = auditInputs.find((input) => input.field === 'consumption');
+    expect(consumptionAudit).toBeDefined();
+    expect(consumptionAudit?.oldValue).toContain('mass-1');
+    expect(consumptionAudit?.newValue).toContain('pf-1');
+
+    expect(deps.syncOneCTask).toHaveBeenCalled();
+  });
+
+  it('does not touch consumption rows when the composition is unchanged', async () => {
+    const fact = buildGpFactWithConsumption([{ productId: 'mass-1', quantity: new Decimal(20) }]);
+    const deps = buildCorrectFactDeps(fact, ['NP'], [massConsumable]);
+
+    await correctProductionFact(
+      'fact-1',
+      {
+        quantity: 45,
+        correctionReason: 'Только выпуск',
+        consumption: [{ productId: 'mass-1', quantity: 20 }],
+      },
+      correctionDeps(deps),
+    );
+
+    expect(deps.consumptionDeleteMany).not.toHaveBeenCalled();
+    expect(deps.consumptionCreateMany).not.toHaveBeenCalled();
+  });
+
+  it('blocks consumption on a МАСС work centre (Р-10)', async () => {
+    const fact = buildMockProductionFact();
+    const deps = buildCorrectFactDeps(fact, ['NP'], [massConsumable]);
+
+    await expect(
+      correctProductionFact(
+        'fact-1',
+        {
+          quantity: 10,
+          correctionReason: 'Причина',
+          consumption: [{ productId: 'mass-1', quantity: 5 }],
+        },
+        {
+          prisma: deps.prisma,
+          requirePermission: deps.requirePermission,
+          writeAudit: deps.writeAudit,
+          writeTiming: deps.writeTiming,
+        },
+      ),
+    ).rejects.toThrow('Потребление указывается только на ГП/ПФ-РЦ');
+  });
+
+  it('blocks consumption of an unknown product', async () => {
+    const fact = buildGpFactWithConsumption([]);
+    const deps = buildCorrectFactDeps(fact, ['NP'], []);
+
+    await expect(
+      correctProductionFact(
+        'fact-1',
+        {
+          quantity: 45,
+          correctionReason: 'Причина',
+          consumption: [{ productId: 'unknown', quantity: 5 }],
+        },
+        {
+          prisma: deps.prisma,
+          requirePermission: deps.requirePermission,
+          writeAudit: deps.writeAudit,
+          writeTiming: deps.writeTiming,
+        },
+      ),
+    ).rejects.toThrow('Позиция потребления не найдена');
   });
 });

@@ -16,6 +16,7 @@ import { getAttributeRole } from '@prodtrack/contracts';
 import {
   applyStockMovements,
   buildProductionFactMovements,
+  consumptionProductCategoryToStockCategory,
   factCategoryToStockCategory,
 } from '@/lib/stock-service';
 import { updateShiftSummary } from '@/lib/shift-summary-service';
@@ -1031,6 +1032,8 @@ export async function correctProductionFact(
     defectQuantity?: number;
     defectReasonId?: string;
     stopsDurationMinutes?: number;
+    /** T-073: состав и количество потребления (Р-10); пустой список — потребления нет. */
+    consumption?: { productId: string; quantity: number }[];
     correctionReason: string;
   },
   deps: CreateProductionOrderDeps = { prisma, writeAudit, writeTiming, requirePermission },
@@ -1055,9 +1058,12 @@ export async function correctProductionFact(
   const fact = await deps.prisma.productionFact.findUnique({
     where: { id: factId },
     include: {
+      // T-073: корректируется весь факт, включая потребление (M04 §4.1, UC-M04-3).
+      consumptions: { include: { product: true } },
       line: {
         include: {
           order: true,
+          workCenter: true,
         },
       },
     },
@@ -1075,6 +1081,29 @@ export async function correctProductionFact(
   const lineId = fact.line.id;
   const attributedRole = getAttributeRole(roles, 'production_order:confirm') ?? undefined;
 
+  // Потребление (Р-10): та же проверка, что при вводе факта, — указывается только на ГП/ПФ-РЦ.
+  const consumption = parseSubstitutionConsumption(input.consumption);
+  if (fact.line.workCenter.producesMass && consumption.length > 0) {
+    throw new Error('Потребление указывается только на ГП/ПФ-РЦ');
+  }
+
+  const consumptionProductIds = [...new Set(consumption.map((item) => item.productId))];
+  const consumptionProducts =
+    consumptionProductIds.length > 0
+      ? await deps.prisma.product.findMany({ where: { id: { in: consumptionProductIds } } })
+      : [];
+  const consumptionProductById = new Map(consumptionProducts.map((product) => [product.id, product]));
+
+  for (const item of consumption) {
+    const product = consumptionProductById.get(item.productId);
+    if (!product) {
+      throw new Error('Позиция потребления не найдена');
+    }
+    if (!product.active) {
+      throw new Error('Позиция потребления деактивирована');
+    }
+  }
+
   const oldValues = {
     quantity: fact.quantity.toString(),
     defectQuantity: fact.defectQuantity.toString(),
@@ -1088,6 +1117,41 @@ export async function correctProductionFact(
     defectReasonId: input.defectReasonId ?? null,
     stopsDurationMinutes,
   };
+
+  const zero = new Prisma.Decimal(0);
+  const oldConsumption = new Map(
+    fact.consumptions.map((item) => [item.productId, item.quantity]),
+  );
+  const newConsumption = new Map(
+    consumption.map((item) => [item.productId, new Prisma.Decimal(item.quantity)]),
+  );
+  const oldConsumptionValues = fact.consumptions
+    .map((item) => ({ productId: item.productId, quantity: item.quantity.toString() }))
+    .sort((a, b) => a.productId.localeCompare(b.productId));
+  const newConsumptionValues = consumption
+    .map((item) => ({ productId: item.productId, quantity: new Prisma.Decimal(item.quantity).toString() }))
+    .sort((a, b) => a.productId.localeCompare(b.productId));
+  const consumptionChanged =
+    JSON.stringify(oldConsumptionValues) !== JSON.stringify(newConsumptionValues);
+
+  // Движения по разнице потребления: выросло — списание, уменьшилось — возврат в остаток (M05).
+  const consumptionMovements = [...new Set([...oldConsumption.keys(), ...newConsumption.keys()])]
+    .map((productId) => {
+      const delta = (newConsumption.get(productId) ?? zero).minus(oldConsumption.get(productId) ?? zero);
+      const product = consumptionProductById.get(productId);
+      if (delta.equals(0) || !product) {
+        return null;
+      }
+      return {
+        productId,
+        stockCategory: consumptionProductCategoryToStockCategory(product.category),
+        type: delta.greaterThan(0) ? ('CONSUMPTION' as const) : ('RECEIPT' as const),
+        quantity: delta.absoluteValue(),
+        sourceType: 'FACT_CORRECTION',
+        sourceId: fact.id,
+      };
+    })
+    .filter((movement): movement is NonNullable<typeof movement> => movement !== null);
 
   const result = await deps.prisma.$transaction(async (tx) => {
     const updated = await tx.productionFact.update({
@@ -1104,23 +1168,51 @@ export async function correctProductionFact(
     });
 
     const correctionDelta = quantity.minus(fact.quantity);
-    if (!correctionDelta.equals(0)) {
+    const needsWarehouse = !correctionDelta.equals(0) || consumptionMovements.length > 0;
+
+    if (needsWarehouse) {
       const productionWarehouse = await tx.warehouse.findFirstOrThrow({
         where: { type: 'PRODUCTION' },
       });
-      await (deps.applyStockMovements ?? applyStockMovements)(tx, [
-        {
-          warehouseId: productionWarehouse.id,
-          productId: fact.productId,
-          stockCategory: factCategoryToStockCategory(fact.factCategory),
-          type: correctionDelta.greaterThan(0)
-            ? 'RECEIPT'
-            : 'CONSUMPTION',
-          quantity: correctionDelta.absoluteValue(),
-          sourceType: 'FACT_CORRECTION',
-          sourceId: fact.id,
-        },
-      ]);
+
+      if (!correctionDelta.equals(0)) {
+        await (deps.applyStockMovements ?? applyStockMovements)(tx, [
+          {
+            warehouseId: productionWarehouse.id,
+            productId: fact.productId,
+            stockCategory: factCategoryToStockCategory(fact.factCategory),
+            type: correctionDelta.greaterThan(0)
+              ? 'RECEIPT'
+              : 'CONSUMPTION',
+            quantity: correctionDelta.absoluteValue(),
+            sourceType: 'FACT_CORRECTION',
+            sourceId: fact.id,
+          },
+        ]);
+      }
+
+      if (consumptionMovements.length > 0) {
+        await (deps.applyStockMovements ?? applyStockMovements)(
+          tx,
+          consumptionMovements.map((movement) => ({
+            ...movement,
+            warehouseId: productionWarehouse.id,
+          })),
+        );
+      }
+    }
+
+    if (consumptionChanged) {
+      await tx.factConsumption.deleteMany({ where: { productionFactId: factId } });
+      if (consumption.length > 0) {
+        await tx.factConsumption.createMany({
+          data: consumption.map((item) => ({
+            productionFactId: factId,
+            productId: item.productId,
+            quantity: new Prisma.Decimal(item.quantity),
+          })),
+        });
+      }
     }
 
     await (deps.updateShiftSummary ?? updateShiftSummary)(lineId, tx);
@@ -1139,6 +1231,21 @@ export async function correctProductionFact(
       userRoles: roles,
       permission: 'production_order:confirm',
     });
+
+    if (consumptionChanged) {
+      // Р-09/Р-18: изменение потребления — отдельной записью «старое → новое».
+      await deps.writeAudit(tx, {
+        action: 'UPDATE',
+        objectType: 'ProductionFact',
+        objectId: factId,
+        field: 'consumption',
+        oldValue: JSON.stringify(oldConsumptionValues),
+        newValue: JSON.stringify(newConsumptionValues),
+        userId,
+        userRoles: roles,
+        permission: 'production_order:confirm',
+      });
+    }
 
     await deps.writeAudit(tx, {
       action: 'UPDATE',
@@ -1219,7 +1326,7 @@ export async function getProductionOrderById(id: string) {
   const roles = session.user.roles.map((ur) => ur.role.code);
   const canReadAll = hasPermission(roles, 'production_order:read');
 
-  const [order, defectReasons] = await Promise.all([
+  const [order, defectReasons, consumableProducts] = await Promise.all([
     prisma.productionOrder.findUnique({
       where: { id },
       include: {
@@ -1235,6 +1342,8 @@ export async function getProductionOrderById(id: string) {
             facts: {
               include: {
                 defectReason: true,
+                // T-073: корректировка факта правит потребление — нужен его состав.
+                consumptions: true,
               },
             },
             workerAssignments: {
@@ -1250,10 +1359,15 @@ export async function getProductionOrderById(id: string) {
       where: { active: true },
       orderBy: { code: 'asc' },
     }),
+    // Потребление (Р-10): Масса и ГП/ПФ-позиции — тот же набор, что на экране исполнения.
+    prisma.product.findMany({
+      where: { active: true, category: { in: ['MASS', 'GP'] } },
+      orderBy: { name: 'asc' },
+    }),
   ]);
 
   if (!order) {
-    return { order: null, defectReasons };
+    return { order: null, defectReasons, consumableProducts };
   }
 
   // ОПР видит только ПЗ, в которых есть строка его РЦ, и только эти строки (свой РЦ, M02).
@@ -1263,12 +1377,12 @@ export async function getProductionOrderById(id: string) {
       ? order.lines.filter((line) => line.operatorId === employeeId)
       : [];
     if (ownLines.length === 0) {
-      return { order: null, defectReasons };
+      return { order: null, defectReasons, consumableProducts };
     }
-    return { order: { ...order, lines: ownLines }, defectReasons };
+    return { order: { ...order, lines: ownLines }, defectReasons, consumableProducts };
   }
 
-  return { order, defectReasons };
+  return { order, defectReasons, consumableProducts };
 }
 
 export async function getProductionOrders() {

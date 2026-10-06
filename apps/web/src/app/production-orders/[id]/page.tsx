@@ -26,7 +26,7 @@ export default async function ProductionOrderPage({ params }: ProductionOrderPag
     );
   }
 
-  const { order, defectReasons } = await getProductionOrderById(params.id);
+  const { order, defectReasons, consumableProducts } = await getProductionOrderById(params.id);
   if (!order) {
     // ПЗ не существует либо (для ОПР) в нём нет строк его РЦ — отдаём 404, а не 500.
     notFound();
@@ -35,7 +35,12 @@ export default async function ProductionOrderPage({ params }: ProductionOrderPag
   const userRoles = access.roles;
   return (
     <>
-      <ProductionOrderCard order={order} defectReasons={defectReasons} userRoles={userRoles} />
+      <ProductionOrderCard
+        order={order}
+        defectReasons={defectReasons}
+        consumableProducts={consumableProducts}
+        userRoles={userRoles}
+      />
       {/* Вкладка «История» карточки объекта (M13 §8). */}
       <ObjectHistory
         objectType="ProductionOrder"

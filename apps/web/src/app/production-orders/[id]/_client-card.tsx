@@ -16,6 +16,7 @@ import type {
   User,
   ProductionOrderLineWorkers,
   ProductionFact,
+  FactConsumption,
   DefectReason,
 } from '@prisma/client';
 import { confirmProductionOrderAction, substituteOperatorAction, cancelProductionOrderAction, correctProductionFactAction } from '../actions';
@@ -31,13 +32,95 @@ interface ProductionOrderCardProps {
         workCenter: WorkCenter;
         product: Product;
         operator: Employee | null;
-        facts: Array<ProductionFact & { defectReason: DefectReason | null }>;
+        facts: Array<
+          ProductionFact & {
+            defectReason: DefectReason | null;
+            // T-073: состав потребления нужен, чтобы корректировать его в карточке.
+            consumptions: FactConsumption[];
+          }
+        >;
         workerAssignments: Array<ProductionOrderLineWorkers & { employee: Employee }>;
       }
     >;
   };
   defectReasons: DefectReason[];
+  /** Потребляемые позиции (Масса и ГП/ПФ) для правки потребления (Р-10, T-073). */
+  consumableProducts: Product[];
   userRoles: string[];
+}
+
+interface ConsumptionRowState {
+  productId: string;
+  quantity: string;
+}
+
+/**
+ * Редактор потребления (Р-10): строки «номенклатура + количество» с добавлением и удалением.
+ * Используется и в «Вводе за Оператора» (Р-11), и в «Корректировке факта» (Р-18, T-073).
+ */
+function ConsumptionEditor({
+  idPrefix,
+  rows,
+  products,
+  onChange,
+}: {
+  idPrefix: string;
+  rows: ConsumptionRowState[];
+  products: Product[];
+  onChange: (rows: ConsumptionRowState[]) => void;
+}) {
+  const options = products.map((product) => ({
+    value: product.id,
+    label: `${product.name} (${product.unit})`,
+  }));
+
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={`${idPrefix}-consumption-0`}>Потребление</Label>
+      {rows.map((row, index) => (
+        <div key={index} className="flex items-end gap-2">
+          <div className="flex-1">
+            <Select
+              id={`${idPrefix}-consumption-${index}`}
+              value={row.productId}
+              onChange={(e) =>
+                onChange(rows.map((item, i) => (i === index ? { ...item, productId: e.target.value } : item)))
+              }
+              options={options}
+              placeholder="Выберите номенклатуру"
+            />
+          </div>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={row.quantity}
+            onChange={(e) =>
+              onChange(rows.map((item, i) => (i === index ? { ...item, quantity: e.target.value } : item)))
+            }
+            placeholder="Количество"
+            aria-label="Количество потребления"
+            className="h-10 w-32 rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => onChange(rows.filter((_, i) => i !== index))}
+            aria-label="Удалить строку потребления"
+          >
+            ×
+          </Button>
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="secondary"
+        onClick={() => onChange([...rows, { productId: '', quantity: '' }])}
+      >
+        Добавить строку потребления
+      </Button>
+    </div>
+  );
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -73,7 +156,12 @@ const SUBSTITUTION_REASON_OPTIONS = [
   { value: 'OTHER', label: 'Прочее' },
 ];
 
-export default function ProductionOrderCard({ order, defectReasons, userRoles }: ProductionOrderCardProps) {
+export default function ProductionOrderCard({
+  order,
+  defectReasons,
+  consumableProducts,
+  userRoles,
+}: ProductionOrderCardProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
@@ -98,6 +186,8 @@ export default function ProductionOrderCard({ order, defectReasons, userRoles }:
   const [correctDefectReasonId, setCorrectDefectReasonId] = useState('');
   const [correctStops, setCorrectStops] = useState('');
   const [correctReason, setCorrectReason] = useState('');
+  const [correctConsumption, setCorrectConsumption] = useState<ConsumptionRowState[]>([]);
+  const [correctLineId, setCorrectLineId] = useState<string | null>(null);
   const [correctError, setCorrectError] = useState<string | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const isDraft = order.status === 'DRAFT';
@@ -156,15 +246,33 @@ export default function ProductionOrderCard({ order, defectReasons, userRoles }:
     });
   }
 
-  function openCorrectFactDialog(fact: ProductionFact) {
+  function openCorrectFactDialog(
+    fact: ProductionFact & { consumptions: FactConsumption[] },
+    lineId: string,
+  ) {
     setCorrectFactId(fact.id);
+    setCorrectLineId(lineId);
     setCorrectQuantity(fact.quantity.toString());
     setCorrectDefectQuantity(fact.defectQuantity.toString());
     setCorrectDefectReasonId(fact.defectReasonId ?? '');
     setCorrectStops(fact.stopsDurationMinutes.toString());
+    // T-073: потребление правится вместе с остальным фактом — показываем текущий состав.
+    setCorrectConsumption(
+      fact.consumptions.map((item) => ({
+        productId: item.productId,
+        quantity: item.quantity.toString(),
+      })),
+    );
     setCorrectReason('');
     setCorrectError(null);
     setShowCorrectFactDialog(true);
+  }
+
+  /** РЦ строки, факт которой корректируется: на МАСС-РЦ потребление не указывается (Р-10). */
+  function correctLineProducesMass(): boolean {
+    if (!correctLineId) return true;
+    const line = order.lines.find((item) => item.id === correctLineId);
+    return line?.workCenter.producesMass ?? true;
   }
 
   function handleCorrectFactSubmit(e: React.FormEvent) {
@@ -198,11 +306,33 @@ export default function ProductionOrderCard({ order, defectReasons, userRoles }:
       return;
     }
 
+    const consumption = correctConsumption.filter((row) => row.productId && row.quantity);
+    const seenProducts = new Set<string>();
+    for (const row of consumption) {
+      if (seenProducts.has(row.productId)) {
+        setCorrectError('Позиция потребления не может повторяться');
+        return;
+      }
+      seenProducts.add(row.productId);
+      if (Number(row.quantity) <= 0 || Number.isNaN(Number(row.quantity))) {
+        setCorrectError('Количество потребления должно быть больше 0');
+        return;
+      }
+    }
+
     const formData = new FormData();
     formData.set('quantity', correctQuantity);
     if (correctDefectQuantity) formData.set('defectQuantity', correctDefectQuantity);
     if (correctDefectReasonId) formData.set('defectReasonId', correctDefectReasonId);
     if (correctStops) formData.set('stopsDurationMinutes', correctStops);
+    if (consumption.length > 0) {
+      formData.set(
+        'consumption',
+        JSON.stringify(
+          consumption.map((row) => ({ productId: row.productId, quantity: Number(row.quantity) })),
+        ),
+      );
+    }
     formData.set('correctionReason', reason);
 
     startTransition(async () => {
@@ -486,7 +616,7 @@ export default function ProductionOrderCard({ order, defectReasons, userRoles }:
                             variant="cta"
                             size="sm"
                             disabled={isPending}
-                            onClick={() => openCorrectFactDialog(fact)}
+                            onClick={() => openCorrectFactDialog(fact, line.id)}
                           >
                             Корректировать факт
                           </Button>
@@ -603,6 +733,14 @@ export default function ProductionOrderCard({ order, defectReasons, userRoles }:
               className="flex h-10 w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
             />
           </div>
+          {!correctLineProducesMass() && (
+            <ConsumptionEditor
+              idPrefix="correct"
+              rows={correctConsumption}
+              products={consumableProducts}
+              onChange={setCorrectConsumption}
+            />
+          )}
           <div className="space-y-2">
             <Label htmlFor="correct-reason">Причина корректировки</Label>
             <textarea
@@ -699,6 +837,15 @@ export default function ProductionOrderCard({ order, defectReasons, userRoles }:
                 className="flex h-10 w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
               />
             </div>
+          )}
+
+          {productCategoryForSubstituteLine() === 'GP' && (
+            <ConsumptionEditor
+              idPrefix="substitute"
+              rows={substituteConsumption}
+              products={consumableProducts}
+              onChange={setSubstituteConsumption}
+            />
           )}
 
           <div className="space-y-2">
