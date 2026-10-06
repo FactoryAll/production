@@ -1136,6 +1136,20 @@ export async function correctProductionFact(
     stopsDurationMinutes,
   };
 
+  // Р-09: в журнал попадают только реально изменившиеся поля. Корректировка перезаписывает
+  // факт целиком, но если выпуск, брак, причина и остановки остались прежними, запись
+  // «изменение без изменения» только засоряет журнал (наблюдение ручного тестирования v2.0.0).
+  const factChanges = (
+    [
+      ['quantity', oldValues.quantity, newValues.quantity],
+      ['defectQuantity', oldValues.defectQuantity, newValues.defectQuantity],
+      ['defectReasonId', oldValues.defectReasonId, newValues.defectReasonId],
+      ['stopsDurationMinutes', oldValues.stopsDurationMinutes, newValues.stopsDurationMinutes],
+    ] as const
+  )
+    .filter(([, oldValue, newValue]) => oldValue !== newValue)
+    .map(([field, oldValue, newValue]) => ({ field, oldValue, newValue }));
+
   const zero = new Prisma.Decimal(0);
   const oldConsumption = new Map(
     fact.consumptions.map((item) => [item.productId, item.quantity]),
@@ -1248,17 +1262,19 @@ export async function correctProductionFact(
     // M12 (BR-9): корректировка факта меняет данные итога смены — задача С1С обновляется.
     await (deps.syncOneCTask ?? syncProductionOrderTask)(tx, orderId);
 
-    await deps.writeAudit(tx, {
-      action: 'UPDATE',
-      objectType: 'ProductionFact',
-      objectId: factId,
-      field: 'quantity,defectQuantity,defectReasonId,stopsDurationMinutes',
-      oldValue: JSON.stringify(oldValues),
-      newValue: JSON.stringify(newValues),
-      userId,
-      userRoles: roles,
-      permission: 'production_order:confirm',
-    });
+    if (factChanges.length > 0) {
+      await deps.writeAudit(tx, {
+        action: 'UPDATE',
+        objectType: 'ProductionFact',
+        objectId: factId,
+        field: factChanges.map((change) => change.field).join(','),
+        oldValue: JSON.stringify(Object.fromEntries(factChanges.map((change) => [change.field, change.oldValue]))),
+        newValue: JSON.stringify(Object.fromEntries(factChanges.map((change) => [change.field, change.newValue]))),
+        userId,
+        userRoles: roles,
+        permission: 'production_order:confirm',
+      });
+    }
 
     if (consumptionChanged) {
       // Р-09/Р-18: изменение потребления — отдельной записью «старое → новое».

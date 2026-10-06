@@ -169,8 +169,8 @@ export default async function AuditServerPage({ searchParams }: AuditPageProps) 
                 </td>
                 <td className="py-2 pr-4 text-graphite">{auditActionLabel(record.action)}</td>
                 <td className="py-2 pr-4 text-steel-graphite">
-                  {auditObjectLabel(record.objectType)}
-                  <span className="ml-1 font-mono text-xs text-machine-gray">
+                  {auditObjectLabel(record.objectType)}{' '}
+                  <span className="font-mono text-xs text-machine-gray">
                     {record.objectId.slice(0, 8)}
                   </span>
                   {record.archived && (

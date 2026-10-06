@@ -2147,6 +2147,31 @@ describe('correctProductionFact', () => {
     expect(deps.syncOneCTask).toHaveBeenCalled();
   });
 
+  it('пишет в журнал только изменившиеся поля факта (наблюдение ручного тестирования v2.0.0)', async () => {
+    const fact = buildGpFactWithConsumption([{ productId: 'mass-1', quantity: new Decimal(30) }]);
+    const deps = buildCorrectFactDeps(fact, ['NP'], [massConsumable]);
+
+    await correctProductionFact(
+      'fact-1',
+      {
+        // Выпуск, брак, причина и остановки не меняются — правится только потребление.
+        quantity: 10,
+        correctionReason: 'Изменено только потребление',
+        consumption: [{ productId: 'mass-1', quantity: 25 }],
+      },
+      correctionDeps(deps),
+    );
+
+    const auditInputs = deps.writeAudit.mock.calls.map((call) => call[1]) as {
+      field?: string | null;
+    }[];
+
+    expect(auditInputs.some((input) => input.field === 'consumption')).toBe(true);
+    // Записи «изменение без изменения» по неизменившимся полям быть не должно.
+    expect(auditInputs.some((input) => (input.field ?? '').includes('quantity'))).toBe(false);
+    expect(auditInputs.some((input) => input.field === 'stopsDurationMinutes')).toBe(false);
+  });
+
   it('не трогает потребление, если поле не передано (правка выпуска)', async () => {
     const fact = buildGpFactWithConsumption([{ productId: 'mass-1', quantity: new Decimal(30) }]);
     const deps = buildCorrectFactDeps(fact, ['NP'], [massConsumable]);
