@@ -1,15 +1,5 @@
 import { test, expect } from '@playwright/test';
-
-/**
- * Текущая смена по Р-05: 1-я 08:00–20:00, иначе 2-я.
- *
- * Дашборд показывает «ПЗ текущей смены» (M11 BR-5), поэтому заказ нужно создавать именно
- * для неё: иначе виджет его не покажет и тест ничего не проверит.
- */
-function currentShiftNumber(now: Date): number {
-  const hours = now.getHours();
-  return hours >= 8 && hours < 20 ? 1 : 2;
-}
+import { currentShiftNumber, localDateKey, resolveShiftId } from '@prodtrack/db';
 
 /**
  * UC-M11-2: показатели дашборда обновляются в реальном времени, без перезагрузки страницы.
@@ -24,10 +14,15 @@ test('дашборд обновляется без перезагрузки (M11
   const { prisma } = await import('@prodtrack/db');
   const marker = 'LIVE' + Date.now().toString(36).toUpperCase();
 
-  const [shift, workCenter, author] = await Promise.all([
-    prisma.shift.findFirstOrThrow({
-      where: { active: true, number: currentShiftNumber(new Date()) },
-    }),
+  // T-075: «текущая смена» — сегодняшняя дата и текущий номер по Р-05, поэтому смену берём
+  // (или создаём) именно такую: со сменой из сида заказ в показатель не попал бы.
+  const now = new Date();
+  const shiftId = await resolveShiftId(prisma, {
+    dateKey: localDateKey(now),
+    number: currentShiftNumber(now),
+  });
+
+  const [workCenter, author] = await Promise.all([
     prisma.workCenter.findUniqueOrThrow({ where: { code: '01' } }),
     prisma.user.findUniqueOrThrow({ where: { login: 'test_multi_role' } }),
   ]);
@@ -46,7 +41,7 @@ test('дашборд обновляется без перезагрузки (M11
 
   await prisma.productionOrder.create({
     data: {
-      shiftId: shift.id,
+      shiftId,
       status: 'CONFIRMED',
       createdById: author.id,
       confirmedAt: new Date(),
