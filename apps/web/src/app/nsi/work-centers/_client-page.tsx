@@ -182,6 +182,9 @@ export default function WorkCentersPage({
       </Card>
 
       <WorkCenterDialog
+        // Диалог смонтирован постоянно, поэтому состояние формы сбрасывается сменой ключа:
+        // иначе поля остаются от предыдущего открытия (дефект, найденный на v2.0.0).
+        key={editing?.id ?? 'new'}
         open={dialogOpen}
         onClose={() => {
           setDialogOpen(false);
