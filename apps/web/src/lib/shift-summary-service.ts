@@ -168,7 +168,7 @@ async function upsertShiftSummary(
 /**
  * Rebuilds all ShiftSummary records for a production order.
  * Called when the production order is closed (T-027).
- * TODO T-038: use ShiftSummary data for shift report diagrams and metrics.
+ * Отчёт за смену строится из этих записей — `shift-report-service.ts` (T-038).
  */
 export async function buildShiftSummary(
   orderId: string,
