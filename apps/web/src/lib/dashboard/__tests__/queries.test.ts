@@ -1,15 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@prodtrack/db', () => ({
-  prisma: {
+vi.mock('@prodtrack/db', async () => {
+  const actual = await vi.importActual<typeof import('@prodtrack/db')>('@prodtrack/db');
+  return {
+    ...actual,
+    prisma: {
     productionOrderLine: { findMany: vi.fn(), aggregate: vi.fn() },
     shiftSummary: { aggregate: vi.fn() },
     goodsTransfer: { findMany: vi.fn() },
     stockMovement: { aggregate: vi.fn() },
     productionOrder: { findMany: vi.fn(), aggregate: vi.fn() },
     stageTiming: { findMany: vi.fn(), groupBy: vi.fn(), aggregate: vi.fn() },
-  },
-}));
+    },
+  };
+});
 vi.mock('@/app/timing/queries', () => ({
   buildStageDurationGroups: vi.fn(() => []),
 }));
@@ -64,7 +68,8 @@ describe('Виджеты дашборда: выборки (M11 §8)', () => {
         where: {
           order: {
             status: { in: ['CONFIRMED', 'IN_PROGRESS'] },
-            shift: { number: 1 },
+            // T-075: текущая смена — сегодняшняя дата и текущий номер.
+            shift: { number: 1, date: new Date(Date.UTC(2026, 9, 6)) },
           },
         },
       }),
@@ -82,7 +87,12 @@ describe('Виджеты дашборда: выборки (M11 §8)', () => {
 
     expect(prisma.productionOrderLine.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ order: expect.objectContaining({ shift: { number: 2 } }) }),
+        where: expect.objectContaining({
+          // Дата тоже участвует: ночью 6 октября текущая смена — 2-я от 6 октября (T-075).
+          order: expect.objectContaining({
+            shift: { number: 2, date: new Date(Date.UTC(2026, 9, 6)) },
+          }),
+        }),
       }),
     );
   });

@@ -1,17 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@prodtrack/db', () => ({
-  prisma: {
+vi.mock('@prodtrack/db', async () => {
+  const actual = await vi.importActual<typeof import('@prodtrack/db')>('@prodtrack/db');
+  return {
+    ...actual,
+    prisma: {
     productionOrderLine: { findMany: vi.fn(), aggregate: vi.fn() },
     shiftSummary: { aggregate: vi.fn() },
     goodsTransfer: { findMany: vi.fn() },
     stockMovement: { aggregate: vi.fn() },
     productionOrder: { findMany: vi.fn(), aggregate: vi.fn() },
     stageTiming: { findMany: vi.fn(), groupBy: vi.fn(), aggregate: vi.fn() },
-  },
-  writeAudit: vi.fn(),
-  writeTiming: vi.fn(),
-}));
+    },
+    writeAudit: vi.fn(),
+    writeTiming: vi.fn(),
+  };
+});
 vi.mock('@/lib/auth/page-guard', () => ({ checkPageAccess: vi.fn() }));
 
 import { prisma } from '@prodtrack/db';

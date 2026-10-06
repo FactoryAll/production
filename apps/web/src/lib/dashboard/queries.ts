@@ -23,7 +23,10 @@ import {
   type CategoryTotals,
   type StageDurationSummary,
 } from './aggregates';
-import { currentShiftNumber, type DateRange } from './period';
+// Номер текущей смены и календарная дата берутся из общего модуля смен (T-075):
+// смена — это дата и номер, а не строка справочника, которую ведут руками.
+import { currentShiftNumber, localDateKey, shiftDateColumn } from '@prodtrack/db';
+import type { DateRange } from './period';
 import { buildDashboardRevision } from './stream';
 
 /** Максимум строк в списке документов дашборда (M11 §8). */
@@ -107,7 +110,13 @@ export async function getInProduction(
     where: {
       order: {
         status: { in: ['CONFIRMED', 'IN_PROGRESS'] },
-        shift: { number: currentShiftNumber(now) },
+        // T-075: «текущая смена» — сегодняшняя дата и текущий номер по Р-05.
+        // Раньше хватало номера: справочник смен был шаблонным, и незакрытые ПЗ любой
+        // давности попадали в показатель «производится».
+        shift: {
+          number: currentShiftNumber(now),
+          date: shiftDateColumn(localDateKey(now)),
+        },
       },
       ...(workCenterIds ? { workCenterId: { in: workCenterIds } } : {}),
     },

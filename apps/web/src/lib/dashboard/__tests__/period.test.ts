@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  currentShiftNumber,
   dashboardPeriodRange,
   parseDashboardPeriod,
   DEFAULT_DASHBOARD_PERIOD,
@@ -41,13 +40,6 @@ describe('Период дашборда (M11 §8, решение владель�
     expect(range.from.getHours()).toBe(20);
     expect(range.from.getDate()).toBe(5);
     expect(range.to.getDate()).toBe(6);
-  });
-
-  it('номер текущей смены определяется временем суток', () => {
-    expect(currentShiftNumber(at(8))).toBe(1);
-    expect(currentShiftNumber(at(19, 59))).toBe(1);
-    expect(currentShiftNumber(at(20))).toBe(2);
-    expect(currentShiftNumber(at(3))).toBe(2);
   });
 
   it('«сегодня» — календарные сутки', () => {

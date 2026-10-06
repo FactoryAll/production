@@ -71,7 +71,5 @@ export function dashboardPeriodRange(period: DashboardPeriod, now: Date): DateRa
   }
 }
 
-/** Номер текущей смены по Р-05: 1 — 08:00–20:00, 2 — 20:00–08:00. */
-export function currentShiftNumber(now: Date): number {
-  return getCurrentShiftWindow(now).start.getHours() === 8 ? 1 : 2;
-}
+// Номер текущей смены живёт в @prodtrack/db (вместе с остальными правилами смен, T-075):
+// этот модуль остаётся чистым, потому что его импортирует клиентский компонент экрана.
