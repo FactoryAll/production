@@ -156,4 +156,33 @@ describe('Корректировка факта: потребление (T-073, 
     const formData = correctProductionFactAction.mock.calls[0][1] as FormData;
     expect(formData.get('consumption')).toBe(JSON.stringify([{ productId: 'mass-1', quantity: 20 }]));
   });
+
+  it('удаление всех строк потребления отправляет пустой список (T-073)', async () => {
+    correctProductionFactAction.mockResolvedValue({ success: true });
+
+    render(
+      <ProductionOrderCard
+        order={makeOrder()}
+        defectReasons={[]}
+        consumableProducts={[massProduct] as never}
+        userRoles={['NP']}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Корректировать факт' }));
+    await screen.findAllByLabelText('Количество потребления');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Удалить строку потребления' }));
+    fireEvent.change(screen.getByLabelText('Причина корректировки'), {
+      target: { value: 'Потребления не было' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить корректировку' }));
+
+    await waitFor(() => {
+      expect(correctProductionFactAction).toHaveBeenCalled();
+    });
+
+    const formData = correctProductionFactAction.mock.calls[0][1] as FormData;
+    expect(formData.get('consumption')).toBe('[]');
+  });
 });

@@ -325,14 +325,13 @@ export default function ProductionOrderCard({
     if (correctDefectQuantity) formData.set('defectQuantity', correctDefectQuantity);
     if (correctDefectReasonId) formData.set('defectReasonId', correctDefectReasonId);
     if (correctStops) formData.set('stopsDurationMinutes', correctStops);
-    if (consumption.length > 0) {
-      formData.set(
-        'consumption',
-        JSON.stringify(
-          consumption.map((row) => ({ productId: row.productId, quantity: Number(row.quantity) })),
-        ),
-      );
-    }
+    // Поле передаётся всегда: пустой список означает «потребления у факта нет» (T-073).
+    formData.set(
+      'consumption',
+      JSON.stringify(
+        consumption.map((row) => ({ productId: row.productId, quantity: Number(row.quantity) })),
+      ),
+    );
     formData.set('correctionReason', reason);
 
     startTransition(async () => {

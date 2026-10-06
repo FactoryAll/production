@@ -27,6 +27,10 @@ import {
   type ProductionOrderLineInput,
 } from '@/lib/validation/production-order';
 import {
+  parseCorrectFactFormData,
+  type CorrectProductionFactInput,
+} from '@/lib/validation/correct-fact';
+import {
   checkAndCloseProductionOrder,
   transitionToInProgress,
 } from '@/lib/production-order-closing';
@@ -1027,15 +1031,7 @@ const CORRECTABLE_STATUSES: ProductionOrderStatus[] = ['COMPLETED'];
 
 export async function correctProductionFact(
   factId: string,
-  input: {
-    quantity: number;
-    defectQuantity?: number;
-    defectReasonId?: string;
-    stopsDurationMinutes?: number;
-    /** T-073: состав и количество потребления (Р-10); пустой список — потребления нет. */
-    consumption?: { productId: string; quantity: number }[];
-    correctionReason: string;
-  },
+  input: CorrectProductionFactInput,
   deps: CreateProductionOrderDeps = { prisma, writeAudit, writeTiming, requirePermission },
 ): Promise<ProductionFact> {
   const session = await deps.requirePermission('production_order:confirm');
@@ -1082,12 +1078,22 @@ export async function correctProductionFact(
   const attributedRole = getAttributeRole(roles, 'production_order:confirm') ?? undefined;
 
   // Потребление (Р-10): та же проверка, что при вводе факта, — указывается только на ГП/ПФ-РЦ.
+  // Если поле не передано вовсе, потребление не трогаем: правка выпуска/брака/остановок
+  // не должна молча стирать состав потребления.
+  const consumptionProvided = input.consumption !== undefined;
   const consumption = parseSubstitutionConsumption(input.consumption);
   if (fact.line.workCenter.producesMass && consumption.length > 0) {
     throw new Error('Потребление указывается только на ГП/ПФ-РЦ');
   }
 
-  const consumptionProductIds = [...new Set(consumption.map((item) => item.productId))];
+  // Номенклатура нужна и для нового состава, и для прежнего: движения считаются по разнице,
+  // а категория остатка берётся у потребляемой позиции.
+  const consumptionProductIds = [
+    ...new Set([
+      ...consumption.map((item) => item.productId),
+      ...fact.consumptions.map((item) => item.productId),
+    ]),
+  ];
   const consumptionProducts =
     consumptionProductIds.length > 0
       ? await deps.prisma.product.findMany({ where: { id: { in: consumptionProductIds } } })
@@ -1132,15 +1138,25 @@ export async function correctProductionFact(
     .map((item) => ({ productId: item.productId, quantity: new Prisma.Decimal(item.quantity).toString() }))
     .sort((a, b) => a.productId.localeCompare(b.productId));
   const consumptionChanged =
+    consumptionProvided &&
     JSON.stringify(oldConsumptionValues) !== JSON.stringify(newConsumptionValues);
 
   // Движения по разнице потребления: выросло — списание, уменьшилось — возврат в остаток (M05).
-  const consumptionMovements = [...new Set([...oldConsumption.keys(), ...newConsumption.keys()])]
+  // Если поле не передано, потребление не правится — ни строки, ни остатки.
+  const consumptionMovements = (
+    !consumptionProvided
+      ? []
+      : [...new Set([...oldConsumption.keys(), ...newConsumption.keys()])]
+  )
     .map((productId) => {
       const delta = (newConsumption.get(productId) ?? zero).minus(oldConsumption.get(productId) ?? zero);
-      const product = consumptionProductById.get(productId);
-      if (delta.equals(0) || !product) {
+      if (delta.equals(0)) {
         return null;
+      }
+      const product = consumptionProductById.get(productId);
+      if (!product) {
+        // Молча терять движение нельзя: иначе остатки разойдутся с фактом.
+        throw new Error('Позиция потребления не найдена в номенклатуре');
       }
       return {
         productId,
@@ -1288,21 +1304,7 @@ export async function correctProductionFactAction(
   formData: FormData,
 ): Promise<CorrectProductionFactResult> {
   try {
-    const quantity = Number(formData.get('quantity'));
-    const defectQuantityRaw = formData.get('defectQuantity');
-    const defectQuantity = defectQuantityRaw ? Number(defectQuantityRaw) : undefined;
-    const defectReasonId = formData.get('defectReasonId') as string | undefined;
-    const stopsDurationMinutesRaw = formData.get('stopsDurationMinutes');
-    const stopsDurationMinutes = stopsDurationMinutesRaw ? Number(stopsDurationMinutesRaw) : undefined;
-    const correctionReason = formData.get('correctionReason') as string;
-
-    await correctProductionFact(factId, {
-      quantity,
-      defectQuantity,
-      defectReasonId: defectReasonId || undefined,
-      stopsDurationMinutes,
-      correctionReason,
-    });
+    await correctProductionFact(factId, parseCorrectFactFormData(formData));
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Не удалось скорректировать факт';

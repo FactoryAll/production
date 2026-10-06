@@ -1,7 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Prisma, type WorkCenter, type Product, type Employee, type Shift } from '@prisma/client';
 const Decimal = Prisma.Decimal;
-import { createProductionOrder, createProductionOrderAction, confirmProductionOrder, updateProductionOrder, substituteOperator, cancelProductionOrder, correctProductionFact } from '../actions';
+import {
+  createProductionOrder,
+  createProductionOrderAction,
+  confirmProductionOrder,
+  updateProductionOrder,
+  substituteOperator,
+  cancelProductionOrder,
+  correctProductionFact,
+} from '../actions';
+import { parseCorrectFactFormData } from '@/lib/validation/correct-fact';
 
 vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
@@ -1989,6 +1998,39 @@ describe('correctProductionFact', () => {
     ).rejects.toThrow('Укажите причину брака');
   });
 
+
+  it('разбирает потребление из формы корректировки (T-073)', () => {
+    const formData = new FormData();
+    formData.set('quantity', '45');
+    formData.set('correctionReason', 'Причина');
+    formData.set(
+      'consumption',
+      JSON.stringify([{ productId: 'mass-1', quantity: 25 }]),
+    );
+
+    const input = parseCorrectFactFormData(formData);
+
+    expect(input.quantity).toBe(45);
+    expect(input.consumption).toEqual([{ productId: 'mass-1', quantity: 25 }]);
+  });
+
+  it('без поля потребления оставляет его undefined (не править)', () => {
+    const formData = new FormData();
+    formData.set('quantity', '45');
+    formData.set('correctionReason', 'Причина');
+
+    expect(parseCorrectFactFormData(formData).consumption).toBeUndefined();
+  });
+
+  it('пустой список потребления из формы означаети «потребления нет»', () => {
+    const formData = new FormData();
+    formData.set('quantity', '45');
+    formData.set('correctionReason', 'Причина');
+    formData.set('consumption', JSON.stringify([]));
+
+    expect(parseCorrectFactFormData(formData).consumption).toEqual([]);
+  });
+
   it('blocks correction without production_order:confirm permission', async () => {
     const fact = buildMockProductionFact();
     const deps = buildCorrectFactDeps(fact);
@@ -2036,6 +2078,8 @@ describe('correctProductionFact', () => {
     ]);
 
     return buildMockProductionFact({
+      // Продукт факта — ГП строки, чтобы движения выпуска и потребления не путались в проверках.
+      productId: 'gp-1',
       line: { ...order.lines[0], order },
       consumptions,
     });
@@ -2101,6 +2145,50 @@ describe('correctProductionFact', () => {
     expect(consumptionAudit?.newValue).toContain('pf-1');
 
     expect(deps.syncOneCTask).toHaveBeenCalled();
+  });
+
+  it('не трогает потребление, если поле не передано (правка выпуска)', async () => {
+    const fact = buildGpFactWithConsumption([{ productId: 'mass-1', quantity: new Decimal(30) }]);
+    const deps = buildCorrectFactDeps(fact, ['NP'], [massConsumable]);
+
+    await correctProductionFact(
+      'fact-1',
+      { quantity: 47, correctionReason: 'Только выпуск' },
+      correctionDeps(deps),
+    );
+
+    expect(deps.consumptionDeleteMany).not.toHaveBeenCalled();
+    expect(deps.consumptionCreateMany).not.toHaveBeenCalled();
+    // Движение по потреблению не создаётся: состав не менялся.
+    const movements = deps.applyStockMovements.mock.calls.flatMap((call) => call[1]);
+    expect(movements.filter((movement) => movement.productId === 'mass-1')).toHaveLength(0);
+  });
+
+  it('очищает потребление при пустом списке и возвращает разницу в остаток (регресс T-073)', async () => {
+    const fact = buildGpFactWithConsumption([{ productId: 'mass-1', quantity: new Decimal(30) }]);
+    const deps = buildCorrectFactDeps(fact, ['NP'], [massConsumable]);
+
+    await correctProductionFact(
+      'fact-1',
+      { quantity: 47, correctionReason: 'Потребления не было', consumption: [] },
+      correctionDeps(deps),
+    );
+
+    expect(deps.consumptionDeleteMany).toHaveBeenCalledWith({ where: { productionFactId: 'fact-1' } });
+    expect(deps.consumptionCreateMany).not.toHaveBeenCalled();
+
+    // Удаление строки без движения по остатку недопустимо: разница вернулась в остаток.
+    const movements = deps.applyStockMovements.mock.calls.flatMap((call) => call[1]);
+    expect(movements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          productId: 'mass-1',
+          type: 'RECEIPT',
+          stockCategory: 'MASS',
+          quantity: new Decimal(30),
+        }),
+      ]),
+    );
   });
 
   it('does not touch consumption rows when the composition is unchanged', async () => {
