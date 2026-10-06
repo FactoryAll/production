@@ -68,6 +68,7 @@ describe('nav-items', () => {
       '/transfers',
       '/onec',
       '/audit',
+      '/roles',
       '/timing',
     ]);
   });
@@ -114,6 +115,15 @@ describe('nav-items', () => {
     for (const role of ['OPR', 'KSGP', 'USGP', 'S1C']) {
       expect(hrefsFor([role])).not.toContain('/audit');
     }
+  });
+
+  it('shows Роли only for the role holding roles:manage (M02, T-069)', () => {
+    expect(hrefsFor(['ADM'])).toContain('/roles');
+    for (const role of ['NP', 'OPR', 'KSGP', 'USGP', 'S1C']) {
+      expect(hrefsFor([role])).not.toContain('/roles');
+    }
+    // Совмещение ролей (Р-23): право даёт любая из ролей пользователя.
+    expect(hrefsFor(['OPR', 'ADM'])).toContain('/roles');
   });
 
   it('always keeps the dashboard entry', () => {

@@ -54,6 +54,12 @@ export function getNavItems(userRoles: string[]): NavItem[] {
     items.push({ label: 'Аудит', href: '/audit' });
   }
 
+  // Роли M02: экран /roles защищён правом `roles:manage` (только АДМ). До T-069
+  // пункта меню не было ни у одной роли, и экран открывался лишь по прямому адресу.
+  if (hasPermission(userRoles, 'roles:manage')) {
+    items.push({ label: 'Роли', href: '/roles' });
+  }
+
   // Хронометраж M10 доступен всем ролям (M10 §3); ОПР видит только свой РЦ.
   items.push({ label: 'Хронометраж', href: '/timing' });
 
