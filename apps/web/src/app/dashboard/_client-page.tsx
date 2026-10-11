@@ -60,11 +60,18 @@ function KpiCard({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function KpiValue({ value, unit }: { value: string; unit?: string }) {
+/**
+ * Значение показателя.
+ *
+ * Все величины карточки оформлены одинаково: в показателе важны и килограммы, и штуки,
+ * поэтому акцентом выделено каждое число, а различает их подпись категории.
+ */
+function KpiValue({ value, unit, label }: { value: string; unit?: string; label?: string }) {
   return (
-    <p className="font-sans text-2xl font-bold text-signal-amber">
+    <p className="font-sans text-xl font-bold text-signal-amber">
       {value}
-      {unit ? <span className="ml-1 text-base font-medium text-graphite">{unit}</span> : null}
+      {unit ? <span className="ml-1 text-sm font-medium text-graphite">{unit}</span> : null}
+      {label ? <span className="ml-2 text-sm font-normal text-machine-gray">{label}</span> : null}
     </p>
   );
 }
@@ -187,18 +194,17 @@ export default function DashboardPage({
       {/* Ключевые показатели North Star (00 §1, M11 UC-M11-1). */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard title="Производится (ПЗ текущей смены)">
-          <KpiValue value={formatQuantity(inProduction.plannedMass)} unit="кг" />
-          <p className="mt-1 text-sm text-graphite">{formatQuantity(inProduction.plannedGp)} шт ГП</p>
+          <KpiValue value={formatQuantity(inProduction.plannedMass)} unit="кг" label="Масса" />
+          <KpiValue value={formatQuantity(inProduction.plannedGp)} unit="шт" label="ГП" />
           <p className="mt-1 text-xs text-machine-gray">
             {inProduction.ordersCount} ПЗ, {inProduction.workCenterCount} РЦ
           </p>
         </KpiCard>
 
         <KpiCard title="Произведено за период">
-          <KpiValue value={formatQuantity(produced.mass)} unit="кг" />
-          <p className="mt-1 text-sm text-graphite">
-            ПФ {formatQuantity(produced.pf)} шт · ГП {formatQuantity(produced.gp)} шт
-          </p>
+          <KpiValue value={formatQuantity(produced.mass)} unit="кг" label="Масса" />
+          <KpiValue value={formatQuantity(produced.pf)} unit="шт" label="ПФ" />
+          <KpiValue value={formatQuantity(produced.gp)} unit="шт" label="ГП" />
         </KpiCard>
 
         {canReadTransfers && (
