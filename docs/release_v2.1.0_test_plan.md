@@ -34,13 +34,17 @@ bash scripts/postdeploy-check.sh
 
 ```bash
 cd /opt/prodtrack
-docker compose exec -T web sh -lc 'cd /app/packages/db && pnpm exec tsx prisma/backfill-shifts.ts --dry-run'
+docker compose exec -T web sh -lc 'cd /app/packages/db && tsx prisma/backfill-shifts.ts --dry-run'
 ```
+
+> В контейнере скрипт запускается напрямую через `tsx`, как и сид: `pnpm exec` там не работает — pnpm пытается
+> доустановить зависимости и падает, потому что в образ попадает только пакет `@prodtrack/db`. Локально, при полном
+> рабочем дереве, работает и `pnpm db:backfill-shifts`.
 
 Затем сам перенос:
 
 ```bash
-docker compose exec -T web sh -lc 'cd /app/packages/db && pnpm exec tsx prisma/backfill-shifts.ts'
+docker compose exec -T web sh -lc 'cd /app/packages/db && tsx prisma/backfill-shifts.ts'
 ```
 
 Ожидаемо: в пробном прогоне — список ПЗ с шаблонной сменой и дата, на которую каждый будет перенесён;

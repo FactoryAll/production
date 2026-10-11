@@ -26,7 +26,7 @@
 | `.env.example` | OK, `VERSION=v2.1.0` |
 | `CHANGELOG.md` | обновлён, секция `[2.1.0] - 2026-10-06` |
 | `docs/release_v2.1.0_test_plan.md` | план ручного тестирования |
-| Скрипты | `pnpm db:backfill-shifts [--dry-run]` — перенос существующих ПЗ на смены по датам |
+| Скрипты | `tsx prisma/backfill-shifts.ts [--dry-run]` в контейнере (локально — `pnpm db:backfill-shifts`) — перенос существующих ПЗ на смены по датам |
 | Миграции | новых нет |
 
 ## Проверки до деплоя
