@@ -40,11 +40,6 @@ const DEFECT_REASONS = [
   { code: 'DEFECT_C', name: 'Брак C' },
 ];
 
-const SHIFTS = [
-  { number: 1, start: '08:00', end: '20:00' },
-  { number: 2, start: '20:00', end: '08:00' },
-];
-
 export const ROLES = [
   { code: 'NP', name: 'Начальник производства' },
   { code: 'OPR', name: 'Оператор' },
@@ -153,10 +148,6 @@ export const ROLE_PERMISSION_MAP: Record<RoleCode, string[]> = {
   ADM: PERMISSIONS.map(({ code }) => code),
 };
 
-
-// Reference/template shift date used only for seed idempotency.
-const SHIFT_SEED_DATE = new Date('2000-01-01');
-
 async function seedWorkCenters() {
   await Promise.all(
     WORK_CENTERS.map(({ code, name }) =>
@@ -204,23 +195,6 @@ async function seedDefectReasons() {
         where: { code },
         update: { name, active: true },
         create: { code, name, active: true },
-      }),
-    ),
-  );
-}
-
-async function seedShifts() {
-  await Promise.all(
-    SHIFTS.map(({ number, start, end }) =>
-      prisma.shift.upsert({
-        where: {
-          number_date: {
-            number,
-            date: SHIFT_SEED_DATE,
-          },
-        },
-        update: { start, end, active: true },
-        create: { number, date: SHIFT_SEED_DATE, start, end, active: true },
       }),
     ),
   );
@@ -387,7 +361,9 @@ async function main() {
   await seedWarehouses();
   await seedSubstitutionReasons();
   await seedDefectReasons();
-  await seedShifts();
+  // Смены сид больше не создаёт (T-075): это данные, а не справочник — запись смены заводит
+  // система, когда НП выбирает дату и номер в форме ПЗ. Шаблонные смены с датой 2000-01-01
+  // остались только в исторических базах и больше не поднимаются при каждом деплое.
   await seedRoles();
   await seedAdmin();
   await seedMultiRoleUser();

@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import { localDateKey, resolveShiftId } from '@prodtrack/db';
 
 const RUN_ID = Date.now().toString(36);
 
@@ -44,8 +45,8 @@ test.beforeAll(async () => {
   const roles = await prisma.role.findMany({ where: { code: { in: [RoleCode.OPR, RoleCode.NP] } } });
   const roleByCode = Object.fromEntries(roles.map((r) => [r.code, r.id]));
 
-  const shift = await prisma.shift.findFirst({ where: { active: true }, orderBy: { number: 'asc' } });
-  if (!shift) throw new Error('No active shift found');
+  // T-075: смена — это данные; сид их больше не заводит, поэтому создаём смену так же, как форма ПЗ.
+  const shiftId = await resolveShiftId(prisma, { dateKey: localDateKey(new Date()), number: 1 });
 
   const wc01 = await prisma.workCenter.findUnique({ where: { code: '01' } });
   const wc03 = await prisma.workCenter.findUnique({ where: { code: '03' } });
@@ -95,7 +96,7 @@ test.beforeAll(async () => {
 
   const order = await prisma.productionOrder.create({
     data: {
-      shiftId: shift.id,
+      shiftId,
       status: 'DRAFT',
       createdById: npUser.id,
       lines: {
