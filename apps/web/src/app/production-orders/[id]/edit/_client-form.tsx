@@ -41,6 +41,8 @@ interface ProductionOrderEditFormProps {
   operatorEmployees: Employee[];
   /** Варианты номера смены с расписанием из Р-05 (T-075). */
   shiftOptions: { value: string; label: string }[];
+  /** Минимальная дата смены: план нельзя поставить на прошедшую смену. */
+  minShiftDate: string;
 }
 
 /** Дата смены для поля type="date": колонка @db.Date приходит как полночь UTC. */
@@ -90,6 +92,7 @@ export default function ProductionOrderEditForm({
   workerEmployees,
   operatorEmployees,
   shiftOptions,
+  minShiftDate,
 }: ProductionOrderEditFormProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -203,6 +206,7 @@ export default function ProductionOrderEditForm({
                 id="shiftDate"
                 type="date"
                 value={shiftDate}
+                min={minShiftDate}
                 onChange={(e) => setShiftDate(e.target.value)}
                 required
               />
@@ -218,6 +222,11 @@ export default function ProductionOrderEditForm({
               />
             </div>
           </div>
+          {shiftDate !== '' && shiftDate < minShiftDate && (
+            <p className="text-sm text-signal-amber">
+              Смена этого задания уже прошла. Перенесите его на текущую или будущую смену — иначе сохранить не получится.
+            </p>
+          )}
         </Card>
 
         <div className="space-y-4">

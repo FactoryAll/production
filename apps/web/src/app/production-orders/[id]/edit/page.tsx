@@ -37,6 +37,7 @@ export default async function ProductionOrderEditPage({ params }: ProductionOrde
     <ProductionOrderEditForm
       order={order}
       shiftOptions={createData.shiftOptions}
+      minShiftDate={createData.minShiftDate}
       workCenters={createData.workCenters}
       products={createData.products}
       workerEmployees={createData.workerEmployees}

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import {
+  assertShiftDateNotPast,
+  currentShiftDateKey,
   currentShiftNumber,
   localDateKey,
   parseShiftTarget,
@@ -24,6 +26,30 @@ describe('Смена по дате и номеру (T-075, Р-05)', () => {
     expect(currentShiftNumber(new Date(2026, 9, 6, 19, 59))).toBe(1);
     expect(currentShiftNumber(new Date(2026, 9, 6, 20, 0))).toBe(2);
     expect(currentShiftNumber(new Date(2026, 9, 6, 3, 0))).toBe(2);
+  });
+
+  it('дата текущей смены: ночью после полуночи это вчерашний день (Р-05)', () => {
+    expect(currentShiftDateKey(new Date(2026, 9, 11, 19, 0))).toBe('2026-10-11');
+    expect(currentShiftDateKey(new Date(2026, 9, 11, 22, 0))).toBe('2026-10-11');
+    expect(currentShiftDateKey(new Date(2026, 9, 11, 3, 0))).toBe('2026-10-10');
+  });
+
+  it('план на прошедшую смену отклоняется, на текущую и будущую — разрешён', () => {
+    const now = new Date(2026, 9, 11, 19, 0);
+
+    expect(() => assertShiftDateNotPast({ dateKey: '2026-10-10', number: 1 }, now)).toThrow(
+      'Дата смены не может быть раньше текущей смены',
+    );
+    expect(() => assertShiftDateNotPast({ dateKey: '2026-10-11', number: 1 }, now)).not.toThrow();
+    expect(() => assertShiftDateNotPast({ dateKey: '2026-10-12', number: 2 }, now)).not.toThrow();
+  });
+
+  it('во время ночной смены план на неё саму не считается прошлым', () => {
+    // 03:00 11 октября идёт 2-я смена, начавшаяся 10 октября: её дата — 10.10, и она допустима.
+    const now = new Date(2026, 9, 11, 3, 0);
+
+    expect(() => assertShiftDateNotPast({ dateKey: '2026-10-10', number: 2 }, now)).not.toThrow();
+    expect(() => assertShiftDateNotPast({ dateKey: '2026-10-09', number: 2 }, now)).toThrow();
   });
 
   it('расписание смен задано Р-05', () => {

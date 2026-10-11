@@ -26,6 +26,32 @@ export function currentShiftNumber(now: Date): number {
   return hours >= 8 && hours < 20 ? 1 : 2;
 }
 
+/**
+ * Календарная дата текущей смены — день, в который она началась.
+ *
+ * 1-я смена (08:00–20:00) и 2-я до полуночи начинаются сегодня; 2-я смена после полуночи
+ * (00:00–08:00) началась вчера, поэтому и дата у неё вчерашняя.
+ */
+export function currentShiftDateKey(now: Date): string {
+  const start = new Date(now);
+  if (now.getHours() < 8) {
+    start.setDate(start.getDate() - 1);
+  }
+  return localDateKey(start);
+}
+
+/**
+ * План нельзя поставить на прошедшую смену: она уже отработана, исполнить задание некому.
+ *
+ * Разрешено всё, начиная с текущей смены: днём это сегодняшняя дата, а во время ночной смены
+ * после полуночи — вчерашняя, потому что такая смена ещё идёт.
+ */
+export function assertShiftDateNotPast(target: ShiftTarget, now: Date): void {
+  if (target.dateKey < currentShiftDateKey(now)) {
+    throw new Error('Дата смены не может быть раньше текущей смены');
+  }
+}
+
 /** Календарная дата локального момента — то, что видит пользователь на экране. */
 export function localDateKey(now: Date): string {
   const month = String(now.getMonth() + 1).padStart(2, '0');

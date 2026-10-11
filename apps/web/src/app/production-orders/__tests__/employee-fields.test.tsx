@@ -49,8 +49,9 @@ function renderForm(overrides: { workerEmployees?: Employee[]; operatorEmployees
         { value: '1', label: '1-я смена (08:00–20:00)' },
         { value: '2', label: '2-я смена (20:00–08:00)' },
       ]}
-      defaultShiftDate="2026-10-06"
+      defaultShiftDate="2026-10-11"
       defaultShiftNumber={1}
+      minShiftDate="2026-10-11"
     />,
   );
 }

@@ -12,6 +12,7 @@ export default async function NewProductionOrderPage() {
     shiftOptions,
     defaultShiftDate,
     defaultShiftNumber,
+    minShiftDate,
   } = await getProductionOrderCreateData();
   return (
     <ProductionOrderForm
@@ -22,6 +23,7 @@ export default async function NewProductionOrderPage() {
       shiftOptions={shiftOptions}
       defaultShiftDate={defaultShiftDate}
       defaultShiftNumber={defaultShiftNumber}
+      minShiftDate={minShiftDate}
     />
   );
 }

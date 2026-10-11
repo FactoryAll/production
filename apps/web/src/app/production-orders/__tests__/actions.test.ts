@@ -631,6 +631,7 @@ describe('createProductionOrderAction', () => {
     vi.resetModules();
     const parseShiftTarget = vi.fn().mockReturnValue({ dateKey: '2026-10-06', number: 1 });
     const resolveShiftId = vi.fn().mockResolvedValue('shift-1');
+    const assertShiftDateNotPast = vi.fn();
     vi.doMock('@prodtrack/db', () => ({
       prisma: deps.prisma,
       writeAudit: deps.writeAudit,
@@ -638,6 +639,7 @@ describe('createProductionOrderAction', () => {
       // T-075: смена задаётся датой и номером, разбор и создание записи смены живут в @prodtrack/db.
       parseShiftTarget,
       resolveShiftId,
+      assertShiftDateNotPast,
     }));
     vi.doMock('@/lib/auth/access', () => ({
       requirePermission: deps.requirePermission,
@@ -666,6 +668,8 @@ describe('createProductionOrderAction', () => {
     }
     // Дата и номер из формы превращаются в смену до создания ПЗ.
     expect(parseShiftTarget).toHaveBeenCalledWith('2026-10-06', '1');
+    // План на прошедшую смену отклоняется до записи в базу (находка ручного тестирования v2.1.0).
+    expect(assertShiftDateNotPast).toHaveBeenCalledWith({ dateKey: '2026-10-06', number: 1 }, expect.any(Date));
     expect(resolveShiftId).toHaveBeenCalledWith(deps.prisma, { dateKey: '2026-10-06', number: 1 });
   });
 });

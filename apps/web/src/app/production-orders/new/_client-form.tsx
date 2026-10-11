@@ -26,6 +26,8 @@ interface ProductionOrderFormProps {
   defaultShiftDate: string;
   /** Номер текущей смены по Р-05. */
   defaultShiftNumber: number;
+  /** Минимальная дата смены: план нельзя поставить на прошедшую смену. */
+  minShiftDate: string;
 }
 
 interface LineDraft {
@@ -60,6 +62,7 @@ export default function ProductionOrderForm({
   shiftOptions,
   defaultShiftDate,
   defaultShiftNumber,
+  minShiftDate,
 }: ProductionOrderFormProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -160,6 +163,7 @@ export default function ProductionOrderForm({
                 id="shiftDate"
                 type="date"
                 value={shiftDate}
+                min={minShiftDate}
                 onChange={(e) => setShiftDate(e.target.value)}
                 required
               />
@@ -177,6 +181,7 @@ export default function ProductionOrderForm({
           </div>
           <p className="text-sm text-neutral-500">
             Запись смены создаётся автоматически на выбранную дату и номер (Р-05), отдельно её заводить не нужно.
+            Раньше текущей смены дату выбрать нельзя: прошедшую смену уже не отработать.
           </p>
         </Card>
 

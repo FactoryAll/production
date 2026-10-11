@@ -13,10 +13,12 @@ vi.mock('@prodtrack/db', () => ({
     1: { start: '08:00', end: '20:00' },
     2: { start: '20:00', end: '08:00' },
   },
-  localDateKey: () => '2026-10-06',
+  localDateKey: () => '2026-10-11',
+  currentShiftDateKey: () => '2026-10-11',
   currentShiftNumber: () => 1,
   parseShiftTarget: vi.fn(),
   resolveShiftId: vi.fn(),
+  assertShiftDateNotPast: vi.fn(),
 }));
 vi.mock('@/lib/auth/access', () => ({
   requirePermission: vi.fn(),

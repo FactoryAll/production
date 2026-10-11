@@ -10,6 +10,8 @@ import type {
 } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 import {
+  assertShiftDateNotPast,
+  currentShiftDateKey,
   currentShiftNumber,
   localDateKey,
   parseShiftTarget,
@@ -189,6 +191,7 @@ export async function createProductionOrderAction(formData: FormData): Promise<C
       (formData.get('shiftDate') as string) ?? '',
       (formData.get('shiftNumber') as string) ?? '',
     );
+    assertShiftDateNotPast(target, new Date());
     const shiftId = await resolveShiftId(prisma, target);
 
     const order = await createProductionOrder({ shiftId, lines });
@@ -247,6 +250,8 @@ export async function getProductionOrderCreateData() {
     shiftOptions: buildShiftOptions(),
     defaultShiftDate: localDateKey(now),
     defaultShiftNumber: currentShiftNumber(now),
+    // План нельзя поставить на прошедшую смену: форма не даст выбрать дату раньше этой.
+    minShiftDate: currentShiftDateKey(now),
   };
 }
 
@@ -504,6 +509,7 @@ export async function updateProductionOrderAction(
       (formData.get('shiftDate') as string) ?? '',
       (formData.get('shiftNumber') as string) ?? '',
     );
+    assertShiftDateNotPast(target, new Date());
     const shiftId = await resolveShiftId(prisma, target);
 
     await updateProductionOrder(orderId, { shiftId, lines });
