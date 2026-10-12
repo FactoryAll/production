@@ -26,6 +26,10 @@ export function LoginForm() {
       <Button type="submit" variant="cta" size="md" className="w-full">
         Войти
       </Button>
+      {/* Самостоятельного восстановления нет: доставки писем в системе не предусмотрено (M02). */}
+      <p className="text-center text-sm text-machine-gray">
+        Забыли пароль? Обратитесь к администратору — он выдаст временный пароль, который нужно сменить при входе.
+      </p>
     </form>
   );
 }

@@ -215,19 +215,36 @@ describe('users actions', () => {
     expect(mockTx.session.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
   });
 
-  it('resets password and returns a temporary password', async () => {
+  it('resets the password, closes sessions and keeps the password out of the audit', async () => {
     (prisma.user.findUniqueOrThrow as ReturnType<typeof vi.fn>).mockResolvedValue(makeUser());
+    mockTx.session.deleteMany.mockResolvedValue({ count: 2 });
 
     const { resetPasswordAction } = await importActions();
     const result = await resetPasswordAction('user-1');
 
     expect(result.success).toBe(true);
-    expect(result.tempPassword).toBeDefined();
     expect((result.tempPassword ?? '').length).toBeGreaterThanOrEqual(8);
     expect(mockTx.user.update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ mustChangePassword: true }),
     }));
-    expect(mockAudit).toHaveBeenCalled();
+
+    // Сброс — это восстановление доступа: открытые сессии пользователя завершаются.
+    expect(mockTx.session.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
+
+    const audit = mockAudit.mock.calls[0][1];
+    expect(audit.field).toBe('passwordHash,sessions');
+    expect(JSON.stringify(audit)).not.toContain(result.tempPassword);
+    expect(audit.newValue).toContain('sessionsClosed');
+  });
+
+  it('does not reset the administrator own password through the admin action', async () => {
+    // Сброс завершает сессии, поэтому себе пароль так не меняют: администратора выбросило бы из системы.
+    const { resetPasswordAction } = await importActions();
+    const result = await resetPasswordAction('admin-id');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Смена пароля');
+    expect(mockTx.user.update).not.toHaveBeenCalled();
   });
 
   it('blocks a user and deletes sessions', async () => {

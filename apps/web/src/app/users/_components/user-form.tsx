@@ -8,6 +8,7 @@ import { Select } from '@prodtrack/ui';
 import { CheckboxList } from '@prodtrack/ui';
 import { Switch } from '@prodtrack/ui';
 import type { User, Employee } from '@prisma/client';
+import { ResetPasswordDialog } from './reset-password-dialog';
 
 const ROLE_OPTIONS = Object.values(RoleCode).map((code) => ({
   value: code,
@@ -19,16 +20,16 @@ interface UserFormProps {
   user?: User & { roles: { role: { code: string } }[]; employee: Employee | null };
   employees: { id: string; fullName: string; tabNumber: string }[];
   action: (formData: FormData) => Promise<{ success: boolean; error?: string }>;
-  onReset?: (formData: FormData) => Promise<{ success: boolean; tempPassword?: string; error?: string }>;
 }
 
-export function UserForm({ mode, user, employees, action, onReset }: UserFormProps) {
+export function UserForm({ mode, user, employees, action }: UserFormProps) {
   const router = useRouter();
   const [roles, setRoles] = useState<string[]>(user?.roles.map((ur) => ur.role.code) ?? []);
   const [active, setActive] = useState(user?.active ?? true);
   const [lastRoleWarning, setLastRoleWarning] = useState(false);
-  const [result, setResult] = useState<{ success: boolean; tempPassword?: string; error?: string } | null>(null);
+  const [result, setResult] = useState<{ success: boolean; error?: string } | null>(null);
   const [isPending, setIsPending] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -49,14 +50,6 @@ export function UserForm({ mode, user, employees, action, onReset }: UserFormPro
     } else {
       setResult(res);
     }
-  }
-
-  async function handleReset() {
-    if (!onReset || !user) return;
-    setIsPending(true);
-    const res = await onReset(new FormData());
-    setIsPending(false);
-    setResult(res);
   }
 
   function handleRoleChange(next: string[]) {
@@ -126,12 +119,6 @@ export function UserForm({ mode, user, employees, action, onReset }: UserFormPro
       )}
 
       {result?.error && <p className="text-sm text-red-600">{result.error}</p>}
-      {result?.tempPassword && (
-        <div className="rounded-md bg-green-50 p-3 text-sm text-green-800">
-          <p>Временный пароль сгенерирован. Покажите его пользователю один раз.</p>
-          <pre className="mt-1 font-mono">{result.tempPassword}</pre>
-        </div>
-      )}
 
       <div className="flex items-center gap-3">
         <button
@@ -141,17 +128,27 @@ export function UserForm({ mode, user, employees, action, onReset }: UserFormPro
         >
           {mode === 'create' ? 'Создать' : 'Сохранить'}
         </button>
-        {mode === 'edit' && onReset && (
+        {mode === 'edit' && user && (
           <button
             type="button"
             disabled={isPending}
-            onClick={handleReset}
+            onClick={() => setResetOpen(true)}
             className="inline-flex h-12 items-center rounded-md border border-neutral-300 bg-white px-4 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
           >
             Сбросить пароль
           </button>
         )}
       </div>
+
+      {mode === 'edit' && user && (
+        <ResetPasswordDialog
+          key={resetOpen ? 'reset-open' : 'reset-closed'}
+          open={resetOpen}
+          onClose={() => setResetOpen(false)}
+          userId={user.id}
+          login={user.login}
+        />
+      )}
     </form>
   );
 }

@@ -5,6 +5,7 @@ import { prisma, writeAudit } from '@prodtrack/db';
 import { requirePermission } from '@/lib/auth/access';
 import { RoleCode } from '@prodtrack/contracts';
 import { hashPassword, isPasswordValid } from '@/lib/auth/password';
+import { generateTempPassword } from '@/lib/auth/temp-password';
 
 const VALID_ROLES = Object.values(RoleCode);
 
@@ -14,16 +15,6 @@ function normalizeLogin(login: string): string {
 
 function getUserRoleCodes(user: { roles: { role: { code: string } }[] }): RoleCode[] {
   return user.roles.map((ur) => ur.role.code as RoleCode);
-}
-
-function generateTempPassword(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let password = '';
-  for (let i = 0; i < 10; i++) {
-    password += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  password += 'A1';
-  return password;
 }
 
 async function assertLoginUnique(login: string, excludeId?: string): Promise<void> {
@@ -183,6 +174,15 @@ export async function resetPasswordAction(userId: string): Promise<{ success: bo
     const { userId: adminId, user: adminSession } = await requirePermission('users:manage');
     const adminRoles = getUserRoleCodes(adminSession);
 
+    // Себе пароль так не сбрасывают: смена своего пароля — на экране «Смена пароля»,
+    // а сброс завершает сессии, то есть выбросил бы администратора из системы.
+    if (userId === adminId) {
+      return {
+        success: false,
+        error: 'Свой пароль так не сбрасывается: смените его на экране «Смена пароля»',
+      };
+    }
+
     await prisma.user.findUniqueOrThrow({ where: { id: userId } });
 
     const tempPassword = generateTempPassword();
@@ -193,6 +193,11 @@ export async function resetPasswordAction(userId: string): Promise<{ success: bo
         where: { id: userId },
         data: { passwordHash, mustChangePassword: true },
       });
+
+      // Сброс — это восстановление доступа: открытые сессии пользователя завершаются,
+      // иначе старый вход продолжал бы работать, хотя пароль уже заменён.
+      const closed = await tx.session.deleteMany({ where: { userId } });
+
       await writeAudit(tx, {
         action: 'UPDATE',
         objectType: 'User',
@@ -200,9 +205,10 @@ export async function resetPasswordAction(userId: string): Promise<{ success: bo
         userId: adminId,
         userRoles: adminRoles,
         permission: 'users:manage',
-        field: 'passwordHash',
+        field: 'passwordHash,sessions',
         oldValue: '[REDACTED]',
-        newValue: '[RESET]',
+        // Сам пароль в журнал не попадает — только факт сброса и число закрытых сессий.
+        newValue: JSON.stringify({ password: '[RESET]', sessionsClosed: closed.count }),
       });
     });
 

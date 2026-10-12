@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useTransition } from 'react';
+import { useMemo, useTransition } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -12,6 +12,7 @@ import {
 } from '@tanstack/react-table';
 import type { User, Employee, Role } from '@prisma/client';
 import { toggleUserActiveAction } from '../actions';
+import { ResetPasswordButton } from './reset-password-button';
 
 export interface UsersSearchParams {
   q?: string;
@@ -59,7 +60,11 @@ function ToggleButton({ user }: { user: UserRow }) {
 export function UsersTable({ users, searchParams }: UsersTableProps) {
   const router = useRouter();
 
-  const columns: ColumnDef<UserRow>[] = [
+  // Колонки мемоизированы: без этого при обновлении страницы react-table пересоздаёт ячейки,
+  // строка монтируется заново и состояние внутри неё теряется — например, показанный
+  // администратору временный пароль исчезал с экрана.
+  const columns = useMemo<ColumnDef<UserRow>[]>(
+    () => [
     {
       accessorKey: 'login',
       header: 'Логин',
@@ -88,9 +93,16 @@ export function UsersTable({ users, searchParams }: UsersTableProps) {
     {
       id: 'actions',
       header: 'Действия',
-      cell: ({ row }) => <ToggleButton user={row.original} />,
+      cell: ({ row }) => (
+        <div className="flex flex-wrap items-center gap-3">
+          <ResetPasswordButton userId={row.original.id} login={row.original.login} />
+          <ToggleButton user={row.original} />
+        </div>
+      ),
     },
-  ];
+    ],
+    [],
+  );
 
   const table = useReactTable({
     data: users,
