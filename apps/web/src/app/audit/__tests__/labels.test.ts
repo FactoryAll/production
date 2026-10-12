@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   auditActionLabel,
   auditChangeLabel,
+  auditObjectIdLabel,
   auditObjectLabel,
   auditRoleLabel,
 } from '../labels';
@@ -13,6 +14,15 @@ describe('подписи экрана «Аудит» (M13 §8)', () => {
     expect(auditActionLabel('CANCEL')).toBe('отмена');
     expect(auditActionLabel('LOGIN')).toBe('вход');
     expect(auditActionLabel('LOGIN_FAILED')).toBe('неудачный вход');
+  });
+
+  it('показывает короткий идентификатор только у объектов с UUID', () => {
+    // У обычных записей это UUID: префикс помогает различить однотипные объекты.
+    expect(auditObjectIdLabel('6c5f86bb-1111-2222-3333-444455556666')).toBe('6c5f86bb');
+    // У системных записей идентификатор — служебный маркер, и его обрезка читалась бы как битый код.
+    expect(auditObjectIdLabel('data-cleanup')).toBeNull();
+    expect(auditObjectIdLabel(null)).toBeNull();
+    expect(auditObjectIdLabel(undefined)).toBeNull();
   });
 
   it('переводит типы объектов', () => {

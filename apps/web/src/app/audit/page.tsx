@@ -6,7 +6,13 @@ import { checkPageAccess } from '@/lib/auth/page-guard';
 import { Pagination } from '@/components/pagination';
 
 import ArchiveAuditButton from './_archive-button';
-import { auditActionLabel, auditChangeLabel, auditObjectLabel, auditRoleLabel } from './labels';
+import {
+  auditActionLabel,
+  auditChangeLabel,
+  auditObjectIdLabel,
+  auditObjectLabel,
+  auditRoleLabel,
+} from './labels';
 import { getAuditPage, type AuditFilter } from './queries';
 
 interface AuditPageProps {
@@ -169,10 +175,15 @@ export default async function AuditServerPage({ searchParams }: AuditPageProps) 
                 </td>
                 <td className="py-2 pr-4 text-graphite">{auditActionLabel(record.action)}</td>
                 <td className="py-2 pr-4 text-steel-graphite">
-                  {auditObjectLabel(record.objectType)}{' '}
-                  <span className="font-mono text-xs text-machine-gray">
-                    {record.objectId.slice(0, 8)}
-                  </span>
+                  {auditObjectLabel(record.objectType)}
+                  {auditObjectIdLabel(record.objectId) && (
+                    <>
+                      {' '}
+                      <span className="font-mono text-xs text-machine-gray">
+                        {auditObjectIdLabel(record.objectId)}
+                      </span>
+                    </>
+                  )}
                   {record.archived && (
                     <span className="ml-2 rounded-sm bg-cold-white-gray px-1 text-xs text-machine-gray">
                       архив

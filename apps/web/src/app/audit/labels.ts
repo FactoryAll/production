@@ -43,6 +43,20 @@ export function auditObjectLabel(objectType: string): string {
   return AUDIT_OBJECT_LABELS[objectType] ?? objectType;
 }
 
+/**
+ * Короткий идентификатор объекта для журнала — или null, если показывать его нечего.
+ *
+ * У обычных записей это UUID, и префикс помогает различить однотипные объекты. У системных
+ * записей идентификатор — служебный маркер (например, `data-cleanup` для очистки данных),
+ * и его обрезка до восьми символов читается как битый код, поэтому такие значения скрываются.
+ */
+export function auditObjectIdLabel(objectId: string | null | undefined): string | null {
+  if (!objectId) {
+    return null;
+  }
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(objectId) ? objectId.slice(0, 8) : null;
+}
+
 /** Роль атрибутируется автоматически при записи (M13 BR-X, Р-23). */
 export function auditRoleLabel(role: string | null): string {
   return role ?? '—';
