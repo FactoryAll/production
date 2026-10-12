@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, Select, Input, Label, CheckboxList, Card } from '@prodtrack/ui';
+import { Button, SearchSelect, Select, Input, Label, CheckboxList, Card } from '@prodtrack/ui';
 import { createProductionOrderAction } from '../actions';
 import type { ProductionOrderLineInput } from '@/lib/validation/production-order';
 import type { WorkCenter, Product, Employee } from '@prisma/client';
@@ -229,17 +229,14 @@ export default function ProductionOrderForm({
 
               <div className="space-y-2">
                 <Label htmlFor={line.id + '_product'}>Номенклатура</Label>
-                <Select
+                {/* Номенклатуры сотни: обычный список не даёт найти нужную позицию (фидбэк ОПЭ). */}
+                <SearchSelect
                   id={line.id + '_product'}
                   value={line.productId}
-                  onChange={(e) =>
-                    updateLine(line.id, { productId: e.target.value })
-                  }
+                  onChange={(value) => updateLine(line.id, { productId: value })}
                   options={productOptions}
                   placeholder={
-                    line.workCenterId
-                      ? 'Выберите номенклатуру'
-                      : 'Сначала выберите РЦ'
+                    line.workCenterId ? 'Начните вводить код или наименование' : 'Сначала выберите РЦ'
                   }
                   disabled={!line.workCenterId}
                   required

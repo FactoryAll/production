@@ -39,6 +39,9 @@ ENV VERSION=${VERSION}
 RUN apt-get update -y && apt-get install -y openssl libssl-dev && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/apps/web/.next/standalone ./
 COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
+# В standalone-сборку Next.js не копирует public автоматически: без этой строки логотип
+# и тёмный вариант иконки отдавали бы 404.
+COPY --from=builder /app/apps/web/public ./apps/web/public
 COPY --from=builder /app/packages/db ./packages/db
 COPY --from=builder /app/node_modules ./node_modules
 RUN npm install -g prisma@5.22.0 tsx@4.15.0 && prisma generate --schema=/app/packages/db/prisma/schema.prisma

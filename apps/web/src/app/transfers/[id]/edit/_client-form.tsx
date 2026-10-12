@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Button, Select, Input, Label, Card } from '@prodtrack/ui';
+import { Button, SearchSelect, Select, Input, Label, Card } from '@prodtrack/ui';
 import { updateGoodsTransferAction } from '../../actions';
 import {
   formatQuantity,
@@ -250,12 +250,12 @@ export default function TransferEditForm({
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor={line.id + '_product'}>Продукт</Label>
-                    <Select
+                    <SearchSelect
                       id={line.id + '_product'}
                       value={line.productId}
-                      onChange={(e) => updateLine(line.id, { productId: e.target.value })}
+                      onChange={(value) => updateLine(line.id, { productId: value })}
                       options={productOptions}
-                      placeholder="Выберите продукт"
+                      placeholder="Начните вводить код или наименование"
                       required
                     />
                     {line.productId && !product?.active && (

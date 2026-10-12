@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Button, Card, Dialog, Select, Label } from '@prodtrack/ui';
+import { Button, Card, Dialog, SearchSelect, Select, Label } from '@prodtrack/ui';
 import { hasPermission } from '@prodtrack/contracts';
 import type {
   ProductionOrder,
@@ -74,6 +74,8 @@ function ConsumptionEditor({
   const options = products.map((product) => ({
     value: product.id,
     label: `${product.name} (${product.unit})`,
+    // В подписи кода нет, но искать по нему нужно.
+    keywords: product.code,
   }));
 
   return (
@@ -82,14 +84,14 @@ function ConsumptionEditor({
       {rows.map((row, index) => (
         <div key={index} className="flex items-end gap-2">
           <div className="flex-1">
-            <Select
+            <SearchSelect
               id={`${idPrefix}-consumption-${index}`}
               value={row.productId}
-              onChange={(e) =>
-                onChange(rows.map((item, i) => (i === index ? { ...item, productId: e.target.value } : item)))
+              onChange={(value) =>
+                onChange(rows.map((item, i) => (i === index ? { ...item, productId: value } : item)))
               }
               options={options}
-              placeholder="Выберите номенклатуру"
+              placeholder="Начните вводить наименование"
             />
           </div>
           <input

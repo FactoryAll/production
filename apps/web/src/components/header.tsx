@@ -29,7 +29,9 @@ export function Header({ user, unreadCount = 0 }: HeaderProps) {
   return (
     <header className="bg-graphite text-white shadow-sm">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-        <Link href="/dashboard" className="text-lg font-bold tracking-tight">
+        <Link href="/dashboard" className="flex items-center gap-2 text-lg font-bold tracking-tight">
+          {/* Чёрный знак на графитовом фоне не читается — в шапке знак на фирменной подложке. */}
+          <img src="/logo-mark.svg" alt="" className="h-7 w-7" />
           ProdTrack
         </Link>
 

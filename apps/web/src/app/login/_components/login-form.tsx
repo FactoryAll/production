@@ -9,7 +9,10 @@ export function LoginForm() {
 
   return (
     <form action={formAction} className="w-full max-w-md space-y-4 rounded-md border border-mist-metal bg-white p-6 shadow-sm">
-      <h1 className="text-2xl font-bold text-graphite">Вход в ProdTrack</h1>
+      <div className="flex flex-col items-center gap-3">
+        <img src="/logo-mark.svg" alt="FactoryAll" className="h-14 w-14" />
+        <h1 className="text-2xl font-bold text-graphite">Вход в ProdTrack</h1>
+      </div>
       <label className="block space-y-1">
         <span className="text-sm font-medium text-graphite">Логин</span>
         <Input name="login" required autoFocus />

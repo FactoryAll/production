@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Button, Select, Input, Label, CheckboxList, Card } from '@prodtrack/ui';
+import { Button, SearchSelect, Select, Input, Label, CheckboxList, Card } from '@prodtrack/ui';
 import { updateProductionOrderAction } from '../../actions';
 import type { ProductionOrderLineInput } from '@/lib/validation/production-order';
 import type {
@@ -232,6 +232,7 @@ export default function ProductionOrderEditForm({
         <div className="space-y-4">
           <h2 className="text-lg font-medium text-graphite">Строки ПЗ</h2>
           {lines.map((line, index) => {
+            // Номенклатура выбирается с поиском: обычный список не годится при сотнях позиций.
             const productOptions = getFilteredProducts(line.workCenterId).map((product) => ({
               value: product.id,
               label: product.code + ' – ' + product.name + ' (' + product.unit + ')',
@@ -271,12 +272,14 @@ export default function ProductionOrderEditForm({
 
                   <div className="space-y-2">
                     <Label htmlFor={line.id + '_product'}>Номенклатура</Label>
-                    <Select
+                    <SearchSelect
                       id={line.id + '_product'}
                       value={line.productId}
-                      onChange={(e) => updateLine(line.id, { productId: e.target.value })}
+                      onChange={(value) => updateLine(line.id, { productId: value })}
                       options={productOptions}
-                      placeholder={line.workCenterId ? 'Выберите номенклатуру' : 'Сначала выберите РЦ'}
+                      placeholder={
+                        line.workCenterId ? 'Начните вводить код или наименование' : 'Сначала выберите РЦ'
+                      }
                       disabled={!line.workCenterId}
                       required
                     />

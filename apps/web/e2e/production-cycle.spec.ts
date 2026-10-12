@@ -190,7 +190,11 @@ test('E2E: production cycle with two operators', async ({ page }) => {
   await page.locator('div:has(> label:has-text("Длительность, мин.")) > input').fill('45');
 
   await page.getByRole('button', { name: 'Добавить строку потребления' }).evaluate((el) => (el as HTMLButtonElement).click());
-  await page.locator('div:has-text("Потребление") select').last().selectOption({ index: 1 });
+  // Строка потребления тоже выбирается с поиском: ищем по наименованию Массы.
+  const consumptionField = page.locator('div:has-text("Потребление") input[role="combobox"]').last();
+  await consumptionField.click();
+  await consumptionField.fill(ctx.massProductName);
+  await page.getByRole('option', { name: new RegExp(ctx.massProductName) }).first().click();
   await page.locator('div:has-text("Потребление") input[type=number]').last().fill('30');
   await page.locator('[role="dialog"] button:has-text("Внести итог")').evaluate((el) => (el as HTMLButtonElement).click());
   await page.waitForTimeout(2000);

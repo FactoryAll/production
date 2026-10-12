@@ -7,7 +7,16 @@ import { getUnreadNotificationCount } from '@/app/notifications/queries';
 
 export const metadata: Metadata = {
   title: 'ProdTrack',
-  description: 'Учёт производственных операций'
+  description: 'Учёт производственных операций',
+  icons: {
+    // Оба варианта лежат в public: файловая иконка (app/icon.svg) перекрывала бы этот список
+    // целиком. Светлая тема — исходный знак FactoryAll, тёмная — знак на фирменной подложке,
+    // иначе чёрный контур не читается на тёмной вкладке браузера.
+    icon: [
+      { url: '/icon.svg', type: 'image/svg+xml' },
+      { url: '/logo-mark.svg', type: 'image/svg+xml', media: '(prefers-color-scheme: dark)' },
+    ],
+  },
 };
 
 export default async function RootLayout({

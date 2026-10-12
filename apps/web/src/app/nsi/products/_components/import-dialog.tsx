@@ -10,7 +10,6 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Dialog } from '@prodtrack/ui';
 import { plural } from '@/lib/format';
-import { PREVIEW_ROWS } from '@/lib/nsi-import/product-import';
 import {
   applyProductImportAction,
   checkProductImportAction,

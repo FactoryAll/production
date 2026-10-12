@@ -50,6 +50,17 @@ let ctx: {
   operatorFullName: string;
 };
 
+/**
+ * Номенклатура выбирается с поиском (SearchSelect): после загрузки номенклатуры из файла (T-077)
+ * позиций сотни, и обычный список для выбора больше не используется.
+ */
+async function selectProduct(page: import('@playwright/test').Page, label: string, code: string) {
+  const field = page.getByLabel(label);
+  await field.click();
+  await field.fill(code);
+  await page.getByRole('option', { name: new RegExp(code) }).first().click();
+}
+
 async function login(page: import('@playwright/test').Page, login: string, password: string) {
   await page.context().clearCookies();
   await page.goto('/login');
@@ -152,7 +163,7 @@ test('Сквозной смоук контура: ПЗ → факт → пере
   await page.goto('/production-orders/new');
   // T-075: дата смены и её номер подставлены по умолчанию (сегодня и текущая смена по Р-05).
   await page.getByLabel('Рабочий центр').selectOption({ label: ctx.workCenterLabel });
-  await page.getByLabel('Номенклатура').selectOption({ label: ctx.productLabel });
+  await selectProduct(page, 'Номенклатура', ctx.productCode);
   await page.getByLabel('Плановое количество').fill('50');
   // exact: иначе в выборку попадает чекбокс работника с ФИО «… Оператор …».
   await page.getByLabel('Оператор', { exact: true }).selectOption({ label: ctx.operatorFullName });
@@ -199,7 +210,7 @@ test('Сквозной смоук контура: ПЗ → факт → пере
   await page.goto('/transfers/new');
   await page.getByLabel('Склад-источник').selectOption({ label: 'Производственный' });
   await page.getByLabel('Склад-приёмник').selectOption({ label: 'Склад ГП' });
-  await page.getByLabel('Продукт').selectOption({ label: ctx.productLabel });
+  await selectProduct(page, 'Продукт', ctx.productCode);
   await page.getByLabel('Плановое количество').fill('20');
   await page.getByRole('button', { name: 'Сохранить черновик' }).click();
   await page.waitForURL(/\/transfers$/);

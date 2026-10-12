@@ -5,5 +5,6 @@ export * from './dialog';
 export * from './table';
 export * from './label';
 export * from './select';
+export * from './search-select';
 export * from './checkbox-list';
 export * from './switch';

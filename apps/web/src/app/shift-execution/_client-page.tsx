@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, Card, Dialog, Input, Select } from '@prodtrack/ui';
+import { Button, Card, Dialog, Input, SearchSelect, Select } from '@prodtrack/ui';
 import {
   acceptProductionOrderLineAction,
   reportProductionFactAction,
@@ -595,11 +595,16 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
                   const showWarning = balance && !Number.isNaN(quantityNum) && quantityNum > balance.available && balance.available >= 0;
                   return (
                     <div key={index} className="mb-3 grid grid-cols-[1fr_1fr_auto] gap-2">
-                      <Select
-                        options={consumableProducts.map((p) => ({ value: p.id, label: `${p.name} (${p.unit})` }))}
-                        placeholder="Продукт"
+                      {/* Потребление выбирается с поиском: номенклатуры сотни (фидбэк ОПЭ). */}
+                      <SearchSelect
+                        options={consumableProducts.map((p) => ({
+                          value: p.id,
+                          label: `${p.name} (${p.unit})`,
+                          keywords: p.code,
+                        }))}
+                        placeholder="Начните вводить наименование"
                         value={row.productId}
-                        onChange={(e) => updateConsumptionRow(index, { productId: e.target.value })}
+                        onChange={(value) => updateConsumptionRow(index, { productId: value })}
                       />
                       <Input
                         type="number"
