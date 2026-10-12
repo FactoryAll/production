@@ -10,6 +10,7 @@ import {
   type SortingState,
 } from '@tanstack/react-table';
 import { Button, Card, Input } from '@prodtrack/ui';
+import { ImportProductsDialog } from './_components/import-dialog';
 import { ProductDialog } from './_components/product-dialog';
 import { ToggleProductButton } from './_components/toggle-product-button';
 import type { Product } from '@prisma/client';
@@ -31,6 +32,7 @@ export default function ProductsPage({
 }: ProductsPageProps) {
   const [sorting, setSorting] = useState<SortingState>([{ id: 'code', desc: false }]);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
 
   const columns = useMemo<ColumnDef<Product, unknown>[]>(
@@ -113,14 +115,19 @@ export default function ProductsPage({
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-graphite">Номенклатура</h1>
         {canManage && (
-          <Button
-            onClick={() => {
-              setEditing(null);
-              setDialogOpen(true);
-            }}
-          >
-            Создать
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => setImportOpen(true)}>
+              Загрузить из файла
+            </Button>
+            <Button
+              onClick={() => {
+                setEditing(null);
+                setDialogOpen(true);
+              }}
+            >
+              Создать
+            </Button>
+          </div>
         )}
       </div>
 
@@ -215,6 +222,13 @@ export default function ProductsPage({
           setEditing(null);
         }}
         initial={editing}
+      />
+
+      <ImportProductsDialog
+        // Состояние диалога сбрасывается между открытиями — как у диалога позиции.
+        key={importOpen ? 'import-open' : 'import-closed'}
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
       />
     </div>
   );

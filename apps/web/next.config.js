@@ -6,6 +6,12 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  experimental: {
+    // Загрузка номенклатуры из файла: server action принимает .xlsx, а предел по умолчанию — 1 МБ.
+    serverActions: {
+      bodySizeLimit: '10mb',
+    },
+  },
   env: {
     VERSION: process.env.VERSION || 'dev',
   },

@@ -33,6 +33,8 @@ export const AUDIT_OBJECT_LABELS: Record<string, string> = {
   TaskForOneC: 'задача для 1С',
   // Экран «Данные» (T-076): очистка операционных данных администратором.
   DataCleanup: 'очистка данных',
+  // Загрузка номенклатуры из файла (этап 5): сводная запись о загруженном файле.
+  ProductImport: 'загрузка номенклатуры',
 };
 
 export function auditActionLabel(action: string): string {

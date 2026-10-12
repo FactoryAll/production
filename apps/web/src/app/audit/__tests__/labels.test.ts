@@ -29,6 +29,8 @@ describe('подписи экрана «Аудит» (M13 §8)', () => {
     expect(auditObjectLabel('ProductionOrder')).toBe('ПЗ');
     expect(auditObjectLabel('GoodsTransfer')).toBe('Перемещение');
     expect(auditObjectLabel('Discrepancy')).toBe('расхождение');
+    // Сводная запись о загрузке номенклатуры из файла (этап 5).
+    expect(auditObjectLabel('ProductImport')).toBe('загрузка номенклатуры');
   });
 
   it('показывает изменение «поле: старое → новое» (Р-09)', () => {
