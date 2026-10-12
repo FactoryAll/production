@@ -91,9 +91,11 @@
   `localhost:5433/prodtrack_t009` — этот порт не отвечает. Для локальных проверок переопределяйте
   `DATABASE_URL=postgresql://prodtrack@localhost:55432/prodtrack` (сам `.env` в `.gitignore`). На 55432 —
   30 таблиц и 15 применённых миграций, то есть состояние после фазы 6.
-- **E2E гоняется локально:** `PW_CHROMIUM_PATH=$HOME/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome`,
-  в `DATABASE_URL` полезно добавлять `&connection_limit=5` (иначе параллельные воркеры Playwright исчерпывают
-  соединения: пул Prisma = 2×CPU+1).
+- **E2E гоняется локально:** `PW_CHROMIUM_PATH=$HOME/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome`.
+  `&connection_limit=5` в `DATABASE_URL` больше не обязателен: 12.10.2026 найдена и устранена причина —
+  клиент Prisma создавался на уровне модуля, и каждый посещённый маршрут открывал свой пул соединений
+  (пакет `@prodtrack/db` попадает в бандл каждого маршрута). Теперь клиент один на процесс (`globalThis`),
+  замер: соединения не растут при переходе по маршрутам.
 - **Не запускать e2e и `pnpm build` одновременно** — оба пишут в `apps/web/.next` и сборка падает.
 - **CI:** `.github/workflows/main.yml` (push в `main`: качество + e2e + docker) и `pr.yml` (pull request: качество + e2e).
   E2E-джоб добавлен в фазе 6 — до этого он запускался только после мержа, и поломка контура копилась незаметно.
