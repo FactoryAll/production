@@ -1,8 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import type { PrismaClient } from '@prisma/client';
 import {
   PERMISSIONS,
   ROLES,
   ROLE_PERMISSION_MAP,
+  seedAdmin,
+  seedDefectReasons,
+  seedSubstitutionReasons,
+  seedWarehouses,
+  seedWorkCenters,
   TEST_MULTI_ROLE_LOGIN,
   TEST_MULTI_ROLE_PASSWORD,
   TEST_MULTI_ROLE_ROLES,
@@ -75,5 +81,98 @@ describe('s1c test user', () => {
   it('seed constants for test_s1c are present', () => {
     expect(TEST_S1C_LOGIN).toBe('test_s1c');
     expect(TEST_S1C_PASSWORD).toBe('s1c12345');
+  });
+});
+
+/**
+ * Мок без методов update и upsert: если сид снова начнёт перезаписывать существующие записи,
+ * тест упадёт — «client.workCenter.upsert is not a function». Именно так выглядел дефект,
+ * из-за которого правки справочника исчезали после каждого развёртывания.
+ */
+function mockClient() {
+  return {
+    workCenter: { findUnique: vi.fn(), create: vi.fn() },
+    warehouse: { findFirst: vi.fn(), create: vi.fn() },
+    substitutionReason: { findUnique: vi.fn(), create: vi.fn() },
+    defectReason: { findUnique: vi.fn(), create: vi.fn() },
+    role: { findUnique: vi.fn() },
+    user: { findUnique: vi.fn(), create: vi.fn() },
+  };
+}
+
+const asClient = (client: ReturnType<typeof mockClient>) => client as unknown as PrismaClient;
+
+describe('Сид не перезаписывает данные, которые ведёт администратор', () => {
+  it('существующий РЦ остаётся как есть: название и активность не возвращаются к исходным', async () => {
+    const client = mockClient();
+    client.workCenter.findUnique.mockResolvedValue({ id: 'wc-1', code: '01', name: 'Реактор' });
+
+    await seedWorkCenters(asClient(client));
+
+    expect(client.workCenter.findUnique).toHaveBeenCalledWith({ where: { code: '01' } });
+    expect(client.workCenter.create).not.toHaveBeenCalled();
+  });
+
+  it('отсутствующие РЦ создаются с правилом «производит массу» (Р-02)', async () => {
+    const client = mockClient();
+    client.workCenter.findUnique.mockResolvedValue(null);
+
+    await seedWorkCenters(asClient(client));
+
+    expect(client.workCenter.create).toHaveBeenCalledTimes(12);
+    expect(client.workCenter.create.mock.calls[0][0].data).toMatchObject({
+      code: '01',
+      producesMass: true,
+      active: true,
+    });
+    expect(client.workCenter.create.mock.calls[2][0].data).toMatchObject({
+      code: '03',
+      producesMass: false,
+    });
+  });
+
+  it('склад ищется по типу, чтобы переименование не завело второй склад (Р-19)', async () => {
+    const client = mockClient();
+    client.warehouse.findFirst.mockResolvedValue({ id: 'wh-1', name: 'Цех' });
+
+    await seedWarehouses(asClient(client));
+
+    expect(client.warehouse.findFirst).toHaveBeenCalledWith({ where: { type: 'PRODUCTION' } });
+    expect(client.warehouse.create).not.toHaveBeenCalled();
+  });
+
+  it('существующие причины брака и ввода за Оператора не пересоздаются', async () => {
+    const client = mockClient();
+    client.substitutionReason.findUnique.mockResolvedValue({ id: 'r-1' });
+    client.defectReason.findUnique.mockResolvedValue({ id: 'd-1' });
+
+    await seedSubstitutionReasons(asClient(client));
+    await seedDefectReasons(asClient(client));
+
+    expect(client.substitutionReason.create).not.toHaveBeenCalled();
+    expect(client.defectReason.create).not.toHaveBeenCalled();
+  });
+
+  it('пароль существующего администратора не сбрасывается', async () => {
+    const client = mockClient();
+    client.role.findUnique.mockResolvedValue({ id: 'role-adm' });
+    client.user.findUnique.mockResolvedValue({ id: 'user-adm' });
+
+    await seedAdmin(asClient(client));
+
+    expect(client.user.create).not.toHaveBeenCalled();
+  });
+
+  it('администратор создаётся, когда его ещё нет', async () => {
+    const client = mockClient();
+    client.role.findUnique.mockResolvedValue({ id: 'role-adm' });
+    client.user.findUnique.mockResolvedValue(null);
+
+    await seedAdmin(asClient(client));
+
+    const data = client.user.create.mock.calls[0][0].data;
+    expect(data.login).toBe('admin');
+    expect(data.passwordHash).not.toBe('admin123');
+    expect(data.roles).toEqual({ create: { roleId: 'role-adm' } });
   });
 });

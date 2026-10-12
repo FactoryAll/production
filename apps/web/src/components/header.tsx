@@ -28,14 +28,19 @@ export function Header({ user, unreadCount = 0 }: HeaderProps) {
 
   return (
     <header className="bg-graphite text-white shadow-sm">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-        <Link href="/dashboard" className="flex items-center gap-2 text-lg font-bold tracking-tight">
+      {/* flex-wrap + shrink-0: при нехватке ширины меню переносится на строку ниже, а бренд
+          не сжимается — иначе надпись «ProdTrack» вылезает на первый пункт меню (дефект ОПЭ). */}
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3">
+        <Link
+          href="/dashboard"
+          className="flex shrink-0 items-center gap-2 whitespace-nowrap text-lg font-bold tracking-tight"
+        >
           {/* Чёрный знак на графитовом фоне не читается — в шапке знак на фирменной подложке. */}
           <img src="/logo-mark.svg" alt="" className="h-7 w-7" />
           ProdTrack
         </Link>
 
-        <nav className="hidden items-center gap-1 md:flex">
+        <nav className="hidden flex-wrap items-center gap-1 md:flex">
           {navItems.map((item) => (
             <Link
               key={item.href}
@@ -73,9 +78,10 @@ export function Header({ user, unreadCount = 0 }: HeaderProps) {
           )}
         </nav>
 
-        <div className="flex items-center gap-4">
+        <div className="flex shrink-0 items-center gap-4">
           <UnreadBadge initialCount={unreadCount} />
-          <span className="hidden text-sm text-neutral-300 sm:inline">
+          {/* Логин прячется раньше (lg, а не sm): узкой полосе шапки сначала нужен бренд и меню. */}
+          <span className="hidden text-sm text-neutral-300 lg:inline">
             {user.login}
           </span>
           <LogoutButton className="h-[var(--button-height-sm)] rounded-md border border-white/20 bg-transparent px-4 text-base font-medium text-white transition-colors hover:bg-white/10" />

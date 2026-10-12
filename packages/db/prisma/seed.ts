@@ -148,56 +148,58 @@ export const ROLE_PERMISSION_MAP: Record<RoleCode, string[]> = {
   ADM: PERMISSIONS.map(({ code }) => code),
 };
 
-async function seedWorkCenters() {
-  await Promise.all(
-    WORK_CENTERS.map(({ code, name }) =>
-      prisma.workCenter.upsert({
-        where: { code },
-        update: { name, producesMass: producesMassByCode(code), active: true },
-        create: { code, name, producesMass: producesMassByCode(code), active: true },
-      }),
-    ),
-  );
-}
-
-async function seedWarehouses() {
-  for (const { name, type, description } of WAREHOUSES) {
-    const existing = await prisma.warehouse.findFirst({ where: { name } });
+/**
+ * Справочные данные сид только создаёт — существующие записи он не перезаписывает.
+ *
+ * Раньше здесь был upsert с полями в `update`, и каждое развёртывание возвращало названия РЦ,
+ * складов и причин к исходным: правки администратора (например, убранный префикс «01.» в названии
+ * РЦ) держались до первого деплоя. Признак активности сид тоже больше не поднимает — то же
+ * правило, что и для смен (T-075): заведённые данные принадлежат администратору, а не сиду.
+ */
+export async function seedWorkCenters(client: PrismaClient = prisma): Promise<void> {
+  for (const { code, name } of WORK_CENTERS) {
+    const existing = await client.workCenter.findUnique({ where: { code } });
     if (existing) {
-      await prisma.warehouse.update({
-        where: { id: existing.id },
-        data: { type, description, active: true },
-      });
-    } else {
-      await prisma.warehouse.create({
-        data: { name, type, description, active: true },
-      });
+      continue;
     }
+    await client.workCenter.create({
+      data: { code, name, producesMass: producesMassByCode(code), active: true },
+    });
   }
 }
 
-async function seedSubstitutionReasons() {
-  await Promise.all(
-    SUBSTITUTION_REASONS.map(({ code, name }) =>
-      prisma.substitutionReason.upsert({
-        where: { code },
-        update: { name, active: true },
-        create: { code, name, active: true },
-      }),
-    ),
-  );
+export async function seedWarehouses(client: PrismaClient = prisma): Promise<void> {
+  for (const { name, type, description } of WAREHOUSES) {
+    // Ищем по типу, а не по названию: название администратор вправе изменить (Р-19),
+    // и поиск по нему заводил бы второй склад с тем же типом.
+    const existing = await client.warehouse.findFirst({ where: { type } });
+    if (existing) {
+      continue;
+    }
+    await client.warehouse.create({
+      data: { name, type, description, active: true },
+    });
+  }
 }
 
-async function seedDefectReasons() {
-  await Promise.all(
-    DEFECT_REASONS.map(({ code, name }) =>
-      prisma.defectReason.upsert({
-        where: { code },
-        update: { name, active: true },
-        create: { code, name, active: true },
-      }),
-    ),
-  );
+export async function seedSubstitutionReasons(client: PrismaClient = prisma): Promise<void> {
+  for (const { code, name } of SUBSTITUTION_REASONS) {
+    const existing = await client.substitutionReason.findUnique({ where: { code } });
+    if (existing) {
+      continue;
+    }
+    await client.substitutionReason.create({ data: { code, name, active: true } });
+  }
+}
+
+export async function seedDefectReasons(client: PrismaClient = prisma): Promise<void> {
+  for (const { code, name } of DEFECT_REASONS) {
+    const existing = await client.defectReason.findUnique({ where: { code } });
+    if (existing) {
+      continue;
+    }
+    await client.defectReason.create({ data: { code, name, active: true } });
+  }
 }
 
 
@@ -243,24 +245,22 @@ async function seedRoles() {
   }
 }
 
-async function seedMultiRoleUser() {
-  const roles = await prisma.role.findMany({
+async function seedMultiRoleUser(client: PrismaClient = prisma): Promise<void> {
+  const roles = await client.role.findMany({
     where: { code: { in: TEST_MULTI_ROLE_ROLES } },
   });
 
   if (roles.length === 0) return;
 
-  const passwordHash = await bcrypt.hash(TEST_MULTI_ROLE_PASSWORD, 10);
-  await prisma.user.upsert({
-    where: { login: TEST_MULTI_ROLE_LOGIN },
-    update: {
-      passwordHash,
-      active: true,
-      mustChangePassword: false,
-    },
-    create: {
+  // Существующую учётную запись сид не трогает: сброшенный или изменённый пароль,
+  // блокировка и состав ролей — это данные, а не исходное наполнение.
+  const existing = await client.user.findUnique({ where: { login: TEST_MULTI_ROLE_LOGIN } });
+  if (existing) return;
+
+  await client.user.create({
+    data: {
       login: TEST_MULTI_ROLE_LOGIN,
-      passwordHash,
+      passwordHash: await bcrypt.hash(TEST_MULTI_ROLE_PASSWORD, 10),
       active: true,
       mustChangePassword: false,
       roles: { create: roles.map((role) => ({ roleId: role.id })) },
@@ -268,21 +268,17 @@ async function seedMultiRoleUser() {
   });
 }
 
-async function seedFirstLoginUser() {
-  const role = await prisma.role.findUnique({ where: { code: 'OPR' } });
+async function seedFirstLoginUser(client: PrismaClient = prisma): Promise<void> {
+  const role = await client.role.findUnique({ where: { code: 'OPR' } });
   if (!role) return;
 
-  const passwordHash = await bcrypt.hash(TEST_FIRST_LOGIN_PASSWORD, 10);
-  await prisma.user.upsert({
-    where: { login: TEST_FIRST_LOGIN_LOGIN },
-    update: {
-      passwordHash,
-      active: true,
-      mustChangePassword: true,
-    },
-    create: {
+  const existing = await client.user.findUnique({ where: { login: TEST_FIRST_LOGIN_LOGIN } });
+  if (existing) return;
+
+  await client.user.create({
+    data: {
       login: TEST_FIRST_LOGIN_LOGIN,
-      passwordHash,
+      passwordHash: await bcrypt.hash(TEST_FIRST_LOGIN_PASSWORD, 10),
       active: true,
       mustChangePassword: true,
       roles: { create: [{ roleId: role.id }] },
@@ -290,21 +286,17 @@ async function seedFirstLoginUser() {
   });
 }
 
-async function seedOprShiftUser() {
-  const role = await prisma.role.findUnique({ where: { code: 'OPR' } });
+async function seedOprShiftUser(client: PrismaClient = prisma): Promise<void> {
+  const role = await client.role.findUnique({ where: { code: 'OPR' } });
   if (!role) return;
 
-  const passwordHash = await bcrypt.hash(TEST_OPR_SHIFT_PASSWORD, 10);
-  await prisma.user.upsert({
-    where: { login: TEST_OPR_SHIFT_LOGIN },
-    update: {
-      passwordHash,
-      active: true,
-      mustChangePassword: false,
-    },
-    create: {
+  const existing = await client.user.findUnique({ where: { login: TEST_OPR_SHIFT_LOGIN } });
+  if (existing) return;
+
+  await client.user.create({
+    data: {
       login: TEST_OPR_SHIFT_LOGIN,
-      passwordHash,
+      passwordHash: await bcrypt.hash(TEST_OPR_SHIFT_PASSWORD, 10),
       active: true,
       mustChangePassword: false,
       roles: { create: [{ roleId: role.id }] },
@@ -312,21 +304,17 @@ async function seedOprShiftUser() {
   });
 }
 
-async function seedS1cUser() {
-  const role = await prisma.role.findUnique({ where: { code: 'S1C' } });
+async function seedS1cUser(client: PrismaClient = prisma): Promise<void> {
+  const role = await client.role.findUnique({ where: { code: 'S1C' } });
   if (!role) return;
 
-  const passwordHash = await bcrypt.hash(TEST_S1C_PASSWORD, 10);
-  await prisma.user.upsert({
-    where: { login: TEST_S1C_LOGIN },
-    update: {
-      passwordHash,
-      active: true,
-      mustChangePassword: false,
-    },
-    create: {
+  const existing = await client.user.findUnique({ where: { login: TEST_S1C_LOGIN } });
+  if (existing) return;
+
+  await client.user.create({
+    data: {
       login: TEST_S1C_LOGIN,
-      passwordHash,
+      passwordHash: await bcrypt.hash(TEST_S1C_PASSWORD, 10),
       active: true,
       mustChangePassword: false,
       roles: { create: [{ roleId: role.id }] },
@@ -334,21 +322,19 @@ async function seedS1cUser() {
   });
 }
 
-async function seedAdmin() {
-  const adminRole = await prisma.role.findUnique({ where: { code: 'ADM' } });
+export async function seedAdmin(client: PrismaClient = prisma): Promise<void> {
+  const adminRole = await client.role.findUnique({ where: { code: 'ADM' } });
   if (!adminRole) return;
 
-  const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
-  await prisma.user.upsert({
-    where: { login: ADMIN_LOGIN },
-    update: {
-      passwordHash,
-      active: true,
-      mustChangePassword: false,
-    },
-    create: {
+  // Пароль администратора сид не сбрасывает: иначе после каждого развёртывания снова работал бы
+  // исходный пароль из сида, а смена пароля на стенде терялась бы.
+  const existing = await client.user.findUnique({ where: { login: ADMIN_LOGIN } });
+  if (existing) return;
+
+  await client.user.create({
+    data: {
       login: ADMIN_LOGIN,
-      passwordHash,
+      passwordHash: await bcrypt.hash(ADMIN_PASSWORD, 10),
       active: true,
       mustChangePassword: false,
       roles: { create: { roleId: adminRole.id } },
