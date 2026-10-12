@@ -171,8 +171,13 @@ export async function updateUserAction(userId: string, formData: FormData): Prom
 
 export async function resetPasswordAction(userId: string): Promise<{ success: boolean; tempPassword?: string; error?: string }> {
   try {
-    const { userId: adminId, user: adminSession } = await requirePermission('users:manage');
-    const adminRoles = getUserRoleCodes(adminSession);
+    // Право проверяется здесь, на сервере: скрытая кнопка — не защита, действие вызывается напрямую.
+    const actor = await requirePermission('users:manage').catch(() => null);
+    if (!actor) {
+      return { success: false, error: 'Сброс пароля доступен только администратору' };
+    }
+    const adminId = actor.userId;
+    const adminRoles = getUserRoleCodes(actor.user);
 
     // Себе пароль так не сбрасывают: смена своего пароля — на экране «Смена пароля»,
     // а сброс завершает сессии, то есть выбросил бы администратора из системы.

@@ -237,6 +237,23 @@ describe('users actions', () => {
     expect(audit.newValue).toContain('sessionsClosed');
   });
 
+  it('does not let a role without users:manage reset a password', async () => {
+    // Сброс — административное действие: проверка права стоит в самом действии,
+    // а не только на экране, поэтому прямой вызов ролью без права отклоняется.
+    const { requirePermission } = await import('@/lib/auth/access');
+    (requirePermission as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('Forbidden: insufficient permissions'),
+    );
+
+    const { resetPasswordAction } = await importActions();
+    const result = await resetPasswordAction('user-1');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('только администратору');
+    expect(result.tempPassword).toBeUndefined();
+    expect(mockTx.user.update).not.toHaveBeenCalled();
+  });
+
   it('does not reset the administrator own password through the admin action', async () => {
     // Сброс завершает сессии, поэтому себе пароль так не меняют: администратора выбросило бы из системы.
     const { resetPasswordAction } = await importActions();
