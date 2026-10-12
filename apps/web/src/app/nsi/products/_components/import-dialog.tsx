@@ -9,6 +9,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Dialog } from '@prodtrack/ui';
+import { plural } from '@/lib/format';
 import { PREVIEW_ROWS } from '@/lib/nsi-import/product-import';
 import {
   applyProductImportAction,
@@ -193,7 +194,10 @@ export function ImportProductsDialog({ open, onClose }: ImportProductsDialogProp
                   ))}
                 </ul>
                 {report.counts.errors > report.rowErrors.length && (
-                  <p>Показаны первые {PREVIEW_ROWS} из {report.counts.errors}.</p>
+                  <p>
+                    Показаны первые {report.rowErrors.length} из {report.counts.errors} строк с
+                    ошибками.
+                  </p>
                 )}
               </div>
             )}
@@ -232,7 +236,13 @@ export function ImportProductsDialog({ open, onClose }: ImportProductsDialogProp
                 </table>
                 {report.totalRows > report.preview.length && (
                   <p className="pt-2 text-sm text-machine-gray">
-                    Показаны первые {report.preview.length} строк из {report.totalRows}.
+                    {'Показаны первые ' +
+                      report.preview.length +
+                      ' ' +
+                      plural(report.preview.length, 'строка', 'строки', 'строк') +
+                      ' из ' +
+                      report.totalRows +
+                      '.'}
                   </p>
                 )}
               </div>

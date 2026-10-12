@@ -86,6 +86,43 @@ describe('Диалог загрузки номенклатуры из файла
     ).toBe(false);
   });
 
+  it('согласует число со существительным в подписи предпросмотра', async () => {
+    // На проде (12.10.2026) отчёт читался как «Показаны первые 2 строк из 3».
+    checkProductImportAction.mockResolvedValue(
+      report({
+        totalRows: 3,
+        counts: { ...emptyCounts, create: 2, errors: 1 },
+        preview: [
+          {
+            rowNumber: 2,
+            code: 'БП-1',
+            name: 'Масса первая',
+            category: ProductCategory.MASS,
+            unit: 'кг',
+            action: 'create',
+          },
+          {
+            rowNumber: 3,
+            code: 'БП-2',
+            name: 'Масса вторая',
+            category: ProductCategory.MASS,
+            unit: 'кг',
+            action: 'create',
+          },
+        ],
+        rowErrors: [{ rowNumber: 4, messages: ['Категория «Продукция» не распознана'] }],
+      }),
+    );
+    renderDialog();
+    chooseFile();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Проверить файл' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Показаны первые 2 строки из 3.')).toBeDefined();
+    });
+  });
+
   it('при ошибках в файле перечисляет строки и блокирует загрузку', async () => {
     checkProductImportAction.mockResolvedValue(
       report({
