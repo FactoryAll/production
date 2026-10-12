@@ -51,7 +51,15 @@ const fact = {
   createdAt: new Date(),
   updatedAt: new Date(),
   consumptions: [
-    { id: 'c-1', productionFactId: 'fact-1', productId: 'mass-1', quantity: new Decimal(30), createdAt: new Date() },
+    {
+      id: 'c-1',
+      productionFactId: 'fact-1',
+      productId: 'mass-1',
+      // Номенклатура нужна для показа состава потребления в карточке (Р-10).
+      product: massProduct,
+      quantity: new Decimal(30),
+      createdAt: new Date(),
+    },
   ],
 };
 
@@ -106,6 +114,21 @@ function makeOrder() {
 describe('Корректировка факта: потребление (T-073, Р-10)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('показывает категорию выпуска и состав потребления (Р-01, Р-10)', () => {
+    render(
+      <ProductionOrderCard
+        order={makeOrder()}
+        defectReasons={[]}
+        consumableProducts={[massProduct] as never}
+        userRoles={['NP']}
+      />,
+    );
+
+    // На ГП-РЦ вносят и ГП, и ПФ: без подписи категории две строки факта неразличимы.
+    expect(screen.getByText(/Выпуск ГП: 45/)).toBeTruthy();
+    expect(screen.getByText(/Масса базовая 30 кг/)).toBeTruthy();
   });
 
   it('показывает текущий состав потребления и позволяет добавить строку', async () => {

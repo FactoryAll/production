@@ -20,6 +20,7 @@ import type {
   DefectReason,
 } from '@prisma/client';
 import { confirmProductionOrderAction, substituteOperatorAction, cancelProductionOrderAction, correctProductionFactAction } from '../actions';
+import { factCategoryLabel } from '@/lib/onec/labels';
 
 interface ProductionOrderCardProps {
   order: ProductionOrder & {
@@ -35,8 +36,9 @@ interface ProductionOrderCardProps {
         facts: Array<
           ProductionFact & {
             defectReason: DefectReason | null;
-            // T-073: состав потребления нужен, чтобы корректировать его в карточке.
-            consumptions: FactConsumption[];
+            // T-073: состав потребления нужен, чтобы корректировать его в карточке,
+            // а номенклатура — чтобы показать, что и сколько потреблялось (Р-10).
+            consumptions: Array<FactConsumption & { product: Product }>;
           }
         >;
         workerAssignments: Array<ProductionOrderLineWorkers & { employee: Employee }>;
@@ -572,10 +574,28 @@ export default function ProductionOrderCard({
                         {line.facts.map((fact) => (
                           <div key={fact.id} className="space-y-1">
                             <p className="text-graphite">
-                              Выпуск: {fact.quantity.toString()} | Брак: {fact.defectQuantity.toString()}
+                              {/* Категория обязательна: на ГП-РЦ вносят и ГП, и ПФ, и без подписи
+                                  две строки факта выглядят неразличимо (Р-01). */}
+                              Выпуск {factCategoryLabel(fact.factCategory)}: {fact.quantity.toString()} | Брак:{' '}
+                              {fact.defectQuantity.toString()}
                               {fact.defectReason ? ` (${fact.defectReason.name})` : ''}
                               {fact.stopsDurationMinutes > 0 ? ` | Остановки: ${fact.stopsDurationMinutes} мин` : ''}
                             </p>
+                            {fact.consumptions.length > 0 && (
+                              <p className="text-xs text-machine-gray">
+                                Потребление:{' '}
+                                {fact.consumptions
+                                  .map(
+                                    (item) =>
+                                      item.product.name +
+                                      ' ' +
+                                      item.quantity.toString() +
+                                      ' ' +
+                                      item.product.unit,
+                                  )
+                                  .join(' · ')}
+                              </p>
+                            )}
                             {fact.postCompletionCorrection && (
                               <div className="space-y-1">
                                 <span className="inline-flex items-center rounded bg-signal-amber px-2 py-0.5 text-xs font-medium text-graphite">

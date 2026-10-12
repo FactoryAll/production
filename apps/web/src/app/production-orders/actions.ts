@@ -1412,7 +1412,8 @@ export async function getProductionOrderById(id: string) {
               include: {
                 defectReason: true,
                 // T-073: корректировка факта правит потребление — нужен его состав.
-                consumptions: true,
+                // Номенклатура нужна, чтобы в карточке было видно, что и сколько потреблялось (Р-10).
+                consumptions: { include: { product: true } },
               },
             },
             workerAssignments: {
