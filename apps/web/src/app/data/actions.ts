@@ -32,7 +32,13 @@ export async function clearDataAction(
       return { success: false, error: 'Введите слово ' + CLEAR_CONFIRMATION_WORD + ' для подтверждения' };
     }
 
-    const groups = findDataGroups(keys);
+    // Склады — данные: группы остатков строятся по справочнику, чтобы можно было
+    // почистить один склад, не трогая остальные (замечание владельца 12.10.2026).
+    const warehouses = await prisma.warehouse.findMany({
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true },
+    });
+    const groups = findDataGroups(keys, warehouses);
     if (groups.length === 0) {
       return { success: false, error: 'Выберите хотя бы одну группу данных' };
     }

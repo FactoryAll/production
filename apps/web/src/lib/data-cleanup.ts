@@ -24,7 +24,8 @@ export interface DataGroup {
 /** Слово, которое администратор вводит для подтверждения: случайный клик не сработает. */
 export const CLEAR_CONFIRMATION_WORD = 'ОЧИСТИТЬ';
 
-export const DATA_GROUPS: DataGroup[] = [
+/** Постоянные группы. Остатки добавляются отдельно — по одной на каждый склад. */
+const BASE_DATA_GROUPS: DataGroup[] = [
   {
     key: 'notifications',
     label: 'Уведомления',
@@ -88,17 +89,8 @@ export const DATA_GROUPS: DataGroup[] = [
       return count;
     },
   },
-  {
-    key: 'stock',
-    label: 'Остатки',
-    description: 'Движения и остатки складов (M05)',
-    order: 7,
-    count: async (client) =>
-      (await client.stockMovement.count()) + (await client.stockBalance.count()),
-    remove: async (client) =>
-      (await client.stockMovement.deleteMany()).count +
-      (await client.stockBalance.deleteMany()).count,
-  },
+  // Остатки — не одной группой, а отдельной на каждый склад: их список строится
+  // по справочнику складов в buildDataGroups (замечание владельца продукта 12.10.2026).
   {
     key: 'orders',
     label: 'Производственные задания',
@@ -116,8 +108,45 @@ export const DATA_GROUPS: DataGroup[] = [
   },
 ];
 
-export function findDataGroups(keys: string[]): DataGroup[] {
-  const known = new Map(DATA_GROUPS.map((group) => [group.key, group]));
+/** Ключ группы остатков конкретного склада. */
+export const STOCK_GROUP_PREFIX = 'stock:';
+
+export interface WarehouseRef {
+  id: string;
+  name: string;
+}
+
+/**
+ * Полный список групп: постоянные плюс отдельная группа остатков на каждый склад.
+ *
+ * Склады — данные, а не константы, поэтому список строится по справочнику: администратор
+ * может почистить остатки одного склада, не трогая другой.
+ */
+export function buildDataGroups(warehouses: WarehouseRef[]): DataGroup[] {
+  const stockGroups: DataGroup[] = warehouses.map((warehouse) => ({
+    key: STOCK_GROUP_PREFIX + warehouse.id,
+    label: 'Остатки — ' + warehouse.name,
+    description: 'Движения и остатки склада «' + warehouse.name + '» (M05)',
+    order: 7,
+    count: async (client) =>
+      (await client.stockMovement.count({ where: { warehouseId: warehouse.id } })) +
+      (await client.stockBalance.count({ where: { warehouseId: warehouse.id } })),
+    remove: async (client) => {
+      const movements = await client.stockMovement.deleteMany({
+        where: { warehouseId: warehouse.id },
+      });
+      const balances = await client.stockBalance.deleteMany({
+        where: { warehouseId: warehouse.id },
+      });
+      return movements.count + balances.count;
+    },
+  }));
+
+  return [...BASE_DATA_GROUPS, ...stockGroups].sort((left, right) => left.order - right.order);
+}
+
+export function findDataGroups(keys: string[], warehouses: WarehouseRef[]): DataGroup[] {
+  const known = new Map(buildDataGroups(warehouses).map((group) => [group.key, group]));
   return keys
     .map((key) => known.get(key))
     .filter((group): group is DataGroup => group !== undefined)
@@ -133,8 +162,13 @@ export interface DataGroupCount {
 
 /** Сколько записей удалит каждая группа — показывается администратору ДО подтверждения. */
 export async function countDataGroups(client: TxClient): Promise<DataGroupCount[]> {
+  const warehouses = await client.warehouse.findMany({
+    orderBy: { name: 'asc' },
+    select: { id: true, name: true },
+  });
+
   const counts: DataGroupCount[] = [];
-  for (const group of DATA_GROUPS) {
+  for (const group of buildDataGroups(warehouses)) {
     counts.push({
       key: group.key,
       label: group.label,

@@ -6,7 +6,12 @@ const tx = {
 };
 
 vi.mock('@prodtrack/db', () => ({
-  prisma: { $transaction: vi.fn(async (cb: (client: unknown) => Promise<unknown>) => cb(tx)) },
+  prisma: {
+    $transaction: vi.fn(async (cb: (client: unknown) => Promise<unknown>) => cb(tx)),
+    warehouse: {
+      findMany: vi.fn().mockResolvedValue([{ id: 'wh-fg', name: 'Склад ГП' }]),
+    },
+  },
   writeAudit: vi.fn(),
 }));
 vi.mock('@/lib/auth/session', () => ({ requireSession: vi.fn() }));

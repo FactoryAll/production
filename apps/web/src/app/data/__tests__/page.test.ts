@@ -20,6 +20,11 @@ vi.mock('@prodtrack/db', () => {
       productionOrder: counter(),
       productionOrderLine: counter(),
       productionOrderLineWorkers: counter(),
+      warehouse: {
+        findMany: vi
+          .fn()
+          .mockResolvedValue([{ id: 'wh-production', name: 'Производственный' }]),
+      },
     },
   };
 });
@@ -60,7 +65,9 @@ describe('Экран «Данные»: доступ и состав групп (
 
     expect(element.type).toBe(DataCleanupPage);
     const groups = propsOf(element).groups as { key: string; records: number }[];
+    // 7 постоянных групп плюс группа остатков на каждый склад из справочника (в моке он один).
     expect(groups).toHaveLength(8);
     expect(groups.map((group) => group.key)).toContain('orders');
+    expect(groups.map((group) => group.key)).toContain('stock:wh-production');
   });
 });
