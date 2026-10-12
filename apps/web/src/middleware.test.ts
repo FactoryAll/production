@@ -63,4 +63,13 @@ describe('middleware', () => {
     const response = await middleware(buildRequest('/_next/static/chunk.js'));
     expect(response.status).toBe(200);
   });
+
+  it('отдаёт иконку сайта без сессии', async () => {
+    // Иконку (app/icon.svg → /icon.svg) запрашивает и браузер на экране входа, где сессии нет.
+    const icon = await middleware(buildRequest('/icon.svg'));
+    expect(icon.status).toBe(200);
+
+    // Запасные формы того же ресурса — на случай, если Next отдаст его без расширения.
+    expect((await middleware(buildRequest('/icon'))).status).toBe(200);
+  });
 });

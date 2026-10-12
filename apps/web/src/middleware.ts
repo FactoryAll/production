@@ -2,7 +2,10 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { SESSION_COOKIE_NAME } from './lib/auth/constants';
 
-const PUBLIC_PATHS = ['/login', '/change-password', '/api/auth', '/_next', '/favicon.ico', '/public', '/health'];
+// '/icon' и '/apple-icon' — favicon из app/icon.svg (файловые метаданные Next.js). Сам файл
+// отдаётся по пути /icon.svg и попадает в публичные по расширению; записи здесь — страховка
+// на случай формы без расширения.
+const PUBLIC_PATHS = ['/login', '/change-password', '/api/auth', '/_next', '/favicon.ico', '/public', '/health', '/icon', '/apple-icon'];
 const PUBLIC_EXTENSIONS = ['.ico', '.png', '.jpg', '.jpeg', '.svg', '.css', '.js', '.woff2', '.map'];
 
 function isPublicPath(pathname: string): boolean {
