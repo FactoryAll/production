@@ -4,9 +4,9 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Button, Card } from '@prodtrack/ui';
-import { formatDuration } from '@/lib/format';
+import { formatDuration, plural } from '@/lib/format';
 import { documentTypeLabel, statusLabel } from '@/app/timing/labels';
-import { formatAge, plural } from '@/lib/dashboard/aggregates';
+import { formatAge } from '@/lib/dashboard/aggregates';
 import {
   DASHBOARD_PERIODS,
   DASHBOARD_PERIOD_LABELS,

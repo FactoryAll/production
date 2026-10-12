@@ -42,22 +42,6 @@ export function formatAge(ms: number | null): string {
   return days === 0 ? formatDuration(minutes) : days + ' д ' + formatDuration(minutes - days * 24 * 60);
 }
 
-/**
- * Русская форма существительного при числе: 1 перемещение, 2 перемещения, 5 перемещений.
- * Без неё в подписях виджетов получается «2 перемещений».
- */
-export function plural(count: number, one: string, few: string, many: string): string {
-  const mod100 = Math.abs(count) % 100;
-  const mod10 = mod100 % 10;
-  if (mod100 >= 11 && mod100 <= 14) {
-    return many;
-  }
-  if (mod10 === 1) {
-    return one;
-  }
-  return mod10 >= 2 && mod10 <= 4 ? few : many;
-}
-
 export interface StageDurationItem {
   fromStatus: string;
   toStatus: string;

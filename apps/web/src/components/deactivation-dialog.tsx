@@ -1,6 +1,7 @@
 'use client';
 
 import { Button, Dialog } from '@prodtrack/ui';
+import { plural } from '@/lib/format';
 
 export interface DeactivationDialogProps {
   open: boolean;
@@ -29,7 +30,13 @@ export function DeactivationDialog({
         <p className="text-base text-graphite">
           {hasWarnings ? (
             <>
-              Эта {entityName} используется в {warnings.length} незавершённых документах. После деактивации
+              Эта {entityName} используется в {warnings.length}{' '}
+              {plural(
+                warnings.length,
+                'незавершённом документе',
+                'незавершённых документах',
+                'незавершённых документах',
+              )}. После деактивации
               она останется в документах с пометкой «(неактивно)», но будет недоступна для выбора в новых
               документах.
             </>
