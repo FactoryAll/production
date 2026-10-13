@@ -49,14 +49,32 @@ export function getNavItems(userRoles: string[]): NavItem[] {
     items.push({ label: '1С', href: '/onec' });
   }
 
+  // Пункт «Отчёты» не выводится: страницы-списка /shift-reports нет,
+  // по M06 отчёт за смену открывается из карточки ПЗ.
+
+  return items;
+}
+
+/**
+ * Пункты выпадающего меню «Администрирование».
+ *
+ * Редкие в ежедневной работе экраны вынесены из основной полосы: тринадцать пунктов
+ * вместе с брендом и блоком пользователя не помещались в шапку, и меню переносилось
+ * на вторую строку (замечание владельца, 12.10.2026).
+ *
+ * Права проверяются здесь же: пункт показывается только тому, кто вправе открыть экран
+ * (урок Фазы 6 — ссылки на недоступные страницы ведут на «Доступ запрещён»).
+ */
+export function getAdminNavItems(userRoles: string[]): NavItem[] {
+  const items: NavItem[] = [];
+
   // Аудит M13 доступен НП и АДМ (M13 §3, BR-3).
   if (hasPermission(userRoles, 'audit:read')) {
     items.push({ label: 'Аудит', href: '/audit' });
   }
 
-  // Данные: очистка тестовых данных (T-076). Экран доступен только администратору,
-  // поэтому пункт меню тоже показывается только ему.
-  if (userRoles.includes('ADM')) {
+  // Данные: очистка тестовых данных (T-076) — только администратор.
+  if (hasPermission(userRoles, 'users:manage')) {
     items.push({ label: 'Данные', href: '/data' });
   }
 
@@ -66,11 +84,12 @@ export function getNavItems(userRoles: string[]): NavItem[] {
     items.push({ label: 'Роли', href: '/roles' });
   }
 
+  if (hasPermission(userRoles, 'users:manage')) {
+    items.push({ label: 'Пользователи', href: '/users' });
+  }
+
   // Хронометраж M10 доступен всем ролям (M10 §3); ОПР видит только свой РЦ.
   items.push({ label: 'Хронометраж', href: '/timing' });
-
-  // Пункт «Отчёты» не выводится: страницы-списка /shift-reports нет,
-  // по M06 отчёт за смену открывается из карточки ПЗ.
 
   return items;
 }

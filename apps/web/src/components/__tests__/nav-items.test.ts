@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { canViewTransfers, getNavItems } from '../nav-items';
+import { canViewTransfers, getAdminNavItems, getNavItems } from '../nav-items';
 
 const hrefsFor = (roles: string[]) => getNavItems(roles).map((item) => item.href);
+const adminHrefsFor = (roles: string[]) => getAdminNavItems(roles).map((item) => item.href);
 
 describe('nav-items', () => {
   it('shows Перемещения for NP, KSGP, USGP and ADM (M07 §3)', () => {
@@ -33,9 +34,9 @@ describe('nav-items', () => {
       '/production-orders',
       '/stock',
       '/transfers',
-      '/audit',
-      '/timing',
     ]);
+    // Аудит и хронометраж у НП есть, но в выпадающем меню администрирования.
+    expect(adminHrefsFor(['NP'])).toEqual(['/audit', '/timing']);
   });
 
   it('builds the KSGP menu without pages the role cannot open', () => {
@@ -44,7 +45,6 @@ describe('nav-items', () => {
       '/notifications',
       '/stock',
       '/transfers',
-      '/timing',
     ]);
   });
 
@@ -54,7 +54,6 @@ describe('nav-items', () => {
       '/notifications',
       '/shift-execution',
       '/stock',
-      '/timing',
     ]);
   });
 
@@ -67,17 +66,13 @@ describe('nav-items', () => {
       '/stock',
       '/transfers',
       '/onec',
-      '/audit',
-      '/data',
-      '/roles',
-      '/timing',
     ]);
   });
 
   it('показывает «Данные» только администратору (T-076)', () => {
-    expect(hrefsFor(['ADM'])).toContain('/data');
+    expect(adminHrefsFor(['ADM'])).toContain('/data');
     for (const role of ['NP', 'OPR', 'KSGP', 'USGP', 'S1C']) {
-      expect(hrefsFor([role])).not.toContain('/data');
+      expect(adminHrefsFor([role])).not.toContain('/data');
     }
   });
 
@@ -113,25 +108,51 @@ describe('nav-items', () => {
 
   it('shows Хронометраж for every role (M10 §3: просмотр хронометража — R для всех)', () => {
     for (const role of ['NP', 'OPR', 'KSGP', 'USGP', 'S1C', 'ADM']) {
-      expect(hrefsFor([role])).toContain('/timing');
+      expect(adminHrefsFor([role])).toContain('/timing');
     }
   });
 
   it('shows Аудит only for НП и АДМ (M13 §3, BR-3)', () => {
-    expect(hrefsFor(['NP'])).toContain('/audit');
-    expect(hrefsFor(['ADM'])).toContain('/audit');
+    expect(adminHrefsFor(['NP'])).toContain('/audit');
+    expect(adminHrefsFor(['ADM'])).toContain('/audit');
     for (const role of ['OPR', 'KSGP', 'USGP', 'S1C']) {
-      expect(hrefsFor([role])).not.toContain('/audit');
+      expect(adminHrefsFor([role])).not.toContain('/audit');
     }
   });
 
   it('shows Роли only for the role holding roles:manage (M02, T-069)', () => {
-    expect(hrefsFor(['ADM'])).toContain('/roles');
+    expect(adminHrefsFor(['ADM'])).toContain('/roles');
     for (const role of ['NP', 'OPR', 'KSGP', 'USGP', 'S1C']) {
-      expect(hrefsFor([role])).not.toContain('/roles');
+      expect(adminHrefsFor([role])).not.toContain('/roles');
     }
     // Совмещение ролей (Р-23): право даёт любая из ролей пользователя.
-    expect(hrefsFor(['OPR', 'ADM'])).toContain('/roles');
+    expect(adminHrefsFor(['OPR', 'ADM'])).toContain('/roles');
+  });
+
+  it('выносит редкие экраны из основной полосы меню', () => {
+    // Из-за тринадцати пунктов шапка переносилась на вторую строку (замечание владельца 12.10.2026).
+    for (const role of ['NP', 'OPR', 'KSGP', 'USGP', 'S1C', 'ADM']) {
+      for (const href of ['/audit', '/data', '/roles', '/users', '/timing']) {
+        expect(hrefsFor([role])).not.toContain(href);
+      }
+    }
+  });
+
+  it('показывает «Пользователи» только ролям с правом users:manage', () => {
+    expect(adminHrefsFor(['ADM'])).toContain('/users');
+    for (const role of ['NP', 'OPR', 'KSGP', 'USGP', 'S1C']) {
+      expect(adminHrefsFor([role])).not.toContain('/users');
+    }
+  });
+
+  it('меню администрирования строится для администратора в устойчивом порядке', () => {
+    expect(adminHrefsFor(['ADM'])).toEqual(['/audit', '/data', '/roles', '/users', '/timing']);
+  });
+
+  it('не выводит пунктов администрирования у роли без подходящих прав', () => {
+    // Пустое меню не показывается вовсе; проверяем на роли, у которой нет ни аудита,
+    // ни прав администратора — остаётся только хронометраж, доступный всем.
+    expect(adminHrefsFor(['KSGP'])).toEqual(['/timing']);
   });
 
   it('always keeps the dashboard entry', () => {

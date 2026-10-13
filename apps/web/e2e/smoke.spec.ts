@@ -38,6 +38,14 @@ test('шапка: бренд не вылезает на пункты меню', 
     Math.min(first.y + first.height, second.y + second.height) - Math.max(first.y, second.y) > 0;
 
   expect(overlaps(brandBox!, navBox!)).toBe(false);
+
+  // Редкие пункты уехали в выпадашку, поэтому меню снова помещается в одну строку.
+  expect(navBox!.height).toBeLessThan(60);
+
+  await page.getByRole('button', { name: 'Администрирование' }).hover();
+  await expect(page.getByRole('link', { name: 'Пользователи' }).first()).toBeVisible();
+  await page.getByRole('link', { name: 'Аудит' }).first().click();
+  await page.waitForURL(/\/audit/, { timeout: 60000 });
 });
 
 test('иконка сайта отдаётся без сессии', async ({ page }) => {

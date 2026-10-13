@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { LogoutButton } from './logout-button';
-import { getNavItems } from './nav-items';
+import { getAdminNavItems, getNavItems } from './nav-items';
 import { UnreadBadge } from './unread-badge';
 
 const nsiItems = [
@@ -23,8 +23,8 @@ interface HeaderProps {
 
 export function Header({ user, unreadCount = 0 }: HeaderProps) {
   const roles = user.roles.map((ur) => ur.role.code);
-  const isAdmin = roles.includes('ADM');
   const navItems = getNavItems(roles);
+  const adminItems = getAdminNavItems(roles);
 
   return (
     <header className="bg-graphite text-white shadow-sm">
@@ -55,7 +55,8 @@ export function Header({ user, unreadCount = 0 }: HeaderProps) {
             <button className="rounded-sm px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-white/10 hover:text-white">
               НСИ
             </button>
-            <div className="absolute left-0 top-full hidden min-w-[180px] rounded-md border border-mist-metal bg-white py-1 shadow-lg group-hover:block">
+            {/* group-focus-within: меню открывается и с клавиатуры, не только наведением. */}
+            <div className="absolute left-0 top-full hidden min-w-[180px] rounded-md border border-mist-metal bg-white py-1 shadow-lg group-hover:block group-focus-within:block">
               {nsiItems.map((item) => (
                 <Link
                   key={item.href}
@@ -68,13 +69,23 @@ export function Header({ user, unreadCount = 0 }: HeaderProps) {
             </div>
           </div>
 
-          {isAdmin && (
-            <Link
-              href="/users"
-              className="rounded-sm px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-white/10 hover:text-white"
-            >
-              Пользователи
-            </Link>
+          {adminItems.length > 0 && (
+            <div className="group relative">
+              <button className="rounded-sm px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-white/10 hover:text-white">
+                Администрирование
+              </button>
+              <div className="absolute left-0 top-full hidden min-w-[200px] rounded-md border border-mist-metal bg-white py-1 shadow-lg group-hover:block group-focus-within:block">
+                {adminItems.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="block px-4 py-2 text-sm text-graphite hover:bg-graphite-surface"
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
+            </div>
           )}
         </nav>
 
@@ -98,14 +109,16 @@ export function Header({ user, unreadCount = 0 }: HeaderProps) {
             {item.label}
           </Link>
         ))}
-        {isAdmin && (
+        {/* На узком экране выпадашки нет: пункты администрирования идут строкой. */}
+        {adminItems.map((item) => (
           <Link
-            href="/users"
+            key={item.href}
+            href={item.href}
             className="whitespace-nowrap rounded-sm px-3 py-1.5 text-xs font-medium text-neutral-200 transition-colors hover:bg-white/10 hover:text-white"
           >
-            Пользователи
+            {item.label}
           </Link>
-        )}
+        ))}
       </div>
     </header>
   );
