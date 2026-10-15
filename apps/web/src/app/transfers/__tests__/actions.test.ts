@@ -79,6 +79,7 @@ const ksgpUser: User = {
   login: 'ksgp',
   passwordHash: 'hash',
   mustChangePassword: false,
+  notificationScope: 'ALL' as const,
   active: true,
   employeeId: null,
   createdAt: new Date(),

@@ -9,6 +9,14 @@ datasource db {
 
 // === M01: Reference data ===
 
+/// Направление уведомлений специалиста 1С (M09, фидбэк ОПЭ 13.10.2026).
+/// Специалистов двое: один ведёт Массу, второй — ГП и перемещения.
+enum NotificationScope {
+  ALL
+  MASS
+  GP_TRANSFERS
+}
+
 enum ProductCategory {
   MASS
   GP
@@ -177,6 +185,8 @@ model User {
   passwordHash       String
   mustChangePassword Boolean   @default(true)
   active             Boolean   @default(true)
+  /// Направление уведомлений роли С1С: только Масса или ГП и перемещения (фидбэк ОПЭ, 13.10.2026).
+  notificationScope  NotificationScope @default(ALL)
   employeeId         String?   @unique
   employee           Employee? @relation("EmployeeUser", fields: [employeeId], references: [id])
   createdAt          DateTime  @default(now())

@@ -24,6 +24,7 @@ const baseSession = {
     login: 'opr',
     passwordHash: 'hash',
     mustChangePassword: false,
+  notificationScope: 'ALL' as const,
     active: true,
     employeeId: 'emp-1',
     createdAt: new Date(),
@@ -159,9 +160,14 @@ function buildMockPrisma(overrides: {
   const userFindMany = vi.fn().mockImplementation(({ where }: { where: { roles?: { some: { role: { code: string | { in: string[] } } } } } }) => {
     const code = where.roles?.some.role.code;
     const roleCodes = typeof code === 'string' ? [code] : code?.in ?? [];
+    // Резолвер читает роли и направление уведомлений адресата (ОПЭ, 13.10.2026).
     const users = roleCodes.flatMap((roleCode) => {
-      if (roleCode === 'NP') return [{ id: 'np-user-1' }];
-      if (roleCode === 'S1C') return [{ id: 's1c-user-1' }];
+      if (roleCode === 'NP') {
+        return [{ id: 'np-user-1', notificationScope: 'ALL', roles: [{ role: { code: 'NP' } }] }];
+      }
+      if (roleCode === 'S1C') {
+        return [{ id: 's1c-user-1', notificationScope: 'ALL', roles: [{ role: { code: 'S1C' } }] }];
+      }
       return [];
     });
     return Promise.resolve(users);

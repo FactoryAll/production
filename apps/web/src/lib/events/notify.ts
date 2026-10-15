@@ -11,7 +11,7 @@
 // должен оставаться обычным модулем (иначе синхронные хелперы становятся
 // Server Reference и падают при рендере — урок Фазы 3).
 
-import type { Prisma } from '@prisma/client';
+import type { NotificationScope, Prisma } from '@prisma/client';
 import {
   EVENT_CATALOG,
   getEventDefinition,
@@ -27,6 +27,36 @@ export interface RecipientContext {
   operatorEmployeeIds?: string[];
   /** Табельный id оператора строки РЦ (правило LINE_OPERATOR). */
   lineOperatorEmployeeId?: string;
+  /**
+   * Категория продукции события — по ней фильтруются адресаты роли С1С.
+   * Не задана у событий перемещения: там направление считается «ГП и перемещения».
+   */
+  productCategory?: 'MASS' | 'GP';
+}
+
+/**
+ * Направление уведомлений специалиста 1С (фидбэк ОПЭ, 13.10.2026).
+ *
+ * Специалистов двое: один ведёт Массу, второй — ГП и перемещения. Фильтр применяется только
+ * к адресатам роли С1С: у остальных ролей настройка ни на что не влияет.
+ */
+/**
+ * Категория продукции для фильтра направления уведомлений С1С (ОПЭ, 13.10.2026):
+ * факты Массы отличаются от всего остального (ГП и ПФ) — по этому признаку и разделены
+ * два специалиста 1С.
+ */
+export function notificationCategoryOfFacts(
+  facts: { factCategory: string }[],
+): 'MASS' | 'GP' {
+  return facts.some((fact) => fact.factCategory === 'MASS') ? 'MASS' : 'GP';
+}
+
+export function notificationScopesForCategory(
+  productCategory?: 'MASS' | 'GP',
+): NotificationScope[] {
+  // Масса — специалисту по Массе; во всех остальных случаях (ГП и события перемещения,
+  // у которых категории нет) — второму специалисту. «Все» получает и то, и другое.
+  return productCategory === 'MASS' ? ['ALL', 'MASS'] : ['ALL', 'GP_TRANSFERS'];
 }
 
 export interface NotifyEventOptions {
@@ -93,12 +123,30 @@ export async function resolveRecipients<K extends EventCodeValue>(
     rule.kind === 'ROLE' ? [rule.role] : [],
   );
 
-  if (roleCodes.length > 0) {
+  // Роль С1С разбирается отдельно: у неё есть направление уведомлений (ОПЭ, 13.10.2026).
+  // Раздельные запросы ещё и сохраняют простое правило: если событие адресовано и другой роли
+  // пользователя (например, КСГП), он получит его независимо от своей настройки направления.
+  const plainRoleCodes = roleCodes.filter((code) => code !== 'S1C');
+
+  if (plainRoleCodes.length > 0) {
     const users = await tx.user.findMany({
-      where: { roles: { some: { role: { code: { in: roleCodes } } } } },
+      where: { roles: { some: { role: { code: { in: plainRoleCodes } } } } },
       select: { id: true },
     });
     for (const user of users) {
+      recipientIds.add(user.id);
+    }
+  }
+
+  if (roleCodes.includes('S1C')) {
+    const s1cUsers = await tx.user.findMany({
+      where: {
+        roles: { some: { role: { code: 'S1C' } } },
+        notificationScope: { in: notificationScopesForCategory(context.productCategory) },
+      },
+      select: { id: true },
+    });
+    for (const user of s1cUsers) {
       recipientIds.add(user.id);
     }
   }

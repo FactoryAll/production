@@ -21,7 +21,7 @@ import {
   writeAudit,
   writeTiming,
 } from '@prodtrack/db';
-import { notifyEvent } from '@/lib/events/notify';
+import { notificationCategoryOfFacts, notifyEvent } from '@/lib/events/notify';
 import { hasPermission, requireAnyPermission, requirePermission } from '@/lib/auth/access';
 import { getAttributeRole, RoleCode } from '@prodtrack/contracts';
 import {
@@ -898,16 +898,26 @@ export async function substituteOperator(
 
     // EV-08 (ввод за Оператора, причина + комментарий — Р-13) и EV-03:
     // адресаты и deep-link берутся из каталога событий (00 §5).
-    await notifyEvent(tx, 'EV-08', {
-      orderId,
-      lineId,
-      operatorId,
-      reasonCode,
-      comment,
-      factIds,
-    });
+    // Категория продукции — для фильтра «направление уведомлений» специалиста 1С (ОПЭ, 13.10.2026).
+    const notificationCategory = notificationCategoryOfFacts(createdFacts);
 
-    await notifyEvent(tx, 'EV-03', { orderId, lineId, factIds });
+    await notifyEvent(
+      tx,
+      'EV-08',
+      {
+        orderId,
+        lineId,
+        operatorId,
+        reasonCode,
+        comment,
+        factIds,
+      },
+      { context: { productCategory: notificationCategory } },
+    );
+
+    await notifyEvent(tx, 'EV-03', { orderId, lineId, factIds }, {
+      context: { productCategory: notificationCategory },
+    });
   });
 
   revalidatePath('/production-orders');

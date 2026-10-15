@@ -24,6 +24,7 @@ async function makeUser(overrides = {}) {
     passwordHash,
     active: true,
     mustChangePassword: false,
+  notificationScope: 'ALL' as const,
     roles: [{ role: { code: 'ADM' } }],
     ...overrides,
   };

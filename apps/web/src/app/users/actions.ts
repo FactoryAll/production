@@ -6,6 +6,7 @@ import { requirePermission } from '@/lib/auth/access';
 import { RoleCode } from '@prodtrack/contracts';
 import { hashPassword, isPasswordValid } from '@/lib/auth/password';
 import { generateTempPassword } from '@/lib/auth/temp-password';
+import type { NotificationScope } from '@prisma/client';
 
 const VALID_ROLES = Object.values(RoleCode);
 
@@ -40,6 +41,19 @@ function assertPassword(password: string): void {
   }
 }
 
+const NOTIFICATION_SCOPES: NotificationScope[] = ['ALL', 'MASS', 'GP_TRANSFERS'];
+
+/**
+ * Направление уведомлений специалиста 1С (ОПЭ, 13.10.2026): «Все» по умолчанию,
+ * «Масса» или «ГП и перемещения». Незнакомое значение трактуется как «Все».
+ */
+function parseNotificationScope(formData: FormData): NotificationScope {
+  const raw = String(formData.get('notificationScope') ?? 'ALL');
+  return NOTIFICATION_SCOPES.includes(raw as NotificationScope)
+    ? (raw as NotificationScope)
+    : 'ALL';
+}
+
 function parseRoles(formData: FormData): RoleCode[] {
   const roles = formData.getAll('roles') as string[];
   return roles.filter((r): r is RoleCode => VALID_ROLES.includes(r as RoleCode));
@@ -65,6 +79,7 @@ export async function createUserAction(formData: FormData): Promise<{ success: b
     const password = String(formData.get('password') ?? '');
     const employeeId = String(formData.get('employeeId') ?? '');
     const roles = parseRoles(formData);
+    const notificationScope = parseNotificationScope(formData);
 
     await assertLoginUnique(login);
     assertPassword(password);
@@ -78,7 +93,7 @@ export async function createUserAction(formData: FormData): Promise<{ success: b
 
     await prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
-        data: { login, passwordHash, employeeId, active: true, mustChangePassword: true },
+        data: { login, passwordHash, employeeId, active: true, mustChangePassword: true, notificationScope },
       });
       await tx.userRole.createMany({
         data: rolesWithIds.map((r) => ({ userId: created.id, roleId: r.id })),
@@ -90,7 +105,14 @@ export async function createUserAction(formData: FormData): Promise<{ success: b
         userId,
         userRoles: adminRoles,
         permission: 'users:manage',
-        newValue: JSON.stringify({ login, employeeId, roles, active: true, mustChangePassword: true }),
+        newValue: JSON.stringify({
+          login,
+          employeeId,
+          roles,
+          active: true,
+          mustChangePassword: true,
+          notificationScope,
+        }),
       });
     });
 
@@ -116,6 +138,7 @@ export async function updateUserAction(userId: string, formData: FormData): Prom
     const employeeId = String(formData.get('employeeId') ?? existing.employeeId ?? '');
     const roles = parseRoles(formData);
     const active = formData.get('active') === 'true';
+    const notificationScope = parseNotificationScope(formData);
 
     await assertEmployeeUnique(employeeId, userId);
 
@@ -131,12 +154,13 @@ export async function updateUserAction(userId: string, formData: FormData): Prom
       employeeId: existing.employeeId,
       roles: existing.roles.map((ur) => ur.role.code),
       active: existing.active,
+      notificationScope: existing.notificationScope,
     });
 
     await prisma.$transaction(async (tx) => {
       const updated = await tx.user.update({
         where: { id: userId },
-        data: { employeeId, active },
+        data: { employeeId, active, notificationScope },
       });
       if (roles.length > 0 || hadRoles) {
         await tx.userRole.deleteMany({ where: { userId } });
@@ -154,9 +178,9 @@ export async function updateUserAction(userId: string, formData: FormData): Prom
         userId: adminId,
         userRoles: adminRoles,
         permission: 'users:manage',
-        field: 'employeeId,roles,active',
+        field: 'employeeId,roles,active,notificationScope',
         oldValue,
-        newValue: JSON.stringify({ employeeId, roles, active }),
+        newValue: JSON.stringify({ employeeId, roles, active, notificationScope }),
       });
     });
 

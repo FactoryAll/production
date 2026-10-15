@@ -15,6 +15,16 @@ const ROLE_OPTIONS = Object.values(RoleCode).map((code) => ({
   label: code,
 }));
 
+/**
+ * Направление уведомлений специалиста 1С (ОПЭ, 13.10.2026).
+ * Специалистов может быть двое: один ведёт Массу, второй — ГП и перемещения.
+ */
+const NOTIFICATION_SCOPE_OPTIONS = [
+  { value: 'ALL', label: 'Все уведомления' },
+  { value: 'MASS', label: 'Масса — специалист 1С по Массе' },
+  { value: 'GP_TRANSFERS', label: 'ГП и перемещения — второй специалист 1С' },
+];
+
 interface UserFormProps {
   mode: 'create' | 'edit';
   user?: User & { roles: { role: { code: string } }[]; employee: Employee | null };
@@ -99,6 +109,20 @@ export function UserForm({ mode, user, employees, action }: UserFormProps) {
           defaultValue={user?.employeeId ?? ''}
           required
         />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="notificationScope">Направление уведомлений</Label>
+        <Select
+          id="notificationScope"
+          name="notificationScope"
+          options={NOTIFICATION_SCOPE_OPTIONS}
+          defaultValue={user?.notificationScope ?? 'ALL'}
+        />
+        <p className="text-xs text-neutral-500">
+          Влияет только на уведомления, адресованные роли С1С: специалистов может быть двое —
+          один ведёт Массу, второй ГП и перемещения. У других ролей настройка ничего не меняет.
+        </p>
       </div>
 
       <div className="space-y-2">

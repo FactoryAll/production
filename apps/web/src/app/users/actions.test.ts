@@ -50,6 +50,7 @@ function makeUser(overrides = {}) {
     passwordHash: 'old-hash',
     active: true,
     mustChangePassword: false,
+  notificationScope: 'ALL' as const,
     employeeId: 'emp-1',
     roles: [{ role: { code: RoleCode.OPR } }],
     ...overrides,
@@ -96,6 +97,47 @@ describe('users actions', () => {
       data: [{ userId: 'new-user', roleId: 'role-opr' }],
     });
     expect(mockAudit).toHaveBeenCalled();
+  });
+
+  it('сохраняет направление уведомлений специалиста 1С (ОПЭ, 13.10.2026)', async () => {
+    (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (prisma.user.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (prisma.role.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: 'role-s1c', code: RoleCode.S1C }]);
+    mockTx.user.create.mockResolvedValue(makeUser({ id: 'new-user' }));
+
+    const { createUserAction } = await importActions();
+    const result = await createUserAction(makeForm({
+      login: 's1c_mass',
+      password: 'Password1',
+      employeeId: 'emp-1',
+      roles: [RoleCode.S1C],
+      notificationScope: 'MASS',
+    }));
+
+    expect(result.success).toBe(true);
+    expect(mockTx.user.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ notificationScope: 'MASS' }),
+    }));
+  });
+
+  it('незнакомое направление уведомлений трактуется как «Все»', async () => {
+    (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (prisma.user.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (prisma.role.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: 'role-s1c', code: RoleCode.S1C }]);
+    mockTx.user.create.mockResolvedValue(makeUser({ id: 'new-user' }));
+
+    const { createUserAction } = await importActions();
+    await createUserAction(makeForm({
+      login: 's1c_unknown',
+      password: 'Password1',
+      employeeId: 'emp-1',
+      roles: [RoleCode.S1C],
+      notificationScope: 'НЕИЗВЕСТНО',
+    }));
+
+    expect(mockTx.user.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ notificationScope: 'ALL' }),
+    }));
   });
 
   it('fails to create a user with duplicate login', async () => {

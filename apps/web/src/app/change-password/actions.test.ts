@@ -15,6 +15,7 @@ describe('changePasswordAction', () => {
       id: 'user-1',
       passwordHash: 'hashed-old',
       mustChangePassword: true,
+  notificationScope: 'ALL' as const,
       roles: [{ role: { code: 'ADM' } }],
     };
 

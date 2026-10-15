@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { Prisma, type ProductionOrderLine, type ProductionFact, type ProductCategory } from '@prisma/client';
 import { prisma, writeAudit, writeTiming } from '@prodtrack/db';
 import { requireShiftWindow } from '@/lib/auth/require-shift-window';
-import { notifyEvent } from '@/lib/events/notify';
+import { notificationCategoryOfFacts, notifyEvent } from '@/lib/events/notify';
 import { hasPermission, getAttributeRole } from '@prodtrack/contracts';
 import {
   checkAndCloseProductionOrder,
@@ -552,13 +552,19 @@ export async function reportProductionFact(
     });
 
     // EV-03: уведомление С1С об итоге смены (адресат и deep-link — из каталога, 00 §5).
-    await notifyEvent(tx, 'EV-03', {
-      orderId: line.order.id,
-      lineId,
-      factIds: createdFacts.map((f) => f.id),
-      workCenterId: line.workCenterId,
-      operatorId: line.operatorId,
-    });
+    // Категория продукции — для фильтра «направление уведомлений» специалиста 1С (ОПЭ, 13.10.2026).
+    await notifyEvent(
+      tx,
+      'EV-03',
+      {
+        orderId: line.order.id,
+        lineId,
+        factIds: createdFacts.map((f) => f.id),
+        workCenterId: line.workCenterId,
+        operatorId: line.operatorId,
+      },
+      { context: { productCategory: notificationCategoryOfFacts(createdFacts) } },
+    );
 
     await checkAndCloseProductionOrder(line.order.id, tx, session, 'production_order:report');
 

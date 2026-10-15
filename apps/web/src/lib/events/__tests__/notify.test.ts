@@ -1,9 +1,16 @@
 import { describe, it, expect, vi } from 'vitest';
+import type { NotificationScope } from '@prisma/client';
 import type { TxClient } from '@prodtrack/db';
-import { buildNotification, eventTitleByDbCode, notifyEvent, resolveRecipients } from '../notify';
+import {
+  buildNotification,
+  eventTitleByDbCode,
+  notifyEvent,
+  notificationScopesForCategory,
+  resolveRecipients,
+} from '../notify';
 
 interface TxOverrides {
-  roleUsers?: { id: string }[];
+  roleUsers?: { id: string; scope?: NotificationScope; roleCodes?: string[] }[];
   operatorUsers?: { id: string }[];
   lineOperatorUser?: { id: string } | null;
   orderLines?: { operatorId: string | null }[];
@@ -12,8 +19,25 @@ interface TxOverrides {
 function buildTx(overrides: TxOverrides = {}) {
   const findMany = vi.fn().mockImplementation((args: { where?: Record<string, unknown> }) => {
     const where = args.where ?? {};
+    if ('employeeId' in where) {
+      return Promise.resolve(overrides.operatorUsers ?? []);
+    }
+    // Мок воспроизводит запрос резолвера: роли по коду и фильтр направления уведомлений С1С.
+    const code = (where.roles as { some?: { role?: { code?: string | { in?: string[] } } } } | undefined)
+      ?.some?.role?.code;
+    const roleCodes = typeof code === 'string' ? [code] : (code?.in ?? []);
+    const scopeFilter = (where.notificationScope as { in?: string[] } | undefined)?.in;
+
     return Promise.resolve(
-      'employeeId' in where ? (overrides.operatorUsers ?? []) : (overrides.roleUsers ?? []),
+      (overrides.roleUsers ?? [])
+        .filter((user) => {
+          const userRoleCodes = user.roleCodes ?? ['S1C'];
+          if (!roleCodes.some((roleCode) => userRoleCodes.includes(roleCode))) {
+            return false;
+          }
+          return !scopeFilter || scopeFilter.includes(user.scope ?? 'ALL');
+        })
+        .map((user) => ({ id: user.id })),
     );
   });
   const findFirst = vi.fn().mockResolvedValue(overrides.lineOperatorUser ?? null);
@@ -55,29 +79,47 @@ describe('resolveRecipients — адресация по каталогу (M09 BR
     });
   });
 
-  it('EV-04 адресует уведомление КСГП и С1С одним запросом (00 §5)', async () => {
-    const { tx, findMany } = buildTx({ roleUsers: [{ id: 'ksgp-1' }, { id: 's1c-1' }] });
+  it('EV-04 адресует уведомление КСГП и С1С (00 §5)', async () => {
+    const { tx, findMany } = buildTx({
+      roleUsers: [
+        { id: 'ksgp-1', roleCodes: ['KSGP'] },
+        { id: 's1c-1', roleCodes: ['S1C'] },
+      ],
+    });
 
     const ids = await resolveRecipients(tx, 'EV-04', transferPayload);
 
     expect(ids).toEqual(['ksgp-1', 's1c-1']);
-    expect(findMany).toHaveBeenCalledTimes(1);
+    // Роли, кроме С1С, разрешаются одним запросом; С1С — вторым, с фильтром направления.
+    expect(findMany).toHaveBeenCalledTimes(2);
     expect(findMany.mock.calls[0][0]).toMatchObject({
-      where: { roles: { some: { role: { code: { in: ['KSGP', 'S1C'] } } } } },
+      where: { roles: { some: { role: { code: { in: ['KSGP'] } } } } },
+    });
+    expect(findMany.mock.calls[1][0]).toMatchObject({
+      where: {
+        roles: { some: { role: { code: 'S1C' } } },
+        notificationScope: { in: ['ALL', 'GP_TRANSFERS'] },
+      },
     });
   });
 
   it('EV-07 адресует уведомление С1С и УСГП (00 §5)', async () => {
-    const { tx, findMany } = buildTx({ roleUsers: [{ id: 's1c-1' }, { id: 'usgp-1' }] });
+    const { tx, findMany } = buildTx({
+      roleUsers: [
+        { id: 's1c-1', roleCodes: ['S1C'] },
+        { id: 'usgp-1', roleCodes: ['USGP'] },
+      ],
+    });
 
-    await resolveRecipients(tx, 'EV-07', {
+    const ids = await resolveRecipients(tx, 'EV-07', {
       transferId: 'tr-1',
       discrepanciesCount: 2,
       reconciledByUserId: 'user-1',
     });
 
+    expect(ids).toEqual(['usgp-1', 's1c-1']);
     expect(findMany.mock.calls[0][0]).toMatchObject({
-      where: { roles: { some: { role: { code: { in: ['S1C', 'USGP'] } } } } },
+      where: { roles: { some: { role: { code: { in: ['USGP'] } } } } },
     });
   });
 
@@ -99,6 +141,76 @@ describe('resolveRecipients — адресация по каталогу (M09 BR
     expect(ids).toEqual(['s1c-1', 'user-opr-1']);
     expect(findFirst).toHaveBeenCalledWith({ where: { employeeId: 'emp-1' }, select: { id: true } });
     expect(findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('направление «Масса» получает только события с Массой (ОПЭ, 13.10.2026)', async () => {
+    const { tx } = buildTx({
+      roleUsers: [
+        { id: 's1c-mass', scope: 'MASS' },
+        { id: 's1c-other', scope: 'GP_TRANSFERS' },
+        { id: 's1c-all', scope: 'ALL' },
+      ],
+    });
+
+    const ids = await resolveRecipients(
+      tx,
+      'EV-03',
+      { orderId: 'po-1', lineId: 'line-1', factIds: ['fact-1'] },
+      { productCategory: 'MASS' },
+    );
+
+    expect(ids).toEqual(['s1c-mass', 's1c-all']);
+  });
+
+  it('направление «ГП и перемещения» не получает события с Массой', async () => {
+    const { tx } = buildTx({
+      roleUsers: [
+        { id: 's1c-mass', scope: 'MASS' },
+        { id: 's1c-other', scope: 'GP_TRANSFERS' },
+      ],
+    });
+
+    const ids = await resolveRecipients(
+      tx,
+      'EV-03',
+      { orderId: 'po-1', lineId: 'line-1', factIds: ['fact-1'] },
+      { productCategory: 'GP' },
+    );
+
+    expect(ids).toEqual(['s1c-other']);
+  });
+
+  it('уведомления о перемещениях идут только направлению «ГП и перемещения»', async () => {
+    const { tx } = buildTx({
+      roleUsers: [
+        { id: 's1c-mass', scope: 'MASS' },
+        { id: 's1c-other', scope: 'GP_TRANSFERS' },
+        { id: 's1c-all', scope: 'ALL' },
+      ],
+    });
+
+    // У событий перемещения категория продукции не передаётся — это направление «ГП и перемещения».
+    const ids = await resolveRecipients(tx, 'EV-04', transferPayload);
+
+    expect(ids).toEqual(['s1c-other', 's1c-all']);
+  });
+
+  it('настройка направления не влияет на другие роли пользователя', async () => {
+    const { tx } = buildTx({
+      roleUsers: [{ id: 'ksgp-s1c', scope: 'MASS', roleCodes: ['KSGP', 'S1C'] }],
+    });
+
+    // Событие адресовано КСГП и С1С: как КСГП пользователь получает его независимо от настройки.
+    const ids = await resolveRecipients(tx, 'EV-04', transferPayload);
+
+    expect(ids).toEqual(['ksgp-s1c']);
+  });
+
+  it('направления уведомлений по категории события', () => {
+    expect(notificationScopesForCategory('MASS')).toEqual(['ALL', 'MASS']);
+    expect(notificationScopesForCategory('GP')).toEqual(['ALL', 'GP_TRANSFERS']);
+    // У событий перемещения категории нет — их получает направление «ГП и перемещения».
+    expect(notificationScopesForCategory(undefined)).toEqual(['ALL', 'GP_TRANSFERS']);
   });
 
   it('не дублирует получателя, если он подходит под два правила', async () => {

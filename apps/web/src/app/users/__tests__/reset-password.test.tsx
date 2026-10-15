@@ -22,6 +22,7 @@ const tableProps = {
       employeeId: 'emp-1',
       active: true,
       mustChangePassword: false,
+  notificationScope: 'ALL' as const,
       createdAt: new Date(),
       updatedAt: new Date(),
       employee: { id: 'emp-1', fullName: 'Оператор Смены', tabNumber: '0001', active: true, canBeWorker: true, createdAt: new Date(), updatedAt: new Date() },
