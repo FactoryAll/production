@@ -211,6 +211,10 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
                   <tr key={line.id} className="hover:bg-neutral-100">
                     <td className="border-b border-mist-metal px-4 py-3 text-graphite">
                       {line.product.code} — {line.product.name} ({line.product.unit})
+                      {/* Комментарий строки, который заполнил отправитель (фидбэк ОПЭ, 13.10.2026). */}
+                      {line.comment ? (
+                        <p className="text-sm text-machine-gray">Комментарий: {line.comment}</p>
+                      ) : null}
                     </td>
                     <td className="border-b border-mist-metal px-4 py-3 text-graphite">
                       {line.plannedQuantity.toString()}

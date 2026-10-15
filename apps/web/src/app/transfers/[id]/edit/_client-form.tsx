@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button, SearchSelect, Select, Input, Label, Card } from '@prodtrack/ui';
 import { updateGoodsTransferAction } from '../../actions';
+import { TRANSFER_LINE_COMMENT_MAX_LENGTH } from '@/lib/validation/transfer-line';
 import {
   formatQuantity,
   getAvailableQuantity,
@@ -25,6 +26,8 @@ interface LineDraft {
   id: string;
   productId: string;
   plannedQuantity: string;
+  /** Необязательный комментарий к строке (фидбэк ОПЭ, 13.10.2026). */
+  comment: string;
 }
 
 function makeLineId(): string {
@@ -36,11 +39,12 @@ function lineToDraft(line: TransferLine & { product: Product }): LineDraft {
     id: line.id,
     productId: line.productId,
     plannedQuantity: line.plannedQuantity.toString(),
+    comment: line.comment ?? '',
   };
 }
 
 function emptyLine(): LineDraft {
-  return { id: makeLineId(), productId: '', plannedQuantity: '' };
+  return { id: makeLineId(), productId: '', plannedQuantity: '', comment: '' };
 }
 
 export default function TransferEditForm({
@@ -152,6 +156,7 @@ export default function TransferEditForm({
     const payloadLines = lines.map((line) => ({
       productId: line.productId,
       plannedQuantity: Number(parseQuantityInput(line.plannedQuantity)),
+      comment: line.comment.trim(),
     }));
 
     const formData = new FormData();
@@ -277,6 +282,18 @@ export default function TransferEditForm({
                       className={overflow ? 'border-red-500 focus:ring-red-500' : ''}
                       required
                     />
+                    {/* Комментарий необязателен: приёмщик увидит его в карточке и в форме приёмки. */}
+                    <div className="space-y-2 pt-2">
+                      <Label htmlFor={line.id + '_comment'}>Комментарий (необязательно)</Label>
+                      <Input
+                        id={line.id + '_comment'}
+                        type="text"
+                        maxLength={TRANSFER_LINE_COMMENT_MAX_LENGTH}
+                        value={line.comment}
+                        onChange={(e) => updateLine(line.id, { comment: e.target.value })}
+                        placeholder="Например: партия для заказа №…"
+                      />
+                    </div>
                     {showAvailable ? (
                       <p className={`text-sm ${overflow ? 'text-red-600' : 'text-neutral-500'}`}>
                         {overflow

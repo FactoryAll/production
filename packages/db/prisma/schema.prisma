@@ -457,6 +457,8 @@ model TransferLine {
 
   plannedQuantity Decimal  @db.Decimal(10, 2)
   actualQuantity  Decimal? @db.Decimal(10, 2) // T-041
+  /// Необязательный комментарий к строке (фидбэк ОПЭ, 13.10.2026).
+  comment         String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

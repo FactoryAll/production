@@ -137,6 +137,10 @@ export default function ReceiveTransferForm({ transfer }: ReceiveTransferFormPro
                     <tr key={line.id} className={hasDiscrepancy ? 'bg-signal-amber/10' : 'hover:bg-neutral-100'}>
                       <td className="border-b border-mist-metal px-4 py-3 text-graphite">
                         {line.product.code} — {line.product.name} ({line.product.unit})
+                        {/* Пояснение отправителя видно приёмщику (фидбэк ОПЭ, 13.10.2026). */}
+                        {line.comment ? (
+                          <p className="text-sm text-machine-gray">Комментарий: {line.comment}</p>
+                        ) : null}
                       </td>
                       <td className="border-b border-mist-metal px-4 py-3 text-graphite">{planned.toFixed(2)}</td>
                       <td className="border-b border-mist-metal px-4 py-3">

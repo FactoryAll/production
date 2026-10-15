@@ -248,6 +248,28 @@ function buildMockPrisma(overrides: {
   } as unknown as typeof import('@prodtrack/db').prisma;
 }
 
+/**
+ * Зависимости с перехваченным клиентом транзакции: строки перемещения пишутся внутри неё,
+ * поэтому проверять данные строк удобнее через собственный мок транзакции.
+ */
+function buildTxDeps() {
+  const deps = buildMockDeps();
+  const create = vi.fn().mockResolvedValue({ id: 'tr-1', status: 'DRAFT', lines: [] });
+  const createMany = vi.fn().mockResolvedValue(undefined);
+  const tx = {
+    goodsTransfer: {
+      create,
+      update: vi.fn().mockResolvedValue(undefined),
+      findUnique: vi.fn().mockResolvedValue({ id: 'tr-1', status: 'DRAFT', lines: [] }),
+    },
+    transferLine: { createMany, deleteMany: vi.fn().mockResolvedValue(undefined), update: vi.fn() },
+  };
+  (deps.prisma as unknown as { $transaction: unknown }).$transaction = vi.fn(
+    async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
+  );
+  return { deps, create, createMany };
+}
+
 function buildMockDeps(overrides: Parameters<typeof buildMockPrisma>[0] = {}) {
   const writeAudit = vi.fn();
   const writeTiming = vi.fn();
@@ -344,6 +366,54 @@ describe('createGoodsTransfer', () => {
     const auditCall = deps.writeAudit.mock.calls[0][1];
     expect(auditCall.action).toBe('CREATE');
     expect(auditCall.objectType).toBe('GoodsTransfer');
+  });
+
+  it('сохраняет комментарий строки, обрезая лишние пробелы', async () => {
+    const { deps, create } = buildTxDeps();
+    await createGoodsTransfer(
+      {
+        sourceWarehouseId: productionWarehouse.id,
+        destinationWarehouseId: finishedGoodsWarehouse.id,
+        lines: [{ productId: gpProduct1.id, plannedQuantity: 10, comment: '  партия для заказа №42  ' }],
+      },
+      deps,
+    );
+
+    const createArgs = create.mock.calls[0][0] as {
+      data: { lines: { create: { comment: string | null }[] } };
+    };
+    expect(createArgs.data.lines.create[0].comment).toBe('партия для заказа №42');
+  });
+
+  it('пишет null вместо пустого комментария — поле необязательное', async () => {
+    const { deps, create } = buildTxDeps();
+    await createGoodsTransfer(
+      {
+        sourceWarehouseId: productionWarehouse.id,
+        destinationWarehouseId: finishedGoodsWarehouse.id,
+        lines: [{ productId: gpProduct1.id, plannedQuantity: 10, comment: '   ' }],
+      },
+      deps,
+    );
+
+    const createArgs = create.mock.calls[0][0] as {
+      data: { lines: { create: { comment: string | null }[] } };
+    };
+    expect(createArgs.data.lines.create[0].comment).toBeNull();
+  });
+
+  it('отклоняет слишком длинный комментарий строки', async () => {
+    const deps = buildMockDeps();
+    await expect(
+      createGoodsTransfer(
+        {
+          sourceWarehouseId: productionWarehouse.id,
+          destinationWarehouseId: finishedGoodsWarehouse.id,
+          lines: [{ productId: gpProduct1.id, plannedQuantity: 1, comment: 'я'.repeat(201) }],
+        },
+        deps,
+      ),
+    ).rejects.toThrow('Комментарий к строке не может превышать 200 символов');
   });
 
   it('blocks source equal to destination', async () => {
@@ -629,6 +699,28 @@ describe('updateGoodsTransfer', () => {
     expect(result.status).toBe('DRAFT');
     expect(deps.prisma.$transaction).toHaveBeenCalled();
     expect(deps.writeAudit).toHaveBeenCalled();
+  });
+
+  it('сохраняет изменённый комментарий строки при правке и пишет его в аудит', async () => {
+    const { deps, createMany } = buildTxDeps();
+    await updateGoodsTransfer(
+      'tr-1',
+      {
+        sourceWarehouseId: productionWarehouse.id,
+        destinationWarehouseId: finishedGoodsWarehouse.id,
+        lines: [{ productId: gpProduct1.id, plannedQuantity: 20, comment: 'уточнили партию' }],
+      },
+      deps,
+    );
+
+    const createManyArgs = createMany.mock.calls[0][0] as {
+      data: { comment: string | null }[];
+    };
+    expect(createManyArgs.data[0].comment).toBe('уточнили партию');
+
+    const auditCall = deps.writeAudit.mock.calls[0][1] as { field: string; newValue: string };
+    expect(auditCall.field).toBe('lines');
+    expect(auditCall.newValue).toContain('уточнили партию');
   });
 
   it('allows editing a SUBMITTED transfer and issues only the delta (M07 §4.2)', async () => {

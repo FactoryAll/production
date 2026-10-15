@@ -8,6 +8,7 @@ import { requirePermission } from '@/lib/auth/access';
 import { notifyEvent } from '@/lib/events/notify';
 import { syncTransferTask } from '@/lib/onec/tasks';
 import { getAttributeRole } from '@prodtrack/contracts';
+import { TRANSFER_LINE_COMMENT_MAX_LENGTH } from '@/lib/validation/transfer-line';
 import {
   applyStockMovements,
   buildTransferIssueMovements,
@@ -31,7 +32,11 @@ export type UpdateGoodsTransferResult =
 export interface TransferLineInput {
   productId: string;
   plannedQuantity: number;
+  /** Необязательный комментарий к строке (фидбэк ОПЭ, 13.10.2026). */
+  comment?: string;
 }
+
+
 
 export interface CreateGoodsTransferDeps {
   prisma: typeof prisma;
@@ -125,7 +130,11 @@ function toDecimal(value: number | string): Prisma.Decimal {
 async function validateCreateInput(
   input: { sourceWarehouseId: string; destinationWarehouseId: string; lines: TransferLineInput[] },
   client: typeof prisma,
-): Promise<{ warehouses: Warehouse[]; products: Product[]; parsedLines: { productId: string; plannedQuantity: Prisma.Decimal }[] }> {
+): Promise<{
+  warehouses: Warehouse[];
+  products: Product[];
+  parsedLines: { productId: string; plannedQuantity: Prisma.Decimal; comment: string | null }[];
+}> {
   const { sourceWarehouseId, destinationWarehouseId, lines } = input;
 
   if (sourceWarehouseId === destinationWarehouseId) {
@@ -159,7 +168,7 @@ async function validateCreateInput(
   const productById = new Map(products.map((p) => [p.id, p]));
 
   const seenProducts = new Set<string>();
-  const parsedLines: { productId: string; plannedQuantity: Prisma.Decimal }[] = [];
+  const parsedLines: { productId: string; plannedQuantity: Prisma.Decimal; comment: string | null }[] = [];
 
   for (const line of lines) {
     if (!line.productId) {
@@ -187,7 +196,18 @@ async function validateCreateInput(
       throw new Error('Перемещения возможны только для ГП');
     }
 
-    parsedLines.push({ productId: product.id, plannedQuantity: quantity });
+    const comment = (line.comment ?? '').trim();
+    if (comment.length > TRANSFER_LINE_COMMENT_MAX_LENGTH) {
+      throw new Error(
+        'Комментарий к строке не может превышать ' + TRANSFER_LINE_COMMENT_MAX_LENGTH + ' символов',
+      );
+    }
+
+    parsedLines.push({
+      productId: product.id,
+      plannedQuantity: quantity,
+      comment: comment.length > 0 ? comment : null,
+    });
   }
 
   return { warehouses, products, parsedLines };
@@ -217,6 +237,7 @@ export async function createGoodsTransfer(
           create: parsedLines.map((line) => ({
             productId: line.productId,
             plannedQuantity: line.plannedQuantity,
+            comment: line.comment,
           })),
         },
       },
@@ -607,10 +628,12 @@ export async function updateGoodsTransfer(
   const oldLines = transfer.lines.map((line) => ({
     productId: line.productId,
     plannedQuantity: line.plannedQuantity.toString(),
+    comment: line.comment,
   }));
   const newLines = parsedLines.map((line) => ({
     productId: line.productId,
     plannedQuantity: line.plannedQuantity.toString(),
+    comment: line.comment,
   }));
 
   // Списание уже произошло при отправке (Р-03), поэтому правка отправленного
@@ -711,6 +734,7 @@ export async function updateGoodsTransfer(
         goodsTransferId: transferId,
         productId: line.productId,
         plannedQuantity: line.plannedQuantity,
+        comment: line.comment,
       })),
     });
 
