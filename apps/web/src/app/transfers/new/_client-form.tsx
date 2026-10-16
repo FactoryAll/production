@@ -241,6 +241,17 @@ export default function TransferForm({ warehouses, products, stockByWarehouse }:
                       className={overflow ? 'border-red-500 focus:ring-red-500' : ''}
                       required
                     />
+                    {showAvailable ? (
+                      <p className={`text-sm ${overflow ? 'text-red-600' : 'text-neutral-500'}`}>
+                        {overflow
+                          ? `Недостаточно остатка: доступно ${formatQuantity(available)} ${product?.unit ?? ''}`
+                          : `Доступно на складе-источнике: ${formatQuantity(available)} ${product?.unit ?? ''}`}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-neutral-500">
+                        Выберите склад-источник и продукт, чтобы увидеть доступный остаток
+                      </p>
+                    )}
                     {/* Комментарий необязателен: приёмщик увидит его в карточке и в форме приёмки. */}
                     <div className="space-y-2 pt-2">
                       <Label htmlFor={line.id + '_comment'}>Комментарий (необязательно)</Label>
@@ -253,17 +264,6 @@ export default function TransferForm({ warehouses, products, stockByWarehouse }:
                         placeholder="Например: партия для заказа №…"
                       />
                     </div>
-                    {showAvailable ? (
-                      <p className={`text-sm ${overflow ? 'text-red-600' : 'text-neutral-500'}`}>
-                        {overflow
-                          ? `Недостаточно остатка: доступно ${formatQuantity(available)} ${product?.unit ?? ''}`
-                          : `Доступно на складе-источнике: ${formatQuantity(available)} ${product?.unit ?? ''}`}
-                      </p>
-                    ) : (
-                      <p className="text-sm text-neutral-500">
-                        Выберите склад-источник и продукт, чтобы увидеть доступный остаток
-                      </p>
-                    )}
                   </div>
                 </div>
               </Card>
