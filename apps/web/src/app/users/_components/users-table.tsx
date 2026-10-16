@@ -95,6 +95,14 @@ export function UsersTable({ users, searchParams }: UsersTableProps) {
       header: 'Действия',
       cell: ({ row }) => (
         <div className="flex flex-wrap items-center gap-3">
+          {/* Явное действие: раньше в карточку вела только ссылка-логин, и её находили не сразу
+              (вопрос владельца о направлении уведомлений, 16.10.2026). */}
+          <Link
+            href={'/users/' + row.original.id + '/edit'}
+            className="text-sm text-deep-industry-blue hover:underline"
+          >
+            Редактировать
+          </Link>
           <ResetPasswordButton userId={row.original.id} login={row.original.login} />
           <ToggleButton user={row.original} />
         </div>
