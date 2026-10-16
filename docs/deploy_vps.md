@@ -270,6 +270,12 @@ docker compose down
 **Важно про время: nginx пишет логи по UTC (в строке видно `+0000`), а база хранит время тоже по UTC.
 Московское время — плюс три часа. То есть окно 14:30–14:50 МСК в логе выглядит как `11:30–11:50`.**
 
+**Ловушка, на которой легко ошибиться (проверено 16.10.2026).** В контейнере базы часовой пояс
+`Europe/Moscow` (из `.env`), а колонка `createdAt` хранит UTC. Поэтому запрос вида
+`"createdAt" >= now() - interval '30 minutes'` вернёт **пустой результат даже когда входы были**:
+naive-время строки сравнивается с московским «сейчас». Считайте границы окна явно, как ниже,
+либо берите UTC-время запросом `(now() at time zone 'utc')`.
+
 ### 1. Всё ли живо на сервере
 
 ```bash
@@ -285,14 +291,17 @@ free -m; uptime
 Журнал аудита пишет и удачные входы, и неудачные, с адресом клиента и браузером:
 
 ```bash
+# последние 30 минут (границы считаются по UTC — см. ловушку выше)
 docker compose exec -T postgres psql -U prodtrack -d prodtrack -c "
 select to_char(\"createdAt\" + interval '3 hours', 'HH24:MI:SS') as msk,
-       action, \"objectId\", \"newValue\"
+       action, \"objectId\", left(\"newValue\", 150) as details
 from audit_records
 where action in ('LOGIN','LOGIN_FAILED')
-  and \"createdAt\" >= '<начало окна в UTC>'
-  and \"createdAt\" <  '<конец окна в UTC>'
+  and \"createdAt\" >= (now() at time zone 'utc') - interval '30 minutes'
 order by \"createdAt\";"
+
+# или конкретное окно: время указывается в UTC (МСК минус 3 часа)
+#   ... and \"createdAt\" >= '2026-10-16 11:20:00' and \"createdAt\" < '2026-10-16 12:10:00'
 ```
 
 - есть `LOGIN_FAILED` — попытка дошла до приложения (например, неверный пароль);
