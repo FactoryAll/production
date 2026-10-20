@@ -25,11 +25,16 @@ describe('session-expired route', () => {
   it('гасит cookie сессии и ведёт на /login', async () => {
     const store = mockCookieStore({ session: 'dead-token' });
 
-    const response = await GET(new Request('http://localhost/dashboard'));
+    // За nginx и в контейнере request.url несёт внутренний адрес, и браузер получал
+    // `https://0.0.0.0:3000/login` (ERR_ADDRESS_INVALID). Адрес обязан собираться из Host.
+    const request = new Request('http://0.0.0.0:3000/dashboard', {
+      headers: { host: 'prodtracker.factoryall.ru', 'x-forwarded-proto': 'https' },
+    });
+    const response = await GET(request);
 
     expect(store.set).toHaveBeenCalledWith('session', '', expect.objectContaining({ maxAge: 0, path: '/' }));
     expect(response.status).toBe(303);
-    expect(response.headers.get('location')).toBe('http://localhost/login');
+    expect(response.headers.get('location')).toBe('https://prodtracker.factoryall.ru/login');
   });
 
   it('работает и когда cookie уже нет', async () => {

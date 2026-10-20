@@ -23,5 +23,11 @@ export async function GET(request: Request): Promise<NextResponse> {
     maxAge: 0,
   });
 
-  return NextResponse.redirect(new URL('/login', request.url), { status: 303 });
+  // Адрес собираем из Host и X-Forwarded-Proto, а не из request.url: за nginx и в контейнере
+  // request.url несёт внутренний `0.0.0.0:3000`, и браузер получал `https://0.0.0.0:3000/login`
+  // с ERR_ADDRESS_INVALID (проверено на проде 20.10.2026). Так же сделано в маршруте выхода.
+  const host = request.headers.get('host') || 'localhost';
+  const protocol = request.headers.get('x-forwarded-proto') || 'http';
+
+  return NextResponse.redirect(`${protocol}://${host}/login`, { status: 303 });
 }
