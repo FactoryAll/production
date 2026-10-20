@@ -1,24 +1,51 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ProdTrack v1.2.0 Deploy Script (T-062)
-# Run from /opt/prodtrack on the VPS.
+# ProdTrack — развёртывание на VPS (T-062).
+# Запуск: bash scripts/deploy.sh <тег-или-коммит>   (например: bash scripts/deploy.sh v2.1.1)
+#
+# ПОЧЕМУ ТЕГ — АРГУМЕНТ, А НЕ КОНСТАНТА В СКРИПТЕ.
+# Раньше здесь было `GIT_TAG="v1.2.0"` и `git checkout "${GIT_TAG}"`. Документ
+# (`docs/deploy_vps.md`, раздел «Обновление на конкретный тег») предлагал этот скрипт как
+# способ обновиться на нужную версию — то есть команда выглядела безобидной, а на деле
+# молча откатывала стенд к v1.2.0. Ошибку заметили при подготовке редеплоя 17.10.2026.
+# Теперь без аргумента скрипт отказывает, а не угадывает.
 
-APP_DIR="/opt/prodtrack"
-GIT_TAG="v1.2.0"
+APP_DIR="${PRODTRACK_DIR:-/opt/prodtrack}"
 COMPOSE_PROJECT_NAME="prodtrack"
+
+TARGET="${1:-}"
+
+if [ -z "${TARGET}" ]; then
+    echo "[deploy] ОТКАЗ: не указан тег или коммит." >&2
+    echo "         Использование: bash scripts/deploy.sh <тег-или-коммит>" >&2
+    echo "         Например:      bash scripts/deploy.sh v2.1.1" >&2
+    exit 1
+fi
 
 cd "${APP_DIR}"
 
-# 1. Fetch latest repo and checkout tag
-echo "[deploy] Pulling repository..."
-if [ -d ".git" ]; then
-    git fetch origin
-    git checkout "${GIT_TAG}"
-else
-    echo "[deploy] ERROR: not a git repository."
+# 1. Репозиторий и переход на указанную версию
+echo "[deploy] Fetching origin (tags included)..."
+if [ ! -d ".git" ]; then
+    echo "[deploy] ERROR: not a git repository." >&2
     exit 1
 fi
+git fetch origin --tags || {
+    echo "[deploy] ОТКАЗ: не удалось получить обновления с origin (сеть или права)." >&2
+    exit 1
+}
+
+# Проверяем цель до checkout: иначе сообщение git будет невнятным и легко принять опечатку
+# за сетевую ошибку.
+if ! git rev-parse --verify --quiet "${TARGET}^{commit}" >/dev/null; then
+    echo "[deploy] ОТКАЗ: '${TARGET}' не найден ни как ветка, ни как тег, ни как коммит." >&2
+    exit 1
+fi
+
+echo "[deploy] Checking out ${TARGET}..."
+git checkout "${TARGET}"
+echo "[deploy] Развёртывается коммит: $(git log -1 --oneline)"
 
 # 2. Create .env if missing
 echo "[deploy] Checking .env..."
@@ -73,12 +100,14 @@ else
     exit 1
 fi
 
-# Check version in footer
-echo "[deploy] Checking version in footer..."
-if curl -s --max-time 10 "http://127.0.0.1:3000/login" | grep -q "v1.2.0"; then
-    echo "[deploy] Version v1.2.0 found in page."
+# Версию в футере сверяем со значением из compose, а не с прошитой строкой: версия
+# встраивается при сборке из docker-compose.yml, и константа в скрипте устаревает молча.
+DEPLOY_VERSION="$(grep -m1 -oE 'VERSION: *v[0-9]+\.[0-9]+\.[0-9]+' docker-compose.yml | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || true)"
+echo "[deploy] Checking version in footer (ожидается ${DEPLOY_VERSION:-неизвестно})..."
+if [ -n "${DEPLOY_VERSION}" ] && curl -s --max-time 10 "http://127.0.0.1:3000/login" | grep -q "${DEPLOY_VERSION}"; then
+    echo "[deploy] Version ${DEPLOY_VERSION} found in page."
 else
-    echo "[deploy] WARNING: version v1.2.0 NOT found in page."
+    echo "[deploy] WARNING: version ${DEPLOY_VERSION:-из compose} NOT found in page."
 fi
 
-echo "[deploy] Done."
+echo "[deploy] Done. Дальше: bash scripts/postdeploy-check.sh"
