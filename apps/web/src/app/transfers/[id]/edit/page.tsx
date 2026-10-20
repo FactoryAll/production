@@ -14,7 +14,7 @@ interface EditTransferPageProps {
 export default async function EditTransferPage({ params }: EditTransferPageProps) {
   const access = await checkPageAccess('transfer:create');
   if (!access.allowed) {
-    return <AccessDenied action="корректировка перемещения" allowedRoles={['NP', 'ADM']} requiredPermission='transfer:create' />;
+    return <AccessDenied action="корректировка перемещения" allowedRoles={['NP', 'USGP', 'ADM']} requiredPermission='transfer:create' />;
   }
   const [transfer, createData] = await Promise.all([
     getTransferById(params.id),

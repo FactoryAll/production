@@ -41,6 +41,8 @@ describe('seed configuration', () => {
     expect(ROLE_PERMISSION_MAP.OPR).not.toContain('production_order:confirm');
     expect(ROLE_PERMISSION_MAP.KSGP).toContain('transfer:receive');
     expect(ROLE_PERMISSION_MAP.USGP).toContain('transfer:reconcile');
+    // ОПЭ-20 (решение владельца продукта, 20.10.2026): УСГП создаёт и корректирует Перемещения.
+    expect(ROLE_PERMISSION_MAP.USGP).toContain('transfer:create');
     expect(ROLE_PERMISSION_MAP.S1C).toContain('onec:process');
     expect(ROLE_PERMISSION_MAP.ADM).toContain('nsi:manage');
     expect(ROLE_PERMISSION_MAP.ADM).toContain('users:manage');

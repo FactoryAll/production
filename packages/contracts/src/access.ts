@@ -98,6 +98,10 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
   ],
   USGP: [
     'timing:read',
+    // Создание и корректировка Перемещения (решение владельца продукта, ОПЭ-20, 20.10.2026).
+    // В коде одно право отвечает и за создание, и за правку черновика/отправленного —
+    // разделить их нельзя, не разведя проверки в transfers/new, [id]/edit и actions.
+    'transfer:create',
     'transfer:read',
     'transfer:reconcile',
     'stock:read',

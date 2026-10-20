@@ -55,6 +55,19 @@ describe('access matrix', () => {
     expect(ROLE_PERMISSIONS[RoleCode.USGP]).toContain('transfer:reconcile');
     expect(ROLE_PERMISSIONS[RoleCode.S1C]).toContain('onec:process');
   });
+
+  // ОПЭ-20 (решение владельца продукта, 20.10.2026): УСГП создаёт и корректирует Перемещения.
+  it('USGP may create and correct transfers', () => {
+    expect(ROLE_PERMISSIONS[RoleCode.USGP]).toContain('transfer:create');
+    expect(hasPermission([RoleCode.USGP], 'transfer:create')).toBe(true);
+  });
+
+  // Расширение узкое: остальные роли склада права на создание перемещения не получили.
+  it('does not hand transfer:create to the other field roles', () => {
+    for (const role of [RoleCode.OPR, RoleCode.KSGP, RoleCode.S1C]) {
+      expect(hasPermission([role], 'transfer:create')).toBe(false);
+    }
+  });
 });
 
 describe('getAttributeRole', () => {
