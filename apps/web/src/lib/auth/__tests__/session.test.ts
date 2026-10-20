@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { prisma } from '@prodtrack/db';
 import { cookies } from 'next/headers';
-import { createSession, getSession, destroySession } from '../session';
+import { redirect } from 'next/navigation';
+import { createSession, getSession, destroySession, requireSession } from '../session';
 
 vi.mock('@prodtrack/db', () => ({
   prisma: {
@@ -15,6 +16,10 @@ vi.mock('@prodtrack/db', () => ({
 
 vi.mock('next/headers', () => ({
   cookies: vi.fn(),
+}));
+
+vi.mock('next/navigation', () => ({
+  redirect: vi.fn(),
 }));
 
 function mockCookieStore(values: Record<string, string> = {}) {
@@ -90,6 +95,21 @@ describe('session', () => {
     const session = await getSession();
 
     expect(session).toBeNull();
+  });
+
+  // ОПЭ-22 (проверено на проде 20.10.2026): после сброса пароля сессии удаляются (ОПЭ-4),
+  // и обновление страницы падало в «Application error: a server-side exception» с digest.
+  // Правильное поведение — увести на экран входа.
+  it('без сессии уводит на /login, а не бросает исключение', async () => {
+    mockCookieStore({ session: 'dead-token' });
+    (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    vi.mocked(redirect).mockImplementation(() => {
+      throw new Error('NEXT_REDIRECT');
+    });
+
+    await expect(requireSession()).rejects.toThrow('NEXT_REDIRECT');
+    // Не «/login» напрямую: middleware по живой cookie увёл бы обратно на /dashboard (петля).
+    expect(redirect).toHaveBeenCalledWith('/api/auth/session-expired');
   });
 
   it('destroySession deletes the session and clears the cookie', async () => {

@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { randomBytes } from 'crypto';
 import { prisma } from '@prodtrack/db';
 import type { Session } from '@prisma/client';
@@ -49,7 +50,13 @@ export async function destroySession(): Promise<void> {
 export async function requireSession(): Promise<SessionWithUser> {
   const session = await getSession();
   if (!session) {
-    throw new Error('Unauthorized');
+    // Сессия исчезает под ногами штатно: администратор сбросил пароль, и все сессии
+    // пользователя удалены (ОПЭ-4). Бросать исключение нельзя — серверный компонент
+    // от него отдаёт «Application error: a server-side exception has occurred» с digest
+    // вместо экрана входа (ОПЭ-22, проверено на проде 20.10.2026).
+    // Ведём не прямо на /login: cookie ещё жива, и middleware по ней уводит с /login
+    // обратно на /dashboard — петля. Маршрут сначала гасит cookie, потом ведёт на вход.
+    redirect('/api/auth/session-expired');
   }
   return session;
 }
