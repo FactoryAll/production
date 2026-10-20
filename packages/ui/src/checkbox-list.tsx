@@ -7,14 +7,28 @@ export interface CheckboxListProps {
   onChange: (selected: string[]) => void;
 }
 
+/**
+ * Список чекбоксов с подписями.
+ *
+ * Раскладка важна, а не только разметка: `label` блочного уровня растягивается на всю
+ * ширину строки, а браузер переключает связанный чекбокс по клику в ЛЮБОЙ точке label.
+ * Пока весь ряд был одним `label`, клик по пустому месту справа от фамилии отмечал
+ * сотрудника — на форме ПЗ это привело к случайным отметкам (замер: 1582 px ширины
+ * label при 16 px самого чекбокса, 1558 px мёртвой зоны).
+ *
+ * Поэтому ряд — `div`, а `label` относится только к фамилии: кликабельны сам чекбокс
+ * и текст, пустое место строки — нет.
+ */
 export function CheckboxList({ name, options, selected, onChange }: CheckboxListProps) {
   return (
     <div className="space-y-2">
       {options.map((opt) => {
         const checked = selected.includes(opt.value);
+        const id = `${name}-${opt.value}`;
         return (
-          <label key={opt.value} className="flex items-center gap-2 text-sm text-neutral-800">
+          <div key={opt.value} className="flex w-fit items-center gap-2 text-sm text-neutral-800">
             <input
+              id={id}
               type="checkbox"
               name={name}
               value={opt.value}
@@ -27,8 +41,10 @@ export function CheckboxList({ name, options, selected, onChange }: CheckboxList
               }}
               className="h-4 w-4 rounded border-neutral-300 text-deep-industry-blue focus:ring-deep-industry-blue"
             />
-            {opt.label}
-          </label>
+            <label htmlFor={id} className="cursor-pointer">
+              {opt.label}
+            </label>
+          </div>
         );
       })}
     </div>
