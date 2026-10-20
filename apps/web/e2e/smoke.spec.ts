@@ -42,6 +42,13 @@ test('шапка: бренд не вылезает на пункты меню', 
   // Редкие пункты уехали в выпадашку, поэтому меню снова помещается в одну строку.
   expect(navBox!.height).toBeLessThan(60);
 
+  // ОПЭ-21: в одну строку должна умещаться вся шапка, а не только меню. Контейнер ограничен
+  // max-w-7xl (1280 px); пока суммы не хватало на 38 px, блок «Уведомления · логин · Выйти»
+  // переносился на вторую строку и вставал слева, а шапка вырастала со ~64 до 116 px.
+  const headerRowBox = await page.locator('header > div').first().boundingBox();
+  expect(headerRowBox).not.toBeNull();
+  expect(headerRowBox!.height).toBeLessThan(80);
+
   await page.getByRole('button', { name: 'Администрирование' }).hover();
   await expect(page.getByRole('link', { name: 'Пользователи' }).first()).toBeVisible();
   await page.getByRole('link', { name: 'Аудит' }).first().click();

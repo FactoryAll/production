@@ -30,7 +30,7 @@ export function Header({ user, unreadCount = 0 }: HeaderProps) {
     <header className="bg-graphite text-white shadow-sm">
       {/* flex-wrap + shrink-0: при нехватке ширины меню переносится на строку ниже, а бренд
           не сжимается — иначе надпись «ProdTrack» вылезает на первый пункт меню (дефект ОПЭ). */}
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-2 gap-y-2 px-4 py-3">
         <Link
           href="/dashboard"
           className="flex shrink-0 items-center gap-2 whitespace-nowrap text-lg font-bold tracking-tight"
@@ -45,14 +45,14 @@ export function Header({ user, unreadCount = 0 }: HeaderProps) {
             <Link
               key={item.href}
               href={item.href}
-              className="rounded-sm px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-white/10 hover:text-white"
+              className="rounded-sm px-1.5 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-white/10 hover:text-white"
             >
               {item.label}
             </Link>
           ))}
 
           <div className="group relative">
-            <button className="rounded-sm px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-white/10 hover:text-white">
+            <button className="rounded-sm px-1.5 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-white/10 hover:text-white">
               НСИ
             </button>
             {/* group-focus-within: меню открывается и с клавиатуры, не только наведением. */}
@@ -71,7 +71,7 @@ export function Header({ user, unreadCount = 0 }: HeaderProps) {
 
           {adminItems.length > 0 && (
             <div className="group relative">
-              <button className="rounded-sm px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-white/10 hover:text-white">
+              <button className="rounded-sm px-1.5 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-white/10 hover:text-white">
                 Администрирование
               </button>
               <div className="absolute left-0 top-full hidden min-w-[200px] rounded-md border border-mist-metal bg-white py-1 shadow-lg group-hover:block group-focus-within:block">
