@@ -135,6 +135,13 @@ export async function updateUserAction(userId: string, formData: FormData): Prom
     });
     if (!existing) { throw new Error('Пользователь не найден'); }
 
+    // Логин меняется администратором (ОПЭ-23): опечатку в логине иначе не исправить.
+    // Сессии и аудит привязаны к id пользователя, а не к логину, поэтому переименование
+    // не рвёт ни историю, ни открытые входы. Уникальность проверяется как при создании.
+    const login = normalizeLogin(String(formData.get('login') ?? existing.login));
+    if (login.length === 0) { return { success: false, error: 'Укажите логин' }; }
+    await assertLoginUnique(login, userId);
+
     const employeeId = String(formData.get('employeeId') ?? existing.employeeId ?? '');
     const roles = parseRoles(formData);
     const active = formData.get('active') === 'true';
@@ -151,6 +158,7 @@ export async function updateUserAction(userId: string, formData: FormData): Prom
     const rolesWithIds = roles.length > 0 ? await mapRoleCodesToIds(roles) : [];
 
     const oldValue = JSON.stringify({
+      login: existing.login,
       employeeId: existing.employeeId,
       roles: existing.roles.map((ur) => ur.role.code),
       active: existing.active,
@@ -160,7 +168,7 @@ export async function updateUserAction(userId: string, formData: FormData): Prom
     await prisma.$transaction(async (tx) => {
       const updated = await tx.user.update({
         where: { id: userId },
-        data: { employeeId, active, notificationScope },
+        data: { login, employeeId, active, notificationScope },
       });
       if (roles.length > 0 || hadRoles) {
         await tx.userRole.deleteMany({ where: { userId } });
@@ -178,9 +186,9 @@ export async function updateUserAction(userId: string, formData: FormData): Prom
         userId: adminId,
         userRoles: adminRoles,
         permission: 'users:manage',
-        field: 'employeeId,roles,active,notificationScope',
+        field: 'login,employeeId,roles,active,notificationScope',
         oldValue,
-        newValue: JSON.stringify({ employeeId, roles, active, notificationScope }),
+        newValue: JSON.stringify({ login, employeeId, roles, active, notificationScope }),
       });
     });
 

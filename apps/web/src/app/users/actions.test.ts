@@ -225,6 +225,51 @@ describe('users actions', () => {
     expect(mockAudit).toHaveBeenCalled();
   });
 
+  // ОПЭ-23 (решение владельца 20.10.2026): администратор правит логин — опечатку
+  // при создании иначе не исправить. Поле было readOnly, а действие логин не читало вовсе.
+  it('меняет логин пользователя и пишет старое и новое значение в аудит', async () => {
+    (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(makeUser({ login: 'usgp' }));
+    (prisma.user.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (prisma.role.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: 'role-opr', code: RoleCode.OPR }]);
+    mockTx.user.update.mockResolvedValue(makeUser({ login: 'usgp2' }));
+
+    const { updateUserAction } = await importActions();
+    const result = await updateUserAction('user-1', makeForm({
+      login: 'USGP2',
+      employeeId: 'emp-1',
+      roles: [RoleCode.OPR],
+      active: 'true',
+    }));
+
+    expect(result.success).toBe(true);
+    expect(mockTx.user.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ login: 'usgp2' }),
+    }));
+    const auditInput = mockAudit.mock.calls.at(-1)?.[1] as { field: string; oldValue: string; newValue: string };
+    expect(auditInput.field).toContain('login');
+    expect(JSON.parse(auditInput.oldValue).login).toBe('usgp');
+    expect(JSON.parse(auditInput.newValue).login).toBe('usgp2');
+  });
+
+  it('не даёт занять логин другого пользователя', async () => {
+    (prisma.user.findUnique as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(makeUser({ login: 'usgp' }))
+      .mockResolvedValueOnce({ id: 'user-2', login: 'admin' });
+    (prisma.user.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    const { updateUserAction } = await importActions();
+    const result = await updateUserAction('user-1', makeForm({
+      login: 'admin',
+      employeeId: 'emp-1',
+      roles: [RoleCode.OPR],
+      active: 'true',
+    }));
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('уже существует');
+    expect(mockTx.user.update).not.toHaveBeenCalled();
+  });
+
   it('blocks stripping the last role while active (UC-M02-2)', async () => {
     (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(makeUser({ roles: [{ role: { code: RoleCode.OPR } }] }));
     (prisma.user.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);

@@ -76,7 +76,6 @@ export function UserForm({ mode, user, employees, action }: UserFormProps) {
           name="login"
           type="text"
           defaultValue={user?.login ?? ''}
-          readOnly={mode === 'edit'}
           required
           className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm disabled:bg-neutral-100"
         />
