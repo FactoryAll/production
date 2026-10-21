@@ -89,6 +89,8 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
   ],
   KSGP: [
     'timing:read',
+    // Создание и корректировка Перемещения (решение владельца 21.10.2026, ОПЭ-25).
+    'transfer:create',
     'transfer:read',
     'transfer:receive',
     'transfer:reconcile',

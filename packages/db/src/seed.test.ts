@@ -40,6 +40,8 @@ describe('seed configuration', () => {
     // Дефект №2 (v1.2.0): подтверждение/отмена ПЗ и ввод за Оператора — действия НП.
     expect(ROLE_PERMISSION_MAP.OPR).not.toContain('production_order:confirm');
     expect(ROLE_PERMISSION_MAP.KSGP).toContain('transfer:receive');
+    // ОПЭ-25 (решение владельца 21.10.2026): КСГП создаёт и корректирует Перемещения.
+    expect(ROLE_PERMISSION_MAP.KSGP).toContain('transfer:create');
     expect(ROLE_PERMISSION_MAP.USGP).toContain('transfer:reconcile');
     // ОПЭ-20 (решение владельца продукта, 20.10.2026): УСГП создаёт и корректирует Перемещения.
     expect(ROLE_PERMISSION_MAP.USGP).toContain('transfer:create');

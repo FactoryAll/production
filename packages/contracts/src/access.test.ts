@@ -62,9 +62,15 @@ describe('access matrix', () => {
     expect(hasPermission([RoleCode.USGP], 'transfer:create')).toBe(true);
   });
 
-  // Расширение узкое: остальные роли склада права на создание перемещения не получили.
+  // ОПЭ-25 (решение владельца 21.10.2026): КСГП тоже создаёт и корректирует Перемещения.
+  it('KSGP may create and correct transfers', () => {
+    expect(ROLE_PERMISSIONS[RoleCode.KSGP]).toContain('transfer:create');
+    expect(hasPermission([RoleCode.KSGP], 'transfer:create')).toBe(true);
+  });
+
+  // Расширение узкое: ОПР и С1С права на создание перемещения не получили.
   it('does not hand transfer:create to the other field roles', () => {
-    for (const role of [RoleCode.OPR, RoleCode.KSGP, RoleCode.S1C]) {
+    for (const role of [RoleCode.OPR, RoleCode.S1C]) {
       expect(hasPermission([role], 'transfer:create')).toBe(false);
     }
   });
