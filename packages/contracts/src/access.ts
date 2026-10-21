@@ -91,6 +91,9 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     'timing:read',
     // Создание и корректировка Перемещения (решение владельца 21.10.2026, ОПЭ-25).
     'transfer:create',
+    // Отправка черновика («Провести») требует transfer:update — без него созданный
+    // черновик некуда деть (ОПЭ-26, проверено на проде 21.10.2026).
+    'transfer:update',
     'transfer:read',
     'transfer:receive',
     'transfer:reconcile',
@@ -101,6 +104,8 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
   USGP: [
     'timing:read',
     // Создание и корректировка Перемещения (решение владельца продукта, ОПЭ-20, 20.10.2026).
+    // Отправка черновика требует transfer:update (ОПЭ-26).
+    'transfer:update',
     // В коде одно право отвечает и за создание, и за правку черновика/отправленного —
     // разделить их нельзя, не разведя проверки в transfers/new, [id]/edit и actions.
     'transfer:create',

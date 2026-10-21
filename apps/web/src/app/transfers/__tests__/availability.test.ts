@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildStockByWarehouse,
+  filterProductsBySource,
   formatQuantity,
   getAvailableQuantity,
   isQuantityOverAvailable,
@@ -88,5 +89,37 @@ describe('formatQuantity', () => {
     expect(formatQuantity(115)).toBe('115.00');
     expect(formatQuantity(0)).toBe('0.00');
     expect(formatQuantity(12.5)).toBe('12.50');
+  });
+});
+
+describe('filterProductsBySource (ОПЭ-27)', () => {
+  const products = [
+    { id: 'p-in', code: 'GP001', name: 'Есть на складе' },
+    { id: 'p-out', code: 'GP002', name: 'Нет на складе' },
+  ];
+  const stock = buildStockByWarehouse([
+    { warehouseId: 'wh-fg', productId: 'p-in', quantity: 12 },
+    { warehouseId: 'wh-fg', productId: 'p-out', quantity: 0 },
+  ]);
+
+  // На проде 21.10.2026 в списке «Продукт» были все позиции ГП, включая те, которых
+  // на складе-источнике нет: выбор такой позиции гарантированно отклонялся на отправке.
+  it('оставляет только позиции с остатком на складе-источнике', () => {
+    const result = filterProductsBySource(products, stock, 'wh-fg');
+    expect(result.map((p) => p.id)).toEqual(['p-in']);
+  });
+
+  it('сохраняет уже выбранные строки, даже если остатка уже нет', () => {
+    const result = filterProductsBySource(products, stock, 'wh-fg', ['p-out']);
+    expect(result.map((p) => p.id)).toEqual(['p-in', 'p-out']);
+  });
+
+  it('пока склад-источник не выбран, предлагает только выбранное ранее', () => {
+    expect(filterProductsBySource(products, stock, '')).toEqual([]);
+    expect(filterProductsBySource(products, stock, '', ['p-in']).map((p) => p.id)).toEqual(['p-in']);
+  });
+
+  it('остатки другого склада в расчёт не берёт', () => {
+    expect(filterProductsBySource(products, stock, 'wh-prod')).toEqual([]);
   });
 });

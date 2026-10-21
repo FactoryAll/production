@@ -42,6 +42,9 @@ describe('seed configuration', () => {
     expect(ROLE_PERMISSION_MAP.KSGP).toContain('transfer:receive');
     // ОПЭ-25 (решение владельца 21.10.2026): КСГП создаёт и корректирует Перемещения.
     expect(ROLE_PERMISSION_MAP.KSGP).toContain('transfer:create');
+    // ОПЭ-26: отправка черновика требует transfer:update — без него черновик не провести.
+    expect(ROLE_PERMISSION_MAP.KSGP).toContain('transfer:update');
+    expect(ROLE_PERMISSION_MAP.USGP).toContain('transfer:update');
     expect(ROLE_PERMISSION_MAP.USGP).toContain('transfer:reconcile');
     // ОПЭ-20 (решение владельца продукта, 20.10.2026): УСГП создаёт и корректирует Перемещения.
     expect(ROLE_PERMISSION_MAP.USGP).toContain('transfer:create');

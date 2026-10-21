@@ -59,3 +59,28 @@ export function isQuantityOverAvailable(quantity: number | null, available: numb
 export function formatQuantity(value: number): string {
   return value.toFixed(2);
 }
+
+/**
+ * Продукция, доступная для выбора на складе-источнике.
+ 
+ * В выпадающем списке остаётся только то, что реально лежит на выбранном складе:
+ * позицию с нулевым остатком сервер всё равно отклонит на отправке (BR-1), и предлагать
+ * её значит вести пользователя к ошибке (ОПЭ-27, проверено на проде 21.10.2026).
+ *
+ * `keepIds` — позиции, уже выбранные в строках документа: они остаются в списке всегда,
+ * иначе при правке поле выглядело бы пустым, хотя продукт в строке есть.
+ */
+export function filterProductsBySource<T extends { id: string }>(
+  products: T[],
+  stockByWarehouse: StockByWarehouse,
+  sourceWarehouseId: string,
+  keepIds: string[] = [],
+): T[] {
+  const keep = new Set(keepIds.filter((id) => id !== ''));
+  return products.filter(
+    (product) =>
+      keep.has(product.id) ||
+      (sourceWarehouseId !== '' &&
+        getAvailableQuantity(stockByWarehouse, sourceWarehouseId, product.id) > 0),
+  );
+}

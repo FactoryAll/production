@@ -9,6 +9,7 @@ import { TRANSFER_LINE_COMMENT_MAX_LENGTH } from '@/lib/validation/transfer-line
 import {
   formatQuantity,
   getAvailableQuantity,
+  filterProductsBySource,
   isQuantityOverAvailable,
   parseQuantityInput,
   type StockByWarehouse,
@@ -79,7 +80,16 @@ export default function TransferEditForm({
       label: w.name + (w.active ? '' : ' (деактивирован)'),
     }));
 
-  const productOptions = products.map((p) => ({
+  // В списке — только позиции, которые реально лежат на выбранном складе-источнике:
+  // позицию с нулевым остатком сервер всё равно отклонит на отправке (BR-1), и предлагать
+  // её значит вести пользователя к ошибке (ОПЭ-27, проверено на проде 21.10.2026).
+  // Уже выбранные строки оставляем в списке всегда: иначе в правке поле выглядело бы пустым.
+  const productOptions = filterProductsBySource(
+    products,
+    stockByWarehouse,
+    sourceWarehouseId,
+    lines.map((line) => line.productId),
+  ).map((p) => ({
     value: p.id,
     label: `${p.code} – ${p.name} (${p.unit})` + (p.active ? '' : ' (деактивирован)'),
   }));
@@ -260,7 +270,12 @@ export default function TransferEditForm({
                       value={line.productId}
                       onChange={(value) => updateLine(line.id, { productId: value })}
                       options={productOptions}
-                      placeholder="Начните вводить код или наименование"
+                      placeholder={
+                        sourceWarehouseId === ''
+                          ? 'Сначала выберите склад-источник'
+                          : 'Начните вводить код или наименование'
+                      }
+                      disabled={sourceWarehouseId === ''}
                       required
                     />
                     {line.productId && !product?.active && (

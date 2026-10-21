@@ -68,6 +68,15 @@ describe('access matrix', () => {
     expect(hasPermission([RoleCode.KSGP], 'transfer:create')).toBe(true);
   });
 
+  // ОПЭ-26 (проверено на проде 21.10.2026): создав черновик, КСГП не мог его отправить —
+  // «Провести» требует transfer:update, а роли выдали только transfer:create.
+  it('the roles that create transfers can also submit them', () => {
+    for (const role of [RoleCode.KSGP, RoleCode.USGP, RoleCode.NP]) {
+      expect(hasPermission([role], 'transfer:create')).toBe(true);
+      expect(hasPermission([role], 'transfer:update')).toBe(true);
+    }
+  });
+
   // Расширение узкое: ОПР и С1С права на создание перемещения не получили.
   it('does not hand transfer:create to the other field roles', () => {
     for (const role of [RoleCode.OPR, RoleCode.S1C]) {
