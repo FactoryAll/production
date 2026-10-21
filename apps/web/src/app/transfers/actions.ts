@@ -340,8 +340,11 @@ export async function submitGoodsTransfer(
   }
 
   for (const line of transfer.lines) {
+    // Остаток берём со склада-источника конкретного перемещения, а не с «Производственного»
+    // вообще: перемещение бывает и обратным — со склада ГП на производственный (возврат
+    // брака, возврат на доработку, решение владельца 21.10.2026, ОПЭ-24).
     const balances = await deps.getStockBalance(deps.prisma, {
-      warehouseType: 'PRODUCTION',
+      warehouseId: transfer.sourceWarehouseId,
       productId: line.productId,
       stockCategory: 'GP',
     });
@@ -665,7 +668,8 @@ export async function updateGoodsTransfer(
     const getBalance = deps.getStockBalance ?? getStockBalance;
     for (const adjustment of issueAdjustments) {
       const balances = await getBalance(deps.prisma, {
-        warehouseType: 'PRODUCTION',
+        // Источник правки — склад-источник перемещения (перемещение бывает обратным, ОПЭ-24).
+        warehouseId: transfer.sourceWarehouseId,
         productId: adjustment.productId,
         stockCategory: 'GP',
       });

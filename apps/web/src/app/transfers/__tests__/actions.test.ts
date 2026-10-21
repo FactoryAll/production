@@ -586,6 +586,53 @@ describe('submitGoodsTransfer', () => {
     });
   });
 
+  // ОПЭ-24 (решение владельца 21.10.2026): перемещение бывает и обратным — со склада ГП
+  // на производственный (возврат брака, возврат на доработку). Остаток обязан проверяться
+  // на складе-источнике перемещения, а не на «Производственном» вообще: до правки проверка
+  // была прибита к типу PRODUCTION, и обратное перемещение не проходило никогда.
+  it('отправляет обратное перемещение со склада ГП на производственный (ОПЭ-24)', async () => {
+    const deps = buildMockDeps({
+      transfer: buildMockTransfer({
+        sourceWarehouseId: finishedGoodsWarehouse.id,
+        destinationWarehouseId: productionWarehouse.id,
+      }),
+    });
+    deps.getStockBalance.mockImplementation(async (_client: unknown, args: { warehouseId?: string }) =>
+      args.warehouseId === finishedGoodsWarehouse.id
+        ? [{
+            id: 'bal-gp',
+            warehouseId: finishedGoodsWarehouse.id,
+            productId: gpProduct1.id,
+            stockCategory: 'GP',
+            quantity: new Decimal(50),
+            updatedAt: new Date(),
+            product: gpProduct1,
+            warehouse: { type: 'FINISHED_GOODS' },
+          }]
+        : []);
+
+    const result = await submitGoodsTransfer('tr-1', deps);
+
+    expect(result.status).toBe('SUBMITTED');
+    expect(deps.getStockBalance).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ warehouseId: finishedGoodsWarehouse.id }),
+    );
+  });
+
+  it('не отправляет обратное перемещение, когда на складе ГП не хватает остатка (ОПЭ-24)', async () => {
+    const deps = buildMockDeps({
+      transfer: buildMockTransfer({
+        sourceWarehouseId: finishedGoodsWarehouse.id,
+        destinationWarehouseId: productionWarehouse.id,
+      }),
+    });
+    deps.getStockBalance.mockResolvedValue([]);
+
+    await expect(submitGoodsTransfer('tr-1', deps)).rejects.toThrow('Недостаточно остатка');
+    expect(deps.applyStockMovements).not.toHaveBeenCalled();
+  });
+
   it('writes audit and timing records on submit', async () => {
     const deps = buildMockDeps();
     await submitGoodsTransfer('tr-1', deps);

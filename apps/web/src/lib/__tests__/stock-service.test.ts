@@ -193,6 +193,24 @@ describe('getStockBalance', () => {
       expect.objectContaining({ where: { warehouse: { type: 'PRODUCTION' } } }),
     );
   });
+
+  // ОПЭ-24: остаток нужен по конкретному складу — при обратном перемещении (склад ГП →
+  // производственный) тип склада не определяет, с какого склада списывать.
+  it('filters by a concrete warehouse id', async () => {
+    const client = {
+      stockBalance: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+    } as unknown as Parameters<typeof getStockBalance>[0];
+
+    await getStockBalance(client, { warehouseId: 'wh-gp', productId: 'p-1', stockCategory: 'GP' });
+
+    expect(client.stockBalance.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { warehouseId: 'wh-gp', productId: 'p-1', stockCategory: 'GP' },
+      }),
+    );
+  });
 });
 
 describe('buildProductionFactMovements', () => {

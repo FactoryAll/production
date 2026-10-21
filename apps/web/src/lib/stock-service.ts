@@ -140,6 +140,8 @@ export async function applyStockMovements(
 
 export interface GetStockBalanceArgs {
   warehouseType?: WarehouseType;
+  /** Конкретный склад: нужен там, где тип склада однозначно не определяет остаток. */
+  warehouseId?: string;
   productId?: string;
   stockCategory?: StockCategory;
 }
@@ -154,6 +156,9 @@ export async function getStockBalance(
   }
   if (args.stockCategory) {
     where.stockCategory = args.stockCategory;
+  }
+  if (args.warehouseId) {
+    where.warehouseId = args.warehouseId;
   }
   if (args.warehouseType) {
     where.warehouse = { type: args.warehouseType };
