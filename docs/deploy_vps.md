@@ -110,12 +110,20 @@ curl -sI https://tracker.factoryall.ru || echo "tracker DOWN"
 cd /opt/prodtrack
 git pull origin main
 git log -1 --oneline            # убедиться, что подтянулся нужный коммит
-docker compose down
-docker compose build --no-cache
+docker compose build
 docker compose up -d
 sleep 20
 docker compose logs --tail=10 web
 ```
+
+**`down` перед сборкой не нужен и вреден.** Сначала собираем, потом поднимаем: если сборка упадёт,
+сайт продолжит работать на прежнем образе. С `down` в начале упавшая сборка оставляет прод лежать —
+так и случилось 20.10.2026, дважды.
+
+**`--no-cache` брать не нужно по умолчанию.** Он выбрасывает закэшированный apt-слой, и сборка идёт
+в `deb.debian.org` — а с этого сервера он отвечает нестабильно (20.10.2026: индексы скачались,
+а `.deb` отвалились по таймауту). `--no-cache` уместен только когда меняется базовый образ
+или системные пакеты.
 
 После деплоя — смоук: открыть https://prodtracker.factoryall.ru/login и проверить версию в футере
 (должна совпадать со значением `VERSION` в `docker-compose.yml`).

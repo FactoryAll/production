@@ -36,7 +36,14 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ARG VERSION=dev
 ENV VERSION=${VERSION}
-RUN apt-get update -y && apt-get install -y openssl libssl-dev && rm -rf /var/lib/apt/lists/*
+# Движку Prisma нужна библиотека libssl, а в node:22-slim её нет (проверено 20.10.2026:
+# `openssl: not found`, /usr/lib/x86_64-linux-gnu/libssl* отсутствует). Ставим только openssl
+# и libssl3: заголовки из libssl-dev в рантайме не нужны — это 2,7 МБ вместо 5,9 МБ.
+# Повторы и таймаут — потому что deb.debian.org с этого сервера отвечает нестабильно:
+# 20.10.2026 сборка дважды падала на скачивании .deb, хотя индексы успевали скачаться.
+RUN apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update -y \
+ && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y --no-install-recommends openssl libssl3 \
+ && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/apps/web/.next/standalone ./
 COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
 # В standalone-сборку Next.js не копирует public автоматически: без этой строки логотип
