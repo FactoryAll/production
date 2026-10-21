@@ -1075,6 +1075,60 @@ describe('receiveGoodsTransfer', () => {
     return { deps, mockPrisma };
   }
 
+  // ОПЭ-28 (решение владельца 21.10.2026): принимает тот, чей склад принимает.
+  // На производственный склад принимает УСГП, на склад ГП — КСГП.
+  it('не даёт КСГП принять перемещение на производственный склад (ОПЭ-28)', async () => {
+    txRef = undefined;
+    const { deps } = buildReceiveDeps({
+      transfer: buildMockTransfer({
+        status: 'SUBMITTED',
+        submittedAt: new Date(),
+        submittedByUserId: 'user-1',
+        sourceWarehouseId: finishedGoodsWarehouse.id,
+        destinationWarehouseId: productionWarehouse.id,
+      }),
+      lines: [buildMockLine()],
+    });
+
+    const line = buildMockLine();
+    await expect(
+      receiveGoodsTransfer('tr-1', { lines: [{ transferLineId: line.id, actualQuantity: 10 }] }, deps),
+    ).rejects.toThrow('только роль, принимающая на складе-приёмнике');
+    expect(deps.applyStockMovements).not.toHaveBeenCalled();
+  });
+
+  it('даёт УСГП принять перемещение на производственный склад (ОПЭ-28)', async () => {
+    txRef = undefined;
+    const { deps } = buildReceiveDeps(
+      {
+        transfer: buildMockTransfer({
+          status: 'SUBMITTED',
+          submittedAt: new Date(),
+          submittedByUserId: 'user-1',
+          sourceWarehouseId: finishedGoodsWarehouse.id,
+          destinationWarehouseId: productionWarehouse.id,
+        }),
+        lines: [buildMockLine()],
+      },
+      'RECEIVED',
+      [npUser],
+    );
+    deps.requirePermission = vi.fn().mockResolvedValue({
+      userId: 'user-usgp',
+      user: { roles: [{ role: { code: 'USGP' } }] },
+    });
+
+    const line = buildMockLine();
+    const result = await receiveGoodsTransfer(
+      'tr-1',
+      { lines: [{ transferLineId: line.id, actualQuantity: 10 }] },
+      deps,
+    );
+
+    expect(result.status).toBe('RECEIVED');
+    expect(deps.applyStockMovements).toHaveBeenCalled();
+  });
+
   it('receives without discrepancies and sets status RECEIVED, emits EV-05', async () => {
     txRef = undefined;
     const { deps } = buildReceiveDeps(

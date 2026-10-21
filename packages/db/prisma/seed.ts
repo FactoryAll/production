@@ -135,6 +135,8 @@ export const ROLE_PERMISSION_MAP: Record<RoleCode, string[]> = {
   ],
   USGP: [
     'timing:read',
+    // Приёмка на Производственном складе (решение владельца 21.10.2026, ОПЭ-28).
+    'transfer:receive',
     // Создание и корректировка Перемещения (решение владельца продукта, ОПЭ-20, 20.10.2026).
     // Отправка черновика требует transfer:update (ОПЭ-26).
     'transfer:update',

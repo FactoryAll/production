@@ -12,6 +12,7 @@ import {
 } from '@tanstack/react-table';
 import { Button, Card } from '@prodtrack/ui';
 import { hasPermission } from '@prodtrack/contracts';
+import { canReceiveTransfer } from './receive-rules';
 import type { GoodsTransfer, TransferLine, Warehouse, Product } from '@prisma/client';
 import { submitGoodsTransferAction, cancelGoodsTransferAction } from './actions';
 import { transferStatusLabel } from './labels';
@@ -53,6 +54,7 @@ export default function TransfersPage({
 
   const canCreate = hasPermission(userRoles, 'transfer:create');
   const canUpdate = hasPermission(userRoles, 'transfer:update');
+  // Приёмка — по типу склада-приёмника каждой строки (ОПЭ-28), а не по одному праву роли.
   const canReceive = hasPermission(userRoles, 'transfer:receive');
 
   async function handleSubmit(transferId: string) {
@@ -165,7 +167,7 @@ export default function TransfersPage({
                   Отменить
                 </Button>
               )}
-              {isSubmitted && canReceive && (
+              {isSubmitted && canReceive && canReceiveTransfer(userRoles, row.original.destinationWarehouse.type) && (
                 <Link href={`/transfers/${row.original.id}/receive`}>
                   <Button
                     variant="cta"

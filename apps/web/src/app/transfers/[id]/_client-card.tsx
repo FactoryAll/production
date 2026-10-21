@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button, Card, Dialog } from '@prodtrack/ui';
 import { hasPermission } from '@prodtrack/contracts';
+import { canReceiveTransfer } from '../receive-rules';
 import type { GoodsTransfer, TransferLine, Warehouse, Product, User } from '@prisma/client';
 import { submitGoodsTransferAction, cancelGoodsTransferAction } from '../actions';
 import { transferStatusLabel } from '../labels';
@@ -52,7 +53,8 @@ export default function TransferCard({ transfer, userRoles }: TransferCardProps)
   const canEdit = (isDraft || isSubmitted) && hasPermission(userRoles, 'transfer:create');
   const canCancel =
     (transfer.status === 'DRAFT' || transfer.status === 'SUBMITTED') && hasPermission(userRoles, 'transfer:update');
-  const canReceive = isSubmitted && hasPermission(userRoles, 'transfer:receive');
+  // Принимает тот, чей склад принимает: на склад ГП — КСГП, на производственный — УСГП (ОПЭ-28).
+  const canReceive = isSubmitted && canReceiveTransfer(userRoles, transfer.destinationWarehouse.type);
   const canReconcile = isDiscrepancy && hasPermission(userRoles, 'transfer:reconcile');
 
   const cancelDialogMessage =

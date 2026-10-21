@@ -6,6 +6,7 @@ import type { GoodsTransfer, TransferLine, Warehouse, Product, StockCategory, St
 import { prisma, writeAudit, writeTiming, emitEvent } from '@prodtrack/db';
 import { requirePermission } from '@/lib/auth/access';
 import { notifyEvent } from '@/lib/events/notify';
+import { canReceiveTransfer } from './receive-rules';
 import { syncTransferTask } from '@/lib/onec/tasks';
 import { getAttributeRole } from '@prodtrack/contracts';
 import { TRANSFER_LINE_COMMENT_MAX_LENGTH } from '@/lib/validation/transfer-line';
@@ -844,6 +845,12 @@ export async function receiveGoodsTransfer(
 
   if (!transfer) {
     throw new Error('Перемещение не найдено');
+  }
+
+  // Принимает тот, чей склад принимает: склад ГП — КСГП, производственный — УСГП (ОПЭ-28).
+  // Проверка на сервере, а не только кнопкой: действие вызывается напрямую.
+  if (!canReceiveTransfer(roles, transfer.destinationWarehouse.type)) {
+    throw new Error('Принять перемещение может только роль, принимающая на складе-приёмнике');
   }
 
   const statusMessages: Record<GoodsTransfer['status'], string> = {
