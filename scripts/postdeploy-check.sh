@@ -51,12 +51,14 @@ if [ "${DEV_STAND}" = "1" ]; then
   COMPOSE=(docker compose -f docker-compose.dev.yml)
   STAND_NAME="ДЕВ-СТЕНД"
   APP_PORT="${PRODTRACK_PORT:-3001}"
+  DOMAIN="prodtracker-dev.factoryall.ru"
   WEB_CONTAINER="prodtrack_dev_web"
   PG_CONTAINER="prodtrack_dev_postgres"
 else
   COMPOSE=(docker compose)
   STAND_NAME="ПРОД"
   APP_PORT="${PRODTRACK_PORT:-3000}"
+  DOMAIN="prodtracker.factoryall.ru"
   WEB_CONTAINER="prodtrack_web"
   PG_CONTAINER="prodtrack_postgres"
 fi
@@ -75,7 +77,9 @@ git log -1 --oneline
 echo
 echo "=== 2. Смоук /login и версия в футере ==="
 curl -sI --max-time 10 -o /dev/null -w 'HTTP %{http_code}\n' http://127.0.0.1:${APP_PORT}/login
-VERSION_IN_PAGE=$(curl -s --max-time 10 http://127.0.0.1:${APP_PORT}/login | grep -o 'v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*' | head -1 || true)
+# Суффикс обязателен в шаблоне: прежняя регулярка `v[0-9]+\.[0-9]+\.[0-9]+` отрезала хвост
+# и на деве показывала «v2.1.1» вместо «v2.1.1-dev» — стенды становились неразличимы.
+VERSION_IN_PAGE=$(curl -s --max-time 10 http://127.0.0.1:${APP_PORT}/login | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?' | head -1 || true)
 echo "версия в HTML: ${VERSION_IN_PAGE:-не найдена (проверьте футер в браузере)}"
 
 echo
@@ -112,7 +116,7 @@ echo "=== 7. Что отдаёт домен (проверка nginx) ==="
 echo '--- server_name в sites-enabled ---'
 grep -rn 'server_name' /etc/nginx/sites-enabled/ 2>/dev/null || echo 'нет доступа к /etc/nginx'
 echo '--- заголовки ответа домена ---'
-curl -sI --max-time 10 https://prodtracker.factoryall.ru/login | head -5 || echo 'домен недоступен'
+curl -sI --max-time 10 "https://${DOMAIN}/login" | head -5 || echo 'домен недоступен'
 
 echo
 echo "=== 8. Логи web (последние 20 строк) ==="
