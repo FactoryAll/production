@@ -1,0 +1,65 @@
+# Дев-стенд ProdTrack: то же приложение, отдельный проект, порт и база.
+#
+# Зачем: доработки сначала проверяются здесь и только потом едут в прод
+# (правило — docs/dev_environment.md). Прод живёт на 127.0.0.1:3000 в проекте
+# `prodtrack`, дев — на 127.0.0.1:3001 в проекте `prodtrack-dev`. Базы и тома
+# данных разные: дев ничего не видит в продовой базе и не может её испортить.
+#
+# Запуск (из /opt/prodtrack):
+#   cp .env.dev.example .env.dev      # один раз, затем вписать пароль и секрет
+#   docker compose -f docker-compose.dev.yml build
+#   docker compose -f docker-compose.dev.yml up -d
+#
+# ВАЖНО: имя проекта (`name:`) и имена контейнеров не должны совпадать с продовыми,
+# иначе compose примет продовые контейнеры за свои и пересоздаст их.
+
+name: prodtrack-dev
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: ./apps/web/Dockerfile
+      args:
+        # Суффикс -dev виден в футере: на скриншоте сразу понятно, дев это или прод.
+        VERSION: v2.1.1-dev
+    container_name: prodtrack_dev_web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3000"
+    env_file:
+      - .env.dev
+    environment:
+      - NODE_ENV=production
+      - VERSION=v2.1.1-dev
+      - TZ=Europe/Moscow
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - prodtrack_dev_net
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: prodtrack_dev_postgres
+    restart: unless-stopped
+    env_file:
+      - .env.dev
+    volumes:
+      - prodtrack_dev_pgdata:/var/lib/postgresql/data
+    networks:
+      - prodtrack_dev_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  prodtrack_dev_pgdata:
+    driver: local
+
+networks:
+  prodtrack_dev_net:
+    driver: bridge
