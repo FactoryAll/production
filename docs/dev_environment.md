@@ -41,14 +41,25 @@
 Первый раз (владелец, на сервере):
 
 ```bash
-cd /opt/prodtrack
-cp .env.dev.example .env.dev && chmod 600 .env.dev
-# вписать в .env.dev свой POSTGRES_PASSWORD, DATABASE_URL с ним же и свой SECRET_KEY (openssl rand -base64 32)
-git pull origin main
-docker compose -f docker-compose.dev.yml build
-docker compose -f docker-compose.dev.yml up -d
-bash scripts/postdeploy-check.sh --dev
+cd /opt/prodtrack && git pull origin main && bash scripts/make-dev-env.sh && docker compose -f docker-compose.dev.yml build && docker compose -f docker-compose.dev.yml up -d && sleep 20 && bash scripts/postdeploy-check.sh --dev
 ```
+
+`scripts/make-dev-env.sh` сам создаёт `.env.dev`: генерирует пароль базы и секрет сессий,
+подставляет пароль в два места (в `POSTGRES_PASSWORD` и внутри `DATABASE_URL` — иначе первый
+же вход упрётся в «password authentication failed»), ставит права `600` и **не печатает
+значения**: вывод пересылают в чат, а секрет в чате — утечка. Существующий `.env.dev` он не
+перезаписывает; пересоздать — `--force`.
+
+Где посмотреть значения, если понадобится (только на сервере, не в чате):
+
+```bash
+sudo grep -oE '^[A-Z_]+=' /opt/prodtrack/.env.dev      # только имена ключей
+sudo cat /opt/prodtrack/.env.dev                       # значения
+```
+
+Продовые значения из `/opt/prodtrack/.env` для дева **не годятся**: это продовые секреты,
+и дев-база с ними не нужна. Форма строки подключения видна там же:
+`postgresql://prodtrack:<пароль>@postgres:5432/prodtrack?schema=public`.
 
 Каждый следующий раз — то же, кроме создания `.env.dev`:
 
