@@ -1131,5 +1131,9 @@
   в `/etc/nginx/sites-available` + симлинк; `certbot --nginx -d prodtracker-dev.factoryall.ru`.
   Затем в nginx ограничить доступ (allow/deny — заготовка в шаблоне конфига): дев открыт наружу
   и в нём те же учётные записи, что в проде.
-- Критерии приёмки: `https://prodtracker-dev.factoryall.ru` открывается, раздел 7
-  `postdeploy-check.sh --dev` зелёный, туннель больше не нужен.
+- **Сделано 22.10.2026:** A-запись `prodtracker-dev` → `193.168.46.254` (первая попытка указывала на
+  чужой адрес `5.101.152.161` — поймано проверкой DNS), конфиг nginx установлен, сертификат выпущен
+  (действует до 20.01.2027), `https://prodtracker-dev.factoryall.ru` отдаёт `200`, раздел 7
+  `postdeploy-check.sh --dev` зелёный. Туннель больше не нужен.
+- Осталось: ограничить доступ к стенду по адресам (сейчас он открыт наружу, а сид создаёт `admin`/`admin123`) —
+  заготовка `allow/deny` лежит закомментированной в `docs/nginx/prodtracker-dev.factoryall.ru.conf`.
