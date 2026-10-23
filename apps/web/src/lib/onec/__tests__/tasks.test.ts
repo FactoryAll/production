@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Prisma } from '@prisma/client';
 import {
   ONE_C_SOURCE_TYPES,
+  productionDirectionOf,
   syncProductionOrderTask,
   syncTaskForOneC,
   syncTransferTask,
@@ -94,6 +95,7 @@ describe('syncTaskForOneC', () => {
     const outcome = await syncTaskForOneC(tx, {
       type: 'PRODUCTION',
       sourceType: ONE_C_SOURCE_TYPES.PRODUCTION,
+      direction: 'GP' as const,
       sourceId: 'po-1',
       data,
     });
@@ -107,6 +109,8 @@ describe('syncTaskForOneC', () => {
         type: 'PRODUCTION',
         sourceType: 'PRODUCTION_ORDER',
         sourceId: 'po-1',
+        // ОПЭ-30: направление задачи задаётся при синхронизации.
+        direction: 'GP',
         data,
         // Вариант B: время изменения данных проставляет синхронизация.
         lastChangedAt: expect.any(Date),
@@ -124,6 +128,7 @@ describe('syncTaskForOneC', () => {
     const outcome = await syncTaskForOneC(tx, {
       type: 'PRODUCTION',
       sourceType: ONE_C_SOURCE_TYPES.PRODUCTION,
+      direction: 'GP' as const,
       sourceId: 'po-1',
       data,
     });
@@ -131,7 +136,7 @@ describe('syncTaskForOneC', () => {
     expect(outcome).toBe('updated');
     expect(tx.taskForOneC.update).toHaveBeenCalledWith({
       where: { id: 'task-1' },
-      data: { sourceType: 'PRODUCTION_ORDER', data, lastChangedAt: expect.any(Date) },
+      data: { sourceType: 'PRODUCTION_ORDER', direction: 'GP', data, lastChangedAt: expect.any(Date) },
     });
     expect(tx.taskForOneC.create).not.toHaveBeenCalled();
   });
@@ -150,6 +155,7 @@ describe('syncTaskForOneC', () => {
     const outcome = await syncTaskForOneC(tx, {
       type: 'PRODUCTION',
       sourceType: ONE_C_SOURCE_TYPES.PRODUCTION,
+      direction: 'GP' as const,
       sourceId: 'po-1',
       data,
     });
@@ -159,6 +165,7 @@ describe('syncTaskForOneC', () => {
       where: { id: 'task-1' },
       data: {
         sourceType: 'PRODUCTION_ORDER',
+        direction: 'GP',
         data,
         lastChangedAt: expect.any(Date),
         status: 'PENDING',
@@ -182,6 +189,7 @@ describe('syncTaskForOneC', () => {
     const outcome = await syncTaskForOneC(tx, {
       type: 'PRODUCTION',
       sourceType: ONE_C_SOURCE_TYPES.PRODUCTION,
+      direction: 'GP' as const,
       sourceId: 'po-1',
       data,
     });
@@ -204,13 +212,19 @@ describe('syncTaskForOneC', () => {
     await syncTaskForOneC(tx, {
       type: 'PRODUCTION',
       sourceType: ONE_C_SOURCE_TYPES.PRODUCTION,
+      direction: 'GP' as const,
       sourceId: 'po-1',
       data,
     });
 
     expect(tx.taskForOneC.update).toHaveBeenCalledWith({
       where: { id: 'task-1' },
-      data: { sourceType: 'PRODUCTION_ORDER', data, lastChangedAt: expect.any(Date) },
+      data: {
+        sourceType: 'PRODUCTION_ORDER',
+        direction: 'GP',
+        data,
+        lastChangedAt: expect.any(Date),
+      },
     });
   });
 
@@ -223,6 +237,7 @@ describe('syncTaskForOneC', () => {
     const outcome = await syncTaskForOneC(tx, {
       type: 'PRODUCTION',
       sourceType: ONE_C_SOURCE_TYPES.PRODUCTION,
+      direction: 'GP' as const,
       sourceId: 'po-1',
       data,
     });
@@ -241,6 +256,7 @@ describe('syncTaskForOneC', () => {
     const outcome = await syncTaskForOneC(tx, {
       type: 'PRODUCTION',
       sourceType: ONE_C_SOURCE_TYPES.PRODUCTION,
+      direction: 'GP' as const,
       sourceId: 'po-1',
       data,
     });
@@ -378,5 +394,28 @@ describe('syncTransferTask', () => {
   it('throws when the transfer is missing', async () => {
     const tx = makeTx({ transfer: null });
     await expect(syncTransferTask(tx, 'missing')).rejects.toThrow('Перемещение не найдено');
+  });
+});
+
+describe('productionDirectionOf (ОПЭ-30)', () => {
+  const withFacts = (categories: string[]) => ({
+    lines: [{ facts: categories.map((factCategory) => ({ factCategory })) }],
+  });
+
+  it('только Масса — направление MASS', () => {
+    expect(productionDirectionOf(withFacts(['MASS', 'MASS']))).toBe('MASS');
+  });
+
+  it('только ГП или ПФ — направление GP', () => {
+    expect(productionDirectionOf(withFacts(['GP']))).toBe('GP');
+    expect(productionDirectionOf(withFacts(['GP', 'PF']))).toBe('GP');
+  });
+
+  it('Масса и ГП в одном заказе — ALL, видят оба специалиста', () => {
+    expect(productionDirectionOf(withFacts(['MASS', 'GP']))).toBe('ALL');
+  });
+
+  it('без фактов направление не ломается (GP по умолчанию)', () => {
+    expect(productionDirectionOf({ lines: [{ facts: [] }] })).toBe('GP');
   });
 });

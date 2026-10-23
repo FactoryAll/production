@@ -3,6 +3,7 @@ import { prisma } from '@prodtrack/db';
 import { requireAnyPermission } from '@/lib/auth/access';
 import {
   ONE_C_PAGE_SIZE,
+  directionsForScope,
   getOneCTaskById,
   getOneCTasksPage,
   oneCWhere,
@@ -76,11 +77,57 @@ describe('getOneCTasksPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (prisma.taskForOneC.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    // ОПЭ-30: список фильтруется по направлению специалиста, поэтому мок отдаёт сессию.
+    (requireAnyPermission as ReturnType<typeof vi.fn>).mockResolvedValue({
+      userId: 'user-s1c',
+      user: { id: 'user-s1c', notificationScope: 'ALL', roles: [{ role: { code: 'S1C' } }] },
+    });
   });
 
   it('требует право onec:read', async () => {
     await getOneCTasksPage({});
     expect(requireAnyPermission).toHaveBeenCalledWith(['onec:read']);
+  });
+
+  // ОПЭ-30 (решение владельца 23.10.2026): специалист по Массе не должен видеть задачи по ГП.
+  it('специалист по Массе видит только свои задачи', async () => {
+    (requireAnyPermission as ReturnType<typeof vi.fn>).mockResolvedValue({
+      userId: 'user-mass',
+      user: { id: 'user-mass', notificationScope: 'MASS', roles: [{ role: { code: 'S1C' } }] },
+    });
+
+    await getOneCTasksPage({});
+
+    expect(prisma.taskForOneC.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { direction: { in: ['MASS', 'ALL'] } } }),
+    );
+  });
+
+  it('специалист по ГП и перемещениям видит задачи ГП и перемещений', async () => {
+    (requireAnyPermission as ReturnType<typeof vi.fn>).mockResolvedValue({
+      userId: 'user-gp',
+      user: { id: 'user-gp', notificationScope: 'GP_TRANSFERS', roles: [{ role: { code: 'S1C' } }] },
+    });
+
+    await getOneCTasksPage({});
+
+    expect(prisma.taskForOneC.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { direction: { in: ['GP', 'ALL'] } } }),
+    );
+  });
+
+  it('настройка «Все уведомления» список не сужает', async () => {
+    await getOneCTasksPage({});
+
+    expect(prisma.taskForOneC.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: {} }),
+    );
+  });
+
+  it('направления по настройке специалиста', () => {
+    expect(directionsForScope('MASS')).toEqual(['MASS', 'ALL']);
+    expect(directionsForScope('GP_TRANSFERS')).toEqual(['GP', 'ALL']);
+    expect(directionsForScope('ALL')).toBeNull();
   });
 
   it('сортирует необработанные вперёд и отдаёт страницу без отдельного count', async () => {

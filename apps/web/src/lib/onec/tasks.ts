@@ -1,4 +1,4 @@
-import { Prisma, type TaskForOneCType } from '@prisma/client';
+import { Prisma, type OneCTaskDirection, type TaskForOneCType } from '@prisma/client';
 import {
   buildProductionTaskData,
   buildTransferTaskData,
@@ -25,6 +25,11 @@ export interface SyncTaskForOneCInput {
   sourceType: string;
   sourceId: string;
   data: OneCTaskData;
+  /**
+   * Направление задачи (ОПЭ-30): по нему задача попадает к своему специалисту —
+   * по Массе или по ГП и перемещениям. 'ALL' — данные обоих направлений.
+   */
+  direction: OneCTaskDirection;
 }
 
 /**
@@ -58,6 +63,7 @@ export async function syncTaskForOneC(
       where: { id: existing.id },
       data: {
         sourceType: input.sourceType,
+        direction: input.direction,
         data,
         // Р-18/BR-9: время изменения данных источника (вариант B, решение владельца 06.10.2026).
         lastChangedAt: new Date(),
@@ -72,6 +78,7 @@ export async function syncTaskForOneC(
       type: input.type,
       sourceType: input.sourceType,
       sourceId: input.sourceId,
+      direction: input.direction,
       data,
       lastChangedAt: new Date(),
     },
@@ -109,6 +116,36 @@ async function removeTaskForOneC(
  * Вызывается при завершении ПЗ (итог смены сформирован) и при корректировке факта после
  * закрытия (Р-18), чтобы С1С видел актуальные данные.
  */
+/**
+ * Направление задачи производства (ОПЭ-30): по категориям выпуска в фактах ПЗ.
+ *
+ * Масса — направление «Масса», ГП и ПФ — «ГП и перемещения». Если в одном ПЗ есть и то и другое,
+ * задача касается обоих специалистов и получает 'ALL'.
+ */
+export function productionDirectionOf(order: {
+  lines: { facts: { factCategory: string }[] }[];
+}): OneCTaskDirection {
+  let hasMass = false;
+  let hasOther = false;
+  for (const line of order.lines) {
+    for (const fact of line.facts) {
+      if (fact.factCategory === 'MASS') {
+        hasMass = true;
+      } else {
+        hasOther = true;
+      }
+    }
+  }
+  if (hasMass && hasOther) {
+    return 'ALL';
+  }
+  // Нет ни одного факта — задача появляться не должна, но направление обязано быть осмысленным.
+  if (hasMass) {
+    return 'MASS';
+  }
+  return 'GP';
+}
+
 export async function syncProductionOrderTask(
   tx: Prisma.TransactionClient,
   orderId: string,
@@ -139,6 +176,7 @@ export async function syncProductionOrderTask(
     type: 'PRODUCTION',
     sourceType: ONE_C_SOURCE_TYPES.PRODUCTION,
     sourceId: order.id,
+    direction: productionDirectionOf(order),
     data: buildProductionTaskData(order),
   });
 }
@@ -188,6 +226,8 @@ export async function syncTransferTask(
     type: 'TRANSFER',
     sourceType: ONE_C_SOURCE_TYPES.TRANSFER,
     sourceId: transfer.id,
+    // Перемещения ведёт специалист по ГП и перемещениям (ОПЭ-30).
+    direction: 'GP',
     data: buildTransferTaskData(transfer),
   });
 }

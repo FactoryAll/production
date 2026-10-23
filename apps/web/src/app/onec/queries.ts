@@ -1,4 +1,4 @@
-import type { Prisma, TaskForOneCStatus, TaskForOneCType } from '@prisma/client';
+import type { NotificationScope, OneCTaskDirection, Prisma, TaskForOneCStatus, TaskForOneCType } from '@prisma/client';
 import { prisma } from '@prodtrack/db';
 import { requireAnyPermission } from '@/lib/auth/access';
 import { parsePageParam, toPageResult, type PageResult } from '@/lib/pagination';
@@ -13,6 +13,19 @@ import { parseTaskData, type OneCTaskData } from '@/lib/onec/task-data';
 
 export const ONE_C_PAGE_SIZE = 50;
 
+/**
+ * Направления задач, которые видит специалист (ОПЭ-30, решение владельца 23.10.2026).
+ *
+ * Специалистов двое: один ведёт Массу, второй — ГП и перемещения; у каждого своя настройка
+ * «Направление уведомлений». Задача с данными обоих направлений ('ALL') видна обоим.
+ * `null` — фильтра нет (настройка «Все уведомления»).
+ */
+export function directionsForScope(scope: NotificationScope): OneCTaskDirection[] | null {
+  if (scope === 'MASS') return ['MASS', 'ALL'];
+  if (scope === 'GP_TRANSFERS') return ['GP', 'ALL'];
+  return null;
+}
+
 export const ONE_C_TYPES = ['PRODUCTION', 'TRANSFER'] as const;
 /**
  * Статусы задачи по M12 §4.2: «Ожидает → Обработано». Значение `CANCELLED` есть в схеме,
@@ -26,6 +39,8 @@ export type OneCStatusFilter = 'ALL' | (typeof ONE_C_STATUSES)[number];
 export interface OneCTaskFilter {
   type?: OneCTypeFilter;
   status?: OneCStatusFilter;
+  /** Направления, доступные текущему специалисту; `null`/пусто — без фильтра. */
+  directions?: OneCTaskDirection[] | null;
 }
 
 /** Разбирает фильтр типа из строки запроса: неизвестное значение → «все». */
@@ -50,6 +65,9 @@ export function oneCWhere(filter: OneCTaskFilter): Prisma.TaskForOneCWhereInput 
   }
   if (filter.status && filter.status !== 'ALL') {
     where.status = filter.status;
+  }
+  if (filter.directions !== null && filter.directions !== undefined) {
+    where.direction = { in: filter.directions };
   }
   return where;
 }
@@ -104,12 +122,13 @@ export async function getOneCTasksPage(
   filter: OneCTaskFilter,
   pageParam?: string,
 ): Promise<PageResult<OneCTaskRow>> {
-  await requireAnyPermission(['onec:read']);
+  const session = await requireAnyPermission(['onec:read']);
+  const directions = directionsForScope(session.user.notificationScope);
 
   const params = parsePageParam(pageParam, ONE_C_PAGE_SIZE);
 
   const records = await prisma.taskForOneC.findMany({
-    where: oneCWhere(filter),
+    where: oneCWhere({ ...filter, directions }),
     orderBy: [{ status: 'asc' }, { lastChangedAt: 'desc' }],
     skip: params.skip,
     take: params.take,
@@ -126,10 +145,11 @@ export const ONE_C_EXPORT_LIMIT = 5000;
 
 /** Задачи для CSV-экспорта с учётом текущих фильтров списка (Р-06, BR-7). */
 export async function getOneCTasksForExport(filter: OneCTaskFilter): Promise<OneCTaskRow[]> {
-  await requireAnyPermission(['onec:read']);
+  const session = await requireAnyPermission(['onec:read']);
+  const directions = directionsForScope(session.user.notificationScope);
 
   const records = await prisma.taskForOneC.findMany({
-    where: oneCWhere(filter),
+    where: oneCWhere({ ...filter, directions }),
     orderBy: [{ status: 'asc' }, { lastChangedAt: 'desc' }],
     take: ONE_C_EXPORT_LIMIT,
   });

@@ -570,6 +570,14 @@ enum TaskForOneCType {
   TRANSFER
 }
 
+/// Направление задачи для 1С (ОПЭ-30): специалисты разделены по направлению уведомлений —
+/// один ведёт Массу, второй ГП и перемещения. Задача с данными обоих направлений видна обоим.
+enum OneCTaskDirection {
+  MASS
+  GP
+  ALL
+}
+
 enum TaskForOneCStatus {
   PENDING
   PROCESSED
@@ -581,6 +589,8 @@ model TaskForOneC {
   type          TaskForOneCType
   sourceId      String
   sourceType    String
+  /// Направление: по нему задача попадает к своему специалисту (ОПЭ-30).
+  direction     OneCTaskDirection @default(ALL)
   data          Json
   status        TaskForOneCStatus @default(PENDING)
   processedAt   DateTime?

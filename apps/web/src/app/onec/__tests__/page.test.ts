@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/lib/auth/page-guard', () => ({ checkPageAccess: vi.fn() }));
-vi.mock('@/lib/auth/access', () => ({ requireAnyPermission: vi.fn() }));
+vi.mock('@/lib/auth/access', () => (
+  { requireAnyPermission: vi.fn().mockResolvedValue({ userId: 'user-s1c', user: { id: 'user-s1c', notificationScope: 'ALL', roles: [{ role: { code: 'S1C' } }] } }) }
+));
 vi.mock('@prodtrack/db', () => ({
   prisma: { taskForOneC: { findMany: vi.fn(), findUnique: vi.fn() }, user: { findUnique: vi.fn() } },
 }));

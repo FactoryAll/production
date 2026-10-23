@@ -42,7 +42,11 @@ const transferRecord = {
 describe('CSV-экспорт рабочего места 1С (T-053, Р-06, Р-24)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (requireAnyPermission as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: 'user-s1c' });
+    (requireAnyPermission as ReturnType<typeof vi.fn>).mockResolvedValue({
+      userId: 'user-s1c',
+      // ОПЭ-30: выгрузка следует тому же фильтру направления, что и список.
+      user: { id: 'user-s1c', notificationScope: 'ALL', roles: [{ role: { code: 'S1C' } }] },
+    });
     (prisma.taskForOneC.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([transferRecord]);
   });
 

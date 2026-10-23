@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Card, Dialog, Input, SearchSelect, Select } from '@prodtrack/ui';
+import { filterConsumableProducts } from '@/lib/consumption-products';
 import {
   acceptProductionOrderLineAction,
   reportProductionFactAction,
@@ -84,6 +85,11 @@ function emptyReportForm(): {
 }
 
 export default function ShiftExecutionPage({ lines, employeeId, defectReasons, consumableProducts }: ShiftExecutionPageProps) {
+  // ОПЭ-31: РЦ, не производящий Массу, потребляет только Массу — список зависит от РЦ строки.
+  // Вычисляется лениво: ниже объявлен dialogState, от которого зависит выбор РЦ.
+  function consumptionProducts() {
+    return filterConsumableProducts(consumableProducts, workCenterProducesMass());
+  }
   function productCategory() {
     if (!dialogState) return undefined;
     const line = lines.find((l) => l.id === dialogState.line.id);
@@ -589,7 +595,7 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
               <div className="rounded-md border border-neutral-200 p-3">
                 <p className="mb-2 text-sm font-medium text-graphite">Потребление</p>
                 {form.consumption.map((row, index) => {
-                  const selectedProduct = consumableProducts.find((p) => p.id === row.productId);
+                  const selectedProduct = consumptionProducts().find((p) => p.id === row.productId);
                   const balance = row.productId ? balances[row.productId] : null;
                   const quantityNum = Number(row.quantity);
                   const showWarning = balance && !Number.isNaN(quantityNum) && quantityNum > balance.available && balance.available >= 0;
@@ -597,7 +603,7 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
                     <div key={index} className="mb-3 grid grid-cols-[1fr_1fr_auto] gap-2">
                       {/* Потребление выбирается с поиском: номенклатуры сотни (фидбэк ОПЭ). */}
                       <SearchSelect
-                        options={consumableProducts.map((p) => ({
+                        options={consumptionProducts().map((p) => ({
                           value: p.id,
                           label: `${p.name} (${p.unit})`,
                           keywords: p.code,
