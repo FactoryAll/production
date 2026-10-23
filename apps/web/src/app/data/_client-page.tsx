@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import { Button, Card, Input, Label } from '@prodtrack/ui';
 import { clearDataAction } from './actions';
+import { resyncOneCTaskDataAction } from './resync-onec-actions';
 import { CLEAR_CONFIRMATION_WORD, type DataGroupCount } from '@/lib/data-cleanup';
 
 interface DataCleanupPageProps {
@@ -43,6 +44,19 @@ export default function DataCleanupPage({ groups }: DataCleanupPageProps) {
       setDone('Удалено записей: ' + total + '. Очистка записана в журнал аудита.');
       setSelected([]);
       setConfirmation('');
+    });
+  }
+
+  function handleResync() {
+    setError(null);
+    setDone(null);
+    startTransition(async () => {
+      const result = await resyncOneCTaskDataAction();
+      if (!result.success) {
+        setError(result.error ?? 'Не удалось пересобрать данные задач 1С');
+        return;
+      }
+      setDone('Данные задач 1С пересобраны, обновлено: ' + String(result.updated ?? 0));
     });
   }
 
@@ -96,6 +110,19 @@ export default function DataCleanupPage({ groups }: DataCleanupPageProps) {
           {isPending ? 'Очистка...' : 'Очистить выбранное'}
         </Button>
       </form>
+
+      {/* ОПЭ-35: пересборка данных задач 1С из источников — для случаев, когда в составе
+          данных появилось новое поле, а у старых задач его ещё нет. */}
+      <Card className="space-y-2">
+        <p className="font-medium text-graphite">Данные задач 1С</p>
+        <p className="text-sm text-steel-graphite">
+          Пересобирает данные задач из ПЗ и Перемещений — например, после того как в задаче
+          появилось новое поле. Состав задач не меняется, ничего не удаляется.
+        </p>
+        <Button type="button" variant="secondary" onClick={handleResync} disabled={isPending}>
+          {isPending ? 'Пересборка...' : 'Пересобрать данные задач 1С'}
+        </Button>
+      </Card>
     </div>
   );
 }
