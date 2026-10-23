@@ -288,7 +288,7 @@ export default function TransferEditForm({
                     <Input
                       id={line.id + '_qty'}
                       type="number"
-                      min="0.01"
+                      min="1"
                       step="1"
                       value={line.plannedQuantity}
                       onChange={(e) => updateLine(line.id, { plannedQuantity: e.target.value })}
