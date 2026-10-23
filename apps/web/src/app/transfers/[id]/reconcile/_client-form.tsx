@@ -1,5 +1,6 @@
 'use client';
 
+import { formatQuantity } from '../../availability';
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -161,7 +162,7 @@ export default function ReconcileForm({ transfer }: ReconcileFormProps) {
                         {hasAdjustment ? (
                           <span className="font-medium text-signal-amber">
                             {delta > 0 ? '+' : ''}
-                            {delta.toFixed(2)}
+                            {formatQuantity(delta)}
                           </span>
                         ) : (
                           <span className="text-neutral-500">—</span>

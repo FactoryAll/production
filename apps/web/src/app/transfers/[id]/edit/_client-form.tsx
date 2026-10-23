@@ -292,7 +292,7 @@ export default function TransferEditForm({
                       step="1"
                       value={line.plannedQuantity}
                       onChange={(e) => updateLine(line.id, { plannedQuantity: e.target.value })}
-                      placeholder={showAvailable ? formatQuantity(available) : '0.00'}
+                      placeholder={showAvailable ? formatQuantity(available) : '0'}
                       aria-invalid={overflow}
                       className={overflow ? 'border-red-500 focus:ring-red-500' : ''}
                       required

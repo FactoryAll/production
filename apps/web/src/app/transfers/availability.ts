@@ -6,6 +6,8 @@
  */
 
 /** warehouseId -> productId -> доступное количество. */
+import { formatQuantity as formatQuantityShared } from '@/lib/quantity';
+
 export type StockByWarehouse = Record<string, Record<string, number>>;
 
 export interface StockBalanceRow {
@@ -57,7 +59,8 @@ export function isQuantityOverAvailable(quantity: number | null, available: numb
 }
 
 export function formatQuantity(value: number): string {
-  return value.toFixed(2);
+  // Количество — целое (ОПЭ-32): печатаем «2592», а не «2592.00».
+  return formatQuantityShared(value);
 }
 
 /**

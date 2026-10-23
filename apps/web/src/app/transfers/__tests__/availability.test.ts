@@ -85,10 +85,12 @@ describe('isQuantityOverAvailable', () => {
 });
 
 describe('formatQuantity', () => {
-  it('formats with two decimals', () => {
-    expect(formatQuantity(115)).toBe('115.00');
-    expect(formatQuantity(0)).toBe('0.00');
-    expect(formatQuantity(12.5)).toBe('12.50');
+  // ОПЭ-32: количество целое — печатается без «.00».
+  it('formats whole quantities without decimals', () => {
+    expect(formatQuantity(115)).toBe('115');
+    expect(formatQuantity(0)).toBe('0');
+    // Старое дробное значение печатается как есть (ОПЭ-32).
+    expect(formatQuantity(12.5)).toBe('12.5');
   });
 });
 

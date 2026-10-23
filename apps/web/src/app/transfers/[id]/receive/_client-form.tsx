@@ -1,5 +1,6 @@
 'use client';
 
+import { formatQuantity } from '../../availability';
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -142,7 +143,7 @@ export default function ReceiveTransferForm({ transfer }: ReceiveTransferFormPro
                           <p className="text-sm text-machine-gray">Комментарий: {line.comment}</p>
                         ) : null}
                       </td>
-                      <td className="border-b border-mist-metal px-4 py-3 text-graphite">{planned.toFixed(2)}</td>
+                      <td className="border-b border-mist-metal px-4 py-3 text-graphite">{formatQuantity(planned)}</td>
                       <td className="border-b border-mist-metal px-4 py-3">
                         <Input
                           type="number"
@@ -158,7 +159,7 @@ export default function ReceiveTransferForm({ transfer }: ReceiveTransferFormPro
                         {hasDiscrepancy ? (
                           <span className="font-medium text-signal-amber">
                             {diff > 0 ? '+' : ''}
-                            {diff.toFixed(2)}
+                            {formatQuantity(diff)}
                           </span>
                         ) : (
                           <span className="text-neutral-500">—</span>
