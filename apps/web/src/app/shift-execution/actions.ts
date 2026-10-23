@@ -485,7 +485,10 @@ export async function reportProductionFact(
       });
       createdFacts.push(fact as unknown as ProductionFact);
 
-      if (consumption.length > 0) {
+      // ОПЭ-38: потребление записываем ОДИН раз — на первый факт линии. Оператор вводит его
+      // одной строкой, а фактов по линии бывает два (ГП и ПФ): раньше потребление копировалось
+      // в каждый, и остаток списывался дважды.
+      if (consumption.length > 0 && createdFacts.length === 1) {
         await tx.factConsumption.createMany({
           data: consumption.map((item) => ({
             productionFactId: fact.id,
@@ -504,7 +507,8 @@ export async function reportProductionFact(
         quantity,
         warehouseId: productionWarehouse.id,
         sourceType: 'PRODUCTION_FACT',
-        consumption: consumption.map((item) => {
+        // ОПЭ-38: списание потребления — тоже один раз на линию, а не на каждый факт.
+        consumption: (createdFacts.length === 1 ? consumption : []).map((item) => {
           const productCategory = categoryById.get(item.productId);
           if (!productCategory) {
             throw new Error('Продукт потребления не найден');
@@ -872,7 +876,10 @@ export async function correctFactByOperator(
       });
       createdFacts.push(fact as unknown as ProductionFact);
 
-      if (consumption.length > 0) {
+      // ОПЭ-38: потребление записываем ОДИН раз — на первый факт линии. Оператор вводит его
+      // одной строкой, а фактов по линии бывает два (ГП и ПФ): раньше потребление копировалось
+      // в каждый, и остаток списывался дважды.
+      if (consumption.length > 0 && createdFacts.length === 1) {
         await tx.factConsumption.createMany({
           data: consumption.map((item) => ({
             productionFactId: fact.id,
@@ -891,7 +898,8 @@ export async function correctFactByOperator(
         quantity,
         warehouseId: productionWarehouse.id,
         sourceType: 'PRODUCTION_FACT',
-        consumption: consumption.map((item) => {
+        // ОПЭ-38: списание потребления — тоже один раз на линию, а не на каждый факт.
+        consumption: (createdFacts.length === 1 ? consumption : []).map((item) => {
           const productCategory = categoryById.get(item.productId);
           if (!productCategory) {
             throw new Error('Продукт потребления не найден');

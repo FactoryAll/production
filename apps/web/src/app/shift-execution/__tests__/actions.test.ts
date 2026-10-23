@@ -556,6 +556,46 @@ describe('reportProductionFact', () => {
     expect(consumed!.stockCategory).toBe('PF');
   });
 
+  // ОПЭ-38: линия ГП отчитывается сразу по двум категориям (ГП и ПФ) — это два факта.
+  // Потребление оператор вводит одной строкой, поэтому и списание должно быть одно.
+  it('списывает потребление один раз, хотя фактов по линии два (ОПЭ-38)', async () => {
+    const line = makeLine({ status: 'ACCEPTED', productId: 'gp-1' });
+    const deps = buildMockPrisma({
+      line,
+      product: gpProduct,
+      workCenter: { id: 'wc-01', code: 'WC-01', name: 'РЦ 01', active: true, producesMass: false },
+    });
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await reportProductionFact(
+      'line-1',
+      {
+        outputByCategory: { GP: 9500, PF: 500 },
+        consumption: [{ productId: 'gp-1', quantity: 3000, stockCategory: 'PF' }],
+      },
+      {
+        prisma: deps.prisma,
+        writeAudit: vi.fn(),
+        writeTiming: vi.fn(),
+        requireShiftWindow,
+        getAvailableBalance: deps.getAvailableBalance,
+        applyStockMovements: deps.applyStockMovements,
+        updateShiftSummary: deps.updateShiftSummary,
+        syncOneCTask: vi.fn().mockResolvedValue('created'),
+      },
+    );
+
+    // Строки потребления записаны один раз, а не на каждый факт.
+    const consumptionCalls = deps.factConsumptionCreateMany.mock.calls;
+    expect(consumptionCalls).toHaveLength(1);
+
+    // И движение списания тоже одно.
+    const allMovements = deps.applyStockMovements.mock.calls.flatMap(
+      (call) => call[1] as Array<{ type: string }>,
+    );
+    expect(allMovements.filter((movement) => movement.type === 'CONSUMPTION')).toHaveLength(1);
+  });
+
   it('reports GP line with factCategory GP and creates fact', async () => {
     const { checkAndCloseProductionOrder } = await import('@/lib/production-order-closing');
     const line = makeLine({ status: 'ACCEPTED', productId: 'gp-1' });
