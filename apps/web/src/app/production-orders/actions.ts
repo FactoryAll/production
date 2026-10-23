@@ -1138,6 +1138,19 @@ export async function correctProductionFact(
     throw new Error('Факт не найден');
   }
 
+  // ОПЭ-39 (решение владельца 23.10.2026): факт, уже проведённый в 1С, править нельзя.
+  // Правит «на месте» — тот же факт, и задача 1С продолжала бы показывать проведённое
+  // (снимок «обработано» исключается из данных). Чтобы поправить, сначала отменяют обработку.
+  const task = await deps.prisma.taskForOneC.findUnique({
+    where: { type_sourceId: { type: 'PRODUCTION', sourceId: fact.line.order.id } },
+    select: { status: true },
+  });
+  if (task?.status === 'PROCESSED') {
+    throw new Error(
+      'Итог уже проведён в 1С — сначала отметьте задачу как необработанную, потом корректируйте',
+    );
+  }
+
   if (!CORRECTABLE_STATUSES.includes(fact.line.order.status)) {
     throw new Error('Корректировка факта возможна только после закрытия ПЗ');
   }

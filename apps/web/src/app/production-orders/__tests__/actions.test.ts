@@ -1832,6 +1832,8 @@ function buildCorrectFactDeps(
     productionFact: {
       findUnique: factFindUnique,
     },
+    // ОПЭ-39: правка проведённого факта запрещена — сторож читает задачу 1С.
+    taskForOneC: { findUnique: vi.fn().mockResolvedValue(null) },
     product: {
       findMany: vi.fn().mockResolvedValue(consumptionProducts),
     },
@@ -1856,6 +1858,19 @@ function buildCorrectFactDeps(
 describe('correctProductionFact', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  // ОПЭ-39 (решение владельца 23.10.2026): проведённый в 1С факт править нельзя.
+  // Правка идёт «на месте», и задача 1С показывала бы проведённое — расходилось с фактом.
+  it('не даёт править факт, который уже проведён в 1С', async () => {
+    const deps = buildCorrectFactDeps(buildMockProductionFact());
+    (deps.prisma.taskForOneC.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'PROCESSED',
+    });
+
+    await expect(
+      correctProductionFact('fact-1', { quantity: 10, correctionReason: 'проверка' }, deps),
+    ).rejects.toThrow('уже проведён в 1С');
   });
 
   it('corrects fact for COMPLETED order and marks postCompletionCorrection', async () => {
