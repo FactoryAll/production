@@ -30,6 +30,10 @@ ENV VERSION=${VERSION}
 RUN pnpm --filter @prodtrack/db db:generate
 RUN pnpm build
 
+# Источник libssl/openssl для стадии runner: в slim-образе их нет, а ставить через apt
+# с этого сервера невозможно (см. комментарий в стадии runner).
+FROM node:22-bookworm AS ssl-source
+
 FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
@@ -37,13 +41,17 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ARG VERSION=dev
 ENV VERSION=${VERSION}
 # Движку Prisma нужна библиотека libssl, а в node:22-slim её нет (проверено 20.10.2026:
-# `openssl: not found`, /usr/lib/x86_64-linux-gnu/libssl* отсутствует). Ставим только openssl
-# и libssl3: заголовки из libssl-dev в рантайме не нужны — это 2,7 МБ вместо 5,9 МБ.
-# Повторы и таймаут — потому что deb.debian.org с этого сервера отвечает нестабильно:
-# 20.10.2026 сборка дважды падала на скачивании .deb, хотя индексы успевали скачаться.
-RUN apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update -y \
- && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y --no-install-recommends openssl libssl3 \
- && rm -rf /var/lib/apt/lists/*
+# `openssl: not found`, /usr/lib/x86_64-linux-gnu/libssl* отсутствует).
+#
+# Раньше её ставили через apt-get. Это оказалось единственной хрупкой точкой сборки:
+# deb.debian.org с этого сервера недоступен, и сборка падала трижды — 20.10 два раза и 23.10.
+# Повторы не помогали: таймаут на всех зеркалах сразу. Теперь библиотеки просто копируются
+# из официального полного образа node:22-bookworm — без обращения к Debian вообще.
+# Итоговый образ остаётся slim: полный образ живёт только в промежуточной стадии.
+COPY --from=ssl-source /usr/lib/x86_64-linux-gnu/libssl.so.3 /usr/lib/x86_64-linux-gnu/
+COPY --from=ssl-source /usr/lib/x86_64-linux-gnu/libcrypto.so.3 /usr/lib/x86_64-linux-gnu/
+# CLI openssl нужен Prisma для определения версии OpenSSL; сама библиотека — из строк выше.
+COPY --from=ssl-source /usr/bin/openssl /usr/bin/openssl
 COPY --from=builder /app/apps/web/.next/standalone ./
 COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
 # В standalone-сборку Next.js не копирует public автоматически: без этой строки логотип
