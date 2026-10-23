@@ -21,6 +21,7 @@ const orderFixture = {
       product: { code: 'GP-001', name: 'Крем', unit: 'шт' },
       facts: [
         {
+          id: 'fact-1',
           factCategory: 'GP' as const,
           quantity: new Decimal('80'),
           consumptions: [
@@ -417,5 +418,47 @@ describe('productionDirectionOf (ОПЭ-30)', () => {
 
   it('без фактов направление не ломается (GP по умолчанию)', () => {
     expect(productionDirectionOf({ lines: [{ facts: [] }] })).toBe('GP');
+  });
+});
+
+describe('syncProductionOrderTask и уже проведённое (ОПЭ-36)', () => {
+  // Задача собирается по всему ПЗ. Если специалист провёл документ по первому РЦ, а затем
+  // отчитался второй РЦ, в задаче не должно быть строк первого — иначе документ в 1С задвоится.
+  it('исключает факты, которые уже проведены в 1С', async () => {
+    const orderWithTwoLines = {
+      ...orderFixture,
+      lines: [
+        orderFixture.lines[0],
+        {
+          workCenter: { code: '03', name: 'РЦ 03' },
+          product: { code: 'G-002', name: 'Второй', unit: 'шт' },
+          facts: [
+            { id: 'fact-2', factCategory: 'GP' as const, quantity: new Decimal('50'), consumptions: [] },
+          ],
+        },
+      ],
+    };
+    const updates: Array<{ data: { data: { output: Array<{ productCode: string }> } } }> = [];
+    const tx = {
+      productionOrder: { findUnique: vi.fn().mockResolvedValue(orderWithTwoLines) },
+      taskForOneC: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'task-1',
+          processedScope: { factIds: [orderFixture.lines[0].facts[0].id] },
+        }),
+        create: vi.fn().mockResolvedValue({}),
+        update: vi.fn().mockImplementation((args: never) => {
+          updates.push(args);
+          return Promise.resolve({});
+        }),
+      },
+    } as unknown as Parameters<typeof syncProductionOrderTask>[0];
+
+    await syncProductionOrderTask(tx, 'po-1');
+
+    const output = updates[0]?.data?.data?.output ?? [];
+    // Первая строка (её факт уже проведён) в задачу не попала, вторая — попала.
+    expect(output).toHaveLength(1);
+    expect(output[0].productCode).toBe('G-002');
   });
 });

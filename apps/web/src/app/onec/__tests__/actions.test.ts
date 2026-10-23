@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { Prisma } from '@prisma/client';
 import { markTaskProcessed, unmarkTaskProcessed } from '../actions';
 
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
@@ -15,6 +16,8 @@ function buildDeps(task: Record<string, unknown> | null, status = 'PENDING') {
     user: { roles: [{ role: { code: 'S1C' } }] },
   });
   const prisma = {
+    // ОПЭ-36: при отметке «обработано» снимается снимок проведённых фактов.
+    productionFact: { findMany: vi.fn().mockResolvedValue([{ id: 'fact-1' }]) },
     taskForOneC: {
       findUnique: vi.fn().mockResolvedValue(
         task === null
@@ -132,7 +135,8 @@ describe('unmarkTaskProcessed (Р-17, BR-8, UC-M12-3)', () => {
 
     expect(tx.taskForOneC.update).toHaveBeenCalledWith({
       where: { id: 'task-1' },
-      data: { status: 'PENDING', processedAt: null, processedById: null },
+      // ОПЭ-36: вместе с отметкой снимается снимок проведённого — данные возвращаются в задачу.
+      data: { status: 'PENDING', processedAt: null, processedById: null, processedScope: Prisma.DbNull },
     });
   });
 

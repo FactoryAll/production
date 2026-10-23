@@ -146,6 +146,20 @@ export function productionDirectionOf(order: {
   return 'GP';
 }
 
+/** Id фактов, уже проведённых в 1С (снимок из отметки «обработано», ОПЭ-36). */
+async function readProcessedFactIds(
+  tx: Prisma.TransactionClient,
+  orderId: string,
+): Promise<Set<string>> {
+  const task = await tx.taskForOneC.findUnique({
+    where: { type_sourceId: { type: 'PRODUCTION', sourceId: orderId } },
+    select: { processedScope: true },
+  });
+  const scope = task?.processedScope as { factIds?: unknown } | null | undefined;
+  const ids = Array.isArray(scope?.factIds) ? scope!.factIds : [];
+  return new Set(ids.filter((id): id is string => typeof id === 'string'));
+}
+
 export async function syncProductionOrderTask(
   tx: Prisma.TransactionClient,
   orderId: string,
@@ -172,12 +186,27 @@ export async function syncProductionOrderTask(
     throw new Error('ПЗ не найдено');
   }
 
+  // ОПЭ-36 (решение владельца 23.10.2026): из данных задачи исключаем то, что уже проведено в 1С.
+  // Задача собирается по всему ПЗ, поэтому после отчёта по второму РЦ специалист видел бы и первый,
+  // уже проведённый, — и мог задвоить документ.
+  const processedFactIds = await readProcessedFactIds(tx, order.id);
+  const pendingOrder =
+    processedFactIds.size === 0
+      ? order
+      : {
+          ...order,
+          lines: order.lines.map((line) => ({
+            ...line,
+            facts: line.facts.filter((fact) => !processedFactIds.has(fact.id)),
+          })),
+        };
+
   return syncTaskForOneC(tx, {
     type: 'PRODUCTION',
     sourceType: ONE_C_SOURCE_TYPES.PRODUCTION,
     sourceId: order.id,
-    direction: productionDirectionOf(order),
-    data: buildProductionTaskData(order),
+    direction: productionDirectionOf(pendingOrder),
+    data: buildProductionTaskData(pendingOrder),
   });
 }
 

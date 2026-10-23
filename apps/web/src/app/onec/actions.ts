@@ -1,8 +1,10 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { Prisma, type TaskForOneCType } from '@prisma/client';
 import { prisma, writeAudit } from '@prodtrack/db';
 import { requirePermission } from '@/lib/auth/access';
+import { syncProductionOrderTask, syncTransferTask } from '@/lib/onec/tasks';
 
 /**
  * Действия рабочего места С1С (T-052, M12 §5 UC-M12-2/UC-M12-3, BR-4/BR-5/BR-8).
@@ -26,6 +28,22 @@ export interface OneCTaskActionDeps {
  *
  * Меняет только статус задачи: отметка информационная и другие модули не затрагивает (BR-8).
  */
+/** Снимок проведённого: id фактов производства на момент отметки (ОПЭ-36). */
+async function buildProcessedScope(
+  client: typeof prisma,
+  type: TaskForOneCType,
+  sourceId: string,
+): Promise<Prisma.InputJsonValue | undefined> {
+  if (type !== 'PRODUCTION') {
+    return undefined;
+  }
+  const facts = await client.productionFact.findMany({
+    where: { line: { orderId: sourceId } },
+    select: { id: true },
+  });
+  return { factIds: facts.map((fact) => fact.id) };
+}
+
 export async function markTaskProcessed(
   taskId: string,
   deps: OneCTaskActionDeps = { prisma, writeAudit, requirePermission },
@@ -43,12 +61,16 @@ export async function markTaskProcessed(
 
   const processedAt = new Date();
 
+  // ОПЭ-36: сохраняем снимок того, что проведено, — по нему из задачи исключается уже
+  // проведённое, когда появятся новые данные (например, отчёт по второму РЦ).
+  const processedScope = await buildProcessedScope(deps.prisma, task.type, task.sourceId);
+
   await deps.prisma.$transaction(async (tx) => {
     // Вариант B (решение владельца 06.10.2026): отметка не меняет «последнее изменение» —
     // это время изменения данных источника (BR-9), а не действие над задачей.
     await tx.taskForOneC.update({
       where: { id: taskId },
-      data: { status: 'PROCESSED', processedAt, processedById: session.userId },
+      data: { status: 'PROCESSED', processedAt, processedById: session.userId, processedScope },
     });
 
     await deps.writeAudit(tx, {
@@ -98,8 +120,21 @@ export async function unmarkTaskProcessed(
     // Отмена отметки также не трогает «последнее изменение» (вариант B).
     await tx.taskForOneC.update({
       where: { id: taskId },
-      data: { status: 'PENDING', processedAt: null, processedById: null },
+      // ОПЭ-36: снимаем снимок — проведённое снова становится данными задачи.
+      data: { status: 'PENDING', processedAt: null, processedById: null, processedScope: Prisma.DbNull },
     });
+
+    // И пересобираем данные из источника, чтобы проведённое вернулось в задачу.
+    // Источника может уже не быть — тогда пересобирать нечего, отметка всё равно снята.
+    try {
+      if (task.type === 'PRODUCTION') {
+        await syncProductionOrderTask(tx, task.sourceId);
+      } else {
+        await syncTransferTask(tx, task.sourceId);
+      }
+    } catch {
+      // источник недоступен: данные задачи останутся прежними
+    }
 
     // Р-09/Р-17: смена статуса и причина отмены — отдельными записями аудита.
     await deps.writeAudit(tx, {
