@@ -503,6 +503,8 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
       <Dialog
         open={dialogState?.mode === 'report' || dialogState?.mode === 'correct'}
         onClose={closeDialog}
+        // ОПЭ-37: модалка шире — в узкой не читались наименование номенклатуры и количество.
+        size="lg"
         title={dialogState?.mode === 'correct' ? 'Корректировать факт' : 'Внести итог смены'}
       >
         <div className="space-y-4">

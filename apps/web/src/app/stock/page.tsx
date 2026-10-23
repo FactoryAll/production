@@ -12,7 +12,11 @@ export default async function StockPage() {
   if (!access.allowed) {
     return <AccessDenied action="просмотр остатков" allowedRoles={['NP', 'OPR', 'KSGP', 'USGP', 'S1C', 'ADM']} requiredPermission='stock:read' />;
   }
-  const balances = await getStockBalance(prisma, {});
+  // ОПЭ-37 (решение владельца 23.10.2026): строки с нулевым остатком на экран не выводим —
+  // это не остаток, а пустая строка. Отрицательные показываем: это сигнал о расхождении.
+  const balances = (await getStockBalance(prisma, {})).filter(
+    (balance) => Number(balance.quantity) !== 0,
+  );
 
   return (
     <main className="p-6">
