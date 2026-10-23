@@ -168,8 +168,12 @@ export default async function OneCTaskServerPage({ params }: OneCTaskPageProps) 
                       <td className="py-2 pr-4 text-graphite">
                         {line.productCode} — {line.productName}
                       </td>
-                      {/* ОПЭ-35: та же колонка, что у выпуска — Масса или ПФ. */}
-                      <td className="py-2 pr-4 text-steel-graphite">{factCategoryLabel(line.category as 'MASS' | 'GP' | 'PF')}</td>
+                      {/* ОПЭ-35: та же колонка, что у выпуска — Масса или ПФ.
+                          У задач, созданных до появления поля, категории в снимке нет — показываем «—»,
+                          чтобы пустая ячейка не читалась как ошибка. */}
+                      <td className="py-2 pr-4 text-steel-graphite">
+                        {line.category ? factCategoryLabel(line.category as 'MASS' | 'GP' | 'PF') : '—'}
+                      </td>
                       <td className="py-2 pr-4 font-medium text-graphite">{formatQuantity(line.quantity)}</td>
                       <td className="py-2 pr-4 text-steel-graphite">{line.unit}</td>
                     </tr>
