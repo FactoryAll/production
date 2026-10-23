@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { AccessDenied } from '@/components/access-denied';
 import { checkPageAccess } from '@/lib/auth/page-guard';
 import { hasPermission } from '@prodtrack/contracts';
+import { formatQuantity } from '@/lib/quantity';
 import { transferStatusLabel } from '@/app/transfers/labels';
 
 import TaskActions from './_task-actions';
@@ -132,8 +133,8 @@ export default async function OneCTaskServerPage({ params }: OneCTaskPageProps) 
                       <td className="py-2 pr-4 text-graphite">
                         {line.productCode} — {line.productName}
                       </td>
-                      <td className="py-2 pr-4 text-steel-graphite">{factCategoryLabel(line.category)}</td>
-                      <td className="py-2 pr-4 font-medium text-graphite">{line.quantity}</td>
+                      <td className="py-2 pr-4 text-steel-graphite">{factCategoryLabel(line.category as 'MASS' | 'GP' | 'PF')}</td>
+                      <td className="py-2 pr-4 font-medium text-graphite">{formatQuantity(line.quantity)}</td>
                       <td className="py-2 pr-4 text-steel-graphite">{line.unit}</td>
                     </tr>
                   ))}
@@ -152,18 +153,24 @@ export default async function OneCTaskServerPage({ params }: OneCTaskPageProps) 
                   <tr className="border-b border-mist-metal text-left text-machine-gray">
                     <th className="py-2 pr-4 font-medium">РЦ</th>
                     <th className="py-2 pr-4 font-medium">Номенклатура</th>
+                    <th className="py-2 pr-4 font-medium">Категория</th>
                     <th className="py-2 pr-4 font-medium">Количество</th>
                     <th className="py-2 pr-4 font-medium">Ед.</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.consumption.map((line) => (
-                    <tr key={`${line.workCenterCode}|${line.productCode}`} className="border-b border-mist-metal/60">
+                    <tr
+                      key={`${line.workCenterCode}|${line.productCode}|${line.category}`}
+                      className="border-b border-mist-metal/60"
+                    >
                       <td className="py-2 pr-4 text-steel-graphite">{line.workCenterName}</td>
                       <td className="py-2 pr-4 text-graphite">
                         {line.productCode} — {line.productName}
                       </td>
-                      <td className="py-2 pr-4 font-medium text-graphite">{line.quantity}</td>
+                      {/* ОПЭ-35: та же колонка, что у выпуска — Масса или ПФ. */}
+                      <td className="py-2 pr-4 text-steel-graphite">{factCategoryLabel(line.category as 'MASS' | 'GP' | 'PF')}</td>
+                      <td className="py-2 pr-4 font-medium text-graphite">{formatQuantity(line.quantity)}</td>
                       <td className="py-2 pr-4 text-steel-graphite">{line.unit}</td>
                     </tr>
                   ))}

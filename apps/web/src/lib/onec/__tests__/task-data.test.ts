@@ -85,6 +85,9 @@ describe('buildProductionTaskData', () => {
         workCenterName: 'РЦ 01',
         productCode: 'M-001',
         productName: 'Масса',
+        // ОПЭ-35: категория остатка попадает в данные задачи (Масса или ПФ).
+        // У фикстуры без stockCategory она выводится из категории продукта.
+        category: 'GP',
         quantity: '70.25',
         unit: 'кг',
       },

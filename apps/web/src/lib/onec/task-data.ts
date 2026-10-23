@@ -35,6 +35,8 @@ export interface OneCConsumptionLine {
   workCenterName: string;
   productCode: string;
   productName: string;
+  /** Категория остатка, с которой списано (ОПЭ-35): Масса или ПФ. */
+  category: string;
   quantity: string;
   unit: string;
 }
@@ -84,7 +86,9 @@ export interface OneCProductionSource {
       quantity: DecimalLike;
       consumptions: Array<{
         quantity: DecimalLike;
-        product: { code: string; name: string; unit: string };
+        /** Категория остатка (ОПЭ-34/35): Масса или ПФ. */
+        stockCategory?: string;
+        product: { code: string; name: string; unit: string; category?: string };
       }>;
     }>;
   }>;
@@ -166,7 +170,10 @@ export function buildProductionTaskData(order: OneCProductionSource): OneCProduc
       for (const item of fact.consumptions) {
         const consumed = toDecimal(item.quantity);
         if (!consumed.greaterThan(0)) continue;
-        const key = `${workCenterCode}|${item.product.code}`;
+        // ОПЭ-35: категория остатка входит в ключ — Масса и ПФ одной номенклатуры
+        // это разные строки документа, как и на экране выпуска.
+        const itemCategory = item.stockCategory ?? (item.product.category === 'MASS' ? 'MASS' : 'GP');
+        const key = `${workCenterCode}|${item.product.code}|${itemCategory}`;
         const existing = consumption.get(key);
         if (existing) {
           existing.quantity = formatQuantity(
@@ -179,6 +186,7 @@ export function buildProductionTaskData(order: OneCProductionSource): OneCProduc
             workCenterName,
             productCode: item.product.code,
             productName: item.product.name,
+            category: itemCategory,
             quantity: formatQuantity(consumed, QUANTITY_SCALE.consumption),
             unit: item.product.unit,
           });

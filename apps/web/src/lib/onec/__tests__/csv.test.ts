@@ -33,6 +33,7 @@ const production: OneCTaskData = {
       workCenterName: 'РЦ 01',
       productCode: 'M-001',
       productName: 'Масса',
+      category: 'MASS',
       quantity: '70.25',
       unit: 'кг',
     },
