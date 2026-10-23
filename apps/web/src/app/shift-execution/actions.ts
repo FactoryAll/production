@@ -19,6 +19,7 @@ import {
 } from '@/lib/stock-service';
 import { updateShiftSummary } from '@/lib/shift-summary-service';
 import { syncProductionOrderTask } from '@/lib/onec/tasks';
+import { formatQuantity } from '@/lib/quantity';
 
 export type AcceptLineResult =
   | { success: true }
@@ -252,7 +253,7 @@ async function validateReportLikeInput(
     const diff = new Prisma.Decimal(item.quantity).minus(balance.available);
     if (diff.greaterThan(0)) {
       warnings.push(
-        `Потребление ${item.productId} превышает остаток на ${diff.toFixed(2)} ${balance.unit}; записано с предупреждением`,
+        `Потребление ${item.productId} превышает остаток на ${formatQuantity(diff)} ${balance.unit}; записано с предупреждением`,
       );
     }
   }

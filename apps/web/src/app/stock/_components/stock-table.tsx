@@ -1,5 +1,6 @@
 'use client';
 
+import { formatQuantity } from '@/lib/quantity';
 import { useMemo, useState } from 'react';
 import {
   useReactTable,
@@ -83,7 +84,8 @@ export function StockTable({ balances }: StockTableProps) {
           const negative = value < 0;
           return (
             <span className={negative ? 'text-[var(--color-signal-amber)] font-medium' : undefined}>
-              {value.toFixed(2)}
+              {/* Количество — целое (ОПЭ-32): «200», а не «200.00». */}
+              {formatQuantity(value)}
             </span>
           );
         },

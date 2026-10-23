@@ -686,7 +686,7 @@ describe('submitGoodsTransfer', () => {
     ]);
 
     await expect(submitGoodsTransfer('tr-1', deps)).rejects.toThrow(
-      'Недостаточно остатка для продукта Крем: требуется 10.00, доступно 5.00',
+      'Недостаточно остатка для продукта Крем: требуется 10, доступно 5',
     );
   });
 

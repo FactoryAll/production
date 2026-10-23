@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Card, Dialog, Input, SearchSelect, Select } from '@prodtrack/ui';
 import { filterConsumableProducts } from '@/lib/consumption-products';
+import { formatQuantity } from '@/lib/quantity';
 import {
   acceptProductionOrderLineAction,
   reportProductionFactAction,
@@ -635,7 +636,7 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
                       )}
                       {showWarning && (
                         <p className="col-span-3 text-sm text-signal-amber">
-                          Превышение остатка на {(quantityNum - balance!.available).toFixed(2)} {balance!.unit}; будет записано с предупреждением
+                          Превышение остатка на {formatQuantity(quantityNum - balance!.available)} {balance!.unit}; будет записано с предупреждением
                         </p>
                       )}
                     </div>

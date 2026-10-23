@@ -7,6 +7,7 @@ import { prisma, writeAudit, writeTiming, emitEvent } from '@prodtrack/db';
 import { requirePermission } from '@/lib/auth/access';
 import { notifyEvent } from '@/lib/events/notify';
 import { canReceiveTransfer } from './receive-rules';
+import { formatQuantity } from '@/lib/quantity';
 import { syncTransferTask } from '@/lib/onec/tasks';
 import { getAttributeRole } from '@prodtrack/contracts';
 import { TRANSFER_LINE_COMMENT_MAX_LENGTH } from '@/lib/validation/transfer-line';
@@ -362,7 +363,7 @@ export async function submitGoodsTransfer(
     const balance = balances[0]?.quantity ?? new Prisma.Decimal(0);
     if (balance.lessThan(line.plannedQuantity)) {
       throw new Error(
-        `Недостаточно остатка для продукта ${line.product.name}: требуется ${line.plannedQuantity.toFixed(2)}, доступно ${balance.toFixed(2)}`,
+        `Недостаточно остатка для продукта ${line.product.name}: требуется ${formatQuantity(line.plannedQuantity)}, доступно ${formatQuantity(balance)}`,
       );
     }
   }
@@ -686,7 +687,7 @@ export async function updateGoodsTransfer(
       const balance = balances[0]?.quantity ?? new Prisma.Decimal(0);
       if (balance.lessThan(adjustment.quantity)) {
         throw new Error(
-          `Недостаточно остатка для продукта ${productNameById.get(adjustment.productId) ?? ''}: требуется ${adjustment.quantity.toFixed(2)}, доступно ${balance.toFixed(2)}`,
+          `Недостаточно остатка для продукта ${productNameById.get(adjustment.productId) ?? ''}: требуется ${formatQuantity(adjustment.quantity)}, доступно ${formatQuantity(balance)}`,
         );
       }
     }
