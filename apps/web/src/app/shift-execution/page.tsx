@@ -62,14 +62,30 @@ async function getActiveDefectReasons() {
   });
 }
 
+/**
+ * Что оператор может указать в «Потреблении» (ОПЭ-34, решение владельца 23.10.2026).
+ *
+ * Предлагается не вся номенклатура, а то, что реально лежит на Производственном складе
+ * категориями «Масса» и «ПФ»: оператор ГП потребляет и Массу, и полуфабрикат.
+ * Доступное количество отдаётся рядом — оно и попадает подсказкой в поле «Количество».
+ */
 async function getConsumableProducts() {
-  return prisma.product.findMany({
+  const balances = await prisma.stockBalance.findMany({
     where: {
-      active: true,
-      category: {
-        in: ['MASS', 'GP'],
-      },
+      warehouse: { type: 'PRODUCTION' },
+      stockCategory: { in: ['MASS', 'PF'] },
+      quantity: { gt: 0 },
     },
-    orderBy: { name: 'asc' },
+    include: { product: true },
+    orderBy: { product: { name: 'asc' } },
   });
+
+  return balances.map((balance) => ({
+    id: balance.productId,
+    code: balance.product.code,
+    name: balance.product.name,
+    unit: balance.product.unit,
+    category: balance.stockCategory,
+    available: Number(balance.quantity),
+  }));
 }

@@ -3,7 +3,6 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Card, Dialog, Input, SearchSelect, Select } from '@prodtrack/ui';
-import { filterConsumableProducts } from '@/lib/consumption-products';
 import { formatQuantity } from '@/lib/quantity';
 import {
   acceptProductionOrderLineAction,
@@ -33,7 +32,15 @@ interface ShiftExecutionPageProps {
     }
   >;
   defectReasons: DefectReason[];
-  consumableProducts: Product[];
+  /** Позиции, доступные к потреблению: то, что лежит на Производственном складе (Масса или ПФ). */
+  consumableProducts: {
+    id: string;
+    code: string;
+    name: string;
+    unit: string;
+    category: 'MASS' | 'PF' | 'GP';
+    available: number;
+  }[];
   employeeId: string | null;
 }
 
@@ -86,11 +93,8 @@ function emptyReportForm(): {
 }
 
 export default function ShiftExecutionPage({ lines, employeeId, defectReasons, consumableProducts }: ShiftExecutionPageProps) {
-  // ОПЭ-31: РЦ, не производящий Массу, потребляет только Массу — список зависит от РЦ строки.
-  // Вычисляется лениво: ниже объявлен dialogState, от которого зависит выбор РЦ.
-  function consumptionProducts() {
-    return filterConsumableProducts(consumableProducts, workCenterProducesMass());
-  }
+  // ОПЭ-34: список потребления строится на сервере по остаткам Производственного склада
+  // (Масса и ПФ), поэтому клиентских правил фильтрации больше нет.
   function productCategory() {
     if (!dialogState) return undefined;
     const line = lines.find((l) => l.id === dialogState.line.id);
@@ -596,7 +600,7 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
               <div className="rounded-md border border-neutral-200 p-3">
                 <p className="mb-2 text-sm font-medium text-graphite">Потребление</p>
                 {form.consumption.map((row, index) => {
-                  const selectedProduct = consumptionProducts().find((p) => p.id === row.productId);
+                  const selectedProduct = consumableProducts.find((p) => p.id === row.productId);
                   const balance = row.productId ? balances[row.productId] : null;
                   const quantityNum = Number(row.quantity);
                   const showWarning = balance && !Number.isNaN(quantityNum) && quantityNum > balance.available && balance.available >= 0;
@@ -604,7 +608,7 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
                     <div key={index} className="mb-3 grid grid-cols-[1fr_1fr_auto] gap-2">
                       {/* Потребление выбирается с поиском: номенклатуры сотни (фидбэк ОПЭ). */}
                       <SearchSelect
-                        options={consumptionProducts().map((p) => ({
+                        options={consumableProducts.map((p) => ({
                           value: p.id,
                           label: `${p.name} (${p.unit})`,
                           keywords: p.code,
@@ -617,7 +621,11 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
                         type="number"
                         min={0}
                         step="1"
-                        placeholder={selectedProduct ? `Количество, ${selectedProduct.unit}` : 'Количество'}
+                        placeholder={
+                          selectedProduct
+                            ? `Доступно: ${formatQuantity(selectedProduct.available)} ${selectedProduct.unit}`
+                            : 'Количество'
+                        }
                         value={row.quantity}
                         onChange={(e) => updateConsumptionRow(index, { quantity: e.target.value })}
                       />

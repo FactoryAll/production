@@ -922,9 +922,10 @@ export async function substituteOperator(
       { context: { productCategory: notificationCategory } },
     );
 
-    await notifyEvent(tx, 'EV-03', { orderId, lineId, factIds }, {
-      context: { productCategory: notificationCategory },
-    });
+    // ОПЭ-34 (решение владельца 23.10.2026): при вводе за Оператора специалисту 1С достаточно
+    // EV-08 «Смена закрыта за Оператора». Второе уведомление EV-03 об том же самом итоге
+    // он получал парой в ту же секунду — это был дубль, а не два разных события.
+    // Задача для 1С при этом создаётся как обычно (синхронизация ниже), уведомление ей не нужно.
   });
 
   revalidatePath('/production-orders');

@@ -1319,7 +1319,9 @@ describe('substituteOperator', () => {
     expect(deps.lineUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REPORTED' } }));
   });
 
-  it('generates EV_08 and EV_03 notifications with correct payload and recipients', async () => {
+  // ОПЭ-34 (решение владельца 23.10.2026): при вводе за Оператора специалист 1С получает
+  // ОДНО уведомление — EV_08. Второй EV-03 об этом же итоге был дублем (приходил в ту же секунду).
+  it('generates a single EV_08 notification for the substituted shift', async () => {
     const line = buildSubstitutableLine('ASSIGNED');
     const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
     const deps = buildSubstituteDeps(line, order, [{ id: 's1c-user-1' }, { id: 's1c-user-2' }]);
@@ -1332,7 +1334,7 @@ describe('substituteOperator', () => {
       updateShiftSummary: deps.updateShiftSummary,
     });
 
-    expect(deps.notificationCreateMany).toHaveBeenCalledTimes(2);
+    expect(deps.notificationCreateMany).toHaveBeenCalledTimes(1);
     const calls = deps.notificationCreateMany.mock.calls;
     const ev08Call = calls.find((call) => call[0].data.some((item: { eventCode: string }) => item.eventCode === 'EV_08'));
     const ev03Call = calls.find((call) => call[0].data.some((item: { eventCode: string }) => item.eventCode === 'EV_03'));
@@ -1344,10 +1346,8 @@ describe('substituteOperator', () => {
     const ev08Payload = JSON.parse(ev08Data[0].body);
     expect(ev08Payload).toMatchObject({ orderId: 'po-1', lineId: 'line-1', operatorId: 'emp-1', reasonCode: 'LEFT_SHIFT', comment: 'Ушёл' });
 
-    expect(ev03Call).toBeDefined();
-    const ev03Data = ev03Call![0].data;
-    expect(ev03Data).toHaveLength(2);
-    expect(ev03Data.every((item: { recipientId: string }) => ['s1c-user-1', 's1c-user-2'].includes(item.recipientId))).toBe(true);
+    // Второго уведомления (EV-03) нет — это и был дубль.
+    expect(ev03Call).toBeUndefined();
   });
 
   it('calls writeAudit for status and substitution fields', async () => {
