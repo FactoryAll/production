@@ -18,6 +18,7 @@ import {
   factCategoryToStockCategory,
 } from '@/lib/stock-service';
 import { updateShiftSummary } from '@/lib/shift-summary-service';
+import { syncProductionOrderTask } from '@/lib/onec/tasks';
 
 export type AcceptLineResult =
   | { success: true }
@@ -46,6 +47,11 @@ export interface ReportFactDeps {
   getAvailableBalance: typeof getAvailableBalance;
   applyStockMovements: typeof applyStockMovements;
   updateShiftSummary: typeof updateShiftSummary;
+  /**
+   * Задача для 1С по итогу смены (ОПЭ-29): создаётся сразу при вводе итога, а не только
+   * при закрытии ПЗ. Иначе С1С получал уведомление, открывал список задач и видел пусто.
+   */
+  syncOneCTask: typeof syncProductionOrderTask;
 }
 
 export interface CorrectFactDeps extends ReportFactDeps {}
@@ -384,6 +390,7 @@ export async function reportProductionFact(
     getAvailableBalance,
     applyStockMovements,
     updateShiftSummary,
+    syncOneCTask: syncProductionOrderTask,
   },
 ): Promise<{ facts: ProductionFact[]; warnings: string[] }> {
   const session = await deps.requireShiftWindow();
@@ -523,6 +530,10 @@ export async function reportProductionFact(
 
     await deps.updateShiftSummary(lineId, tx);
 
+    // ОПЭ-29 (решение владельца 22.10.2026): задача для 1С появляется сразу по вводу итога.
+    // Прежде она создавалась только при закрытии ПЗ, и уведомление EV-03 приходило в пустой список.
+    await deps.syncOneCTask(tx, line.order.id);
+
     const updatedLine = await tx.productionOrderLine.update({
       where: { id: lineId },
       data: { status: 'REPORTED' },
@@ -635,6 +646,7 @@ export async function correctFactByOperator(
     getAvailableBalance,
     applyStockMovements,
     updateShiftSummary,
+    syncOneCTask: syncProductionOrderTask,
   },
 ): Promise<{ facts: ProductionFact[]; warnings: string[] }> {
   const session = await deps.requireShiftWindow();
@@ -671,6 +683,18 @@ export async function correctFactByOperator(
   const existingFacts = line.facts;
   if (existingFacts.length === 0) {
     throw new Error('Факт ещё не внесён — используйте ввод факта');
+  }
+
+  // ОПЭ-29 (решение владельца 22.10.2026): оператор правит итог, пока специалист 1С не обработал
+  // задачу. После обработки данные уже ушли в 1С — такая правка проводится НП (correctProductionFact),
+  // иначе в 1С остался бы документ, не совпадающий с системой.
+  const oneCTask = await deps.prisma.taskForOneC.findUnique({
+    where: { type_sourceId: { type: 'PRODUCTION', sourceId: line.order.id } },
+  });
+  if (oneCTask !== null && oneCTask.status === 'PROCESSED') {
+    throw new Error(
+      'Итог смены уже обработан в 1С — корректировка недоступна. Обратитесь к начальнику производства',
+    );
   }
 
   const { outputByCategory, defectQuantity, stopsCount, stopsDurationMinutes, consumption, warnings } =
@@ -860,6 +884,9 @@ export async function correctFactByOperator(
 
     await deps.updateShiftSummary(lineId, tx);
 
+    // ОПЭ-29: правка меняет данные для 1С — задача обновляется (и снова требует внимания С1С).
+    await deps.syncOneCTask(tx, line.order.id);
+
     const newValue = JSON.stringify(
       createdFacts.map((f) => ({
         id: f.id,
@@ -887,6 +914,19 @@ export async function correctFactByOperator(
 
     // Корректировка факта (Р-18) статус строки не меняет — запись хронометража
     // не создаётся (M10 BR-4: только переходы 00 §6); корректировка есть в аудите.
+
+    // ОПЭ-29 (решение владельца 22.10.2026): об правке обязательно уведомляем специалиста 1С —
+    // отдельным событием, а не только записью в аудите: задачу он уже мог открыть.
+    await notifyEvent(
+      tx,
+      'EV-11',
+      {
+        orderId: line.order.id,
+        lineId,
+        factIds: createdFacts.map((f) => f.id),
+      },
+      { context: { productCategory: notificationCategoryOfFacts(createdFacts) } },
+    );
 
     return createdFacts;
   });

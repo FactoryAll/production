@@ -70,6 +70,9 @@ export function describeNotification(item: NotificationItem): string {
       return 'Подтверждено получение по строке РЦ';
     case 'EV-03':
       return 'Итог смены готов к передаче в 1С';
+    // ОПЭ-29: оператор поправил итог до обработки задачи — С1С должен это увидеть.
+    case 'EV-11':
+      return 'Итог смены скорректирован';
     case 'EV-04':
     case 'EV-05':
     case 'EV-10': {

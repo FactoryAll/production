@@ -19,7 +19,8 @@ export type DbEventCode =
   | 'EV_07'
   | 'EV_08'
   | 'EV_09'
-  | 'EV_10';
+  | 'EV_10'
+  | 'EV_11';
 
 /** Пресет причин «ввода за Оператора» (Р-13, 00 §5). */
 export const SUBSTITUTION_REASON_CODES: readonly string[] = [
@@ -107,6 +108,13 @@ export interface Event10Payload {
   status: 'CANCELLED';
 }
 
+/** Корректировка итога смены (ОПЭ-29): те же реквизиты, что у EV-03. */
+export interface Event11Payload {
+  orderId: string;
+  lineId: string;
+  factIds: string[];
+}
+
 /** Payload по коду события в форме спека. */
 export interface EventPayloads {
   'EV-01': Event01Payload;
@@ -119,6 +127,7 @@ export interface EventPayloads {
   'EV-08': Event08Payload;
   'EV-09': Event09Payload;
   'EV-10': Event10Payload;
+  'EV-11': Event11Payload;
 }
 
 /** Правило адресации уведомления (M09 BR-3, 00 §5). */
@@ -520,6 +529,29 @@ export const EVENT_CATALOG: { [K in EventCodeValue]: NotificationEventDefinition
         ) as Event10Payload['status'],
       };
       failIfIssues('EV-10', issues);
+      return payload;
+    },
+  },
+
+  // ОПЭ-29 (решение владельца 22.10.2026): оператор может поправить итог смены до того, как
+  // специалист 1С обработал задачу, и специалист обязан об этом узнать. Отдельный код,
+  // потому что это не первичный итог: задача уже создана и может быть открыта у С1С.
+  'EV-11': {
+    code: 'EV-11',
+    dbCode: 'EV_11',
+    name: 'Итог смены скорректирован',
+    title: 'Итог смены скорректирован',
+    recipients: [{ kind: 'ROLE', role: 'S1C' }],
+    deepLink: orderCardLink,
+    validatePayload: (raw) => {
+      const record = asRecord(raw, 'EV-11');
+      const issues: string[] = [];
+      const payload: Event11Payload = {
+        orderId: requireString(record, 'orderId', issues),
+        lineId: requireString(record, 'lineId', issues),
+        factIds: requireStringArray(record, 'factIds', issues),
+      };
+      failIfIssues('EV-11', issues);
       return payload;
     },
   },

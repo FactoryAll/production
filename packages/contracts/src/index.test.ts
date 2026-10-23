@@ -53,10 +53,12 @@ describe('contracts enums', () => {
     expect(FactCategory.PF).toBe('PF');
   });
 
-  it('EventCode contains EV-01…EV-10', () => {
+  it('EventCode contains EV-01…EV-11', () => {
     expect(EventCode.EV_01).toBe('EV-01');
     expect(EventCode.EV_10).toBe('EV-10');
-    expect(EVENT_CODES).toHaveLength(10);
+    // ОПЭ-29: корректировка итога смены.
+    expect(EventCode.EV_11).toBe('EV-11');
+    expect(EVENT_CODES).toHaveLength(11);
     expect(EVENT_CODES).toContain('EV-05');
   });
 

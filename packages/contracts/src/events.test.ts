@@ -13,8 +13,9 @@ import {
 const ALL_CODES = EVENT_CODES as readonly string[];
 
 describe('каталог событий M09 (00 §5, M09 §7)', () => {
-  it('содержит все 10 событий каталога', () => {
-    expect(Object.keys(EVENT_CATALOG)).toHaveLength(10);
+  // 11 с ОПЭ-29: добавлено событие «Итог смены скорректирован» (EV-11).
+  it('содержит все 11 событий каталога', () => {
+    expect(Object.keys(EVENT_CATALOG)).toHaveLength(11);
     expect(Object.keys(EVENT_CATALOG).sort()).toEqual([...ALL_CODES].sort());
   });
 
@@ -40,7 +41,17 @@ describe('каталог событий M09 (00 §5, M09 §7)', () => {
       'EV-08': 'Смена закрыта за Оператора',
       'EV-09': 'ПЗ отменено',
       'EV-10': 'Перемещение отменено',
+      // ОПЭ-29: правка итога смены оператором до обработки задачи в 1С.
+      'EV-11': 'Итог смены скорректирован',
     });
+  });
+
+  // ОПЭ-29 (решение владельца 22.10.2026): о корректировке итога узнаёт специалист 1С,
+  // и переход ведёт в карточку ПЗ, а не в список задач.
+  it('EV-11 адресован специалисту 1С и ведёт в карточку ПЗ', () => {
+    expect(EVENT_CATALOG['EV-11'].recipients).toEqual([{ kind: 'ROLE', role: 'S1C' }]);
+    expect(EVENT_CATALOG['EV-11'].deepLink({ orderId: 'po-9' } as never)).toBe('/production-orders/po-9');
+    expect(EVENT_CATALOG['EV-11'].dbCode).toBe('EV_11');
   });
 
   it('у каждого события есть адресаты, заголовок и deep-link', () => {

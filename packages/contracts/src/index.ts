@@ -63,6 +63,8 @@ export enum EventCode {
   EV_08 = 'EV-08',
   EV_09 = 'EV-09',
   EV_10 = 'EV-10',
+  // ОПЭ-29: корректировка итога смены (решение владельца 22.10.2026).
+  EV_11 = 'EV-11',
 }
 
 export enum StockMovementType {
