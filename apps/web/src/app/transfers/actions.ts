@@ -125,7 +125,16 @@ export interface ReconcileDiscrepanciesDeps {
 }
 
 function toDecimal(value: number | string): Prisma.Decimal {
-  return new Prisma.Decimal(value);
+  // Из строки: Decimal(Number('12.3')) тащит двоичную дробь, и в документах появлялись
+  // количества вида 2591.9999 (ОПЭ-32). Количество во всей системе — целое.
+  return new Prisma.Decimal(typeof value === 'number' ? String(value) : value.trim());
+}
+
+function requireIntegerQuantity(value: Prisma.Decimal, field: string): Prisma.Decimal {
+  if (!value.isInteger()) {
+    throw new Error(field + ' указывается целым числом');
+  }
+  return value;
 }
 
 async function validateCreateInput(
@@ -176,7 +185,7 @@ async function validateCreateInput(
       throw new Error('Укажите продукт');
     }
 
-    const quantity = toDecimal(line.plannedQuantity);
+    const quantity = requireIntegerQuantity(toDecimal(line.plannedQuantity), 'Плановое количество');
     if (quantity.lessThanOrEqualTo(0)) {
       throw new Error('Количество должно быть больше 0');
     }
@@ -878,7 +887,7 @@ export async function receiveGoodsTransfer(
     }
     seenInputIds.add(item.transferLineId);
 
-    const actual = toDecimal(item.actualQuantity);
+    const actual = requireIntegerQuantity(toDecimal(item.actualQuantity), 'Фактическое количество');
     if (actual.lessThan(0)) {
       throw new Error('Фактическое количество не может быть отрицательным');
     }

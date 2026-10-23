@@ -34,6 +34,7 @@ import { updateShiftSummary } from '@/lib/shift-summary-service';
 import { syncProductionOrderTask } from '@/lib/onec/tasks';
 import {
   validateProductionOrder,
+  assertIntegerQuantity,
   parsePositiveDecimal,
   type ProductionOrderLineInput,
 } from '@/lib/validation/production-order';
@@ -532,11 +533,17 @@ function parseNonNegativeDecimal(value: unknown): Prisma.Decimal {
   if (value === undefined || value === null || value === '') {
     return new Prisma.Decimal(0);
   }
-  const num = Number(value);
-  if (Number.isNaN(num) || !Number.isFinite(num) || num < 0) {
+  // Из строки, а не из Number: Decimal(Number('12.3')) тащит двоичную дробь (ОПЭ-32).
+  const str = typeof value === 'string' ? value.trim().replace(',', '.') : String(value);
+  if (!/^\d+(\.\d+)?$/.test(str)) {
     throw new Error('Значение не может быть отрицательным');
   }
-  return new Prisma.Decimal(num);
+  const parsed = new Prisma.Decimal(str);
+  if (parsed.lessThan(0)) {
+    throw new Error('Значение не может быть отрицательным');
+  }
+  // Количество — целое (решение владельца 23.10.2026, ОПЭ-32).
+  return assertIntegerQuantity(parsed, 'Количество');
 }
 
 function parseNonNegativeInteger(value: unknown): number {

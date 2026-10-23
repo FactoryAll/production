@@ -150,7 +150,7 @@ export default function ReconcileForm({ transfer }: ReconcileFormProps) {
                         <Input
                           type="number"
                           min="0"
-                          step="0.01"
+                          step="1"
                           value={input.reconciledQuantity}
                           onChange={(e) => updateItem(discrepancy.id, e.target.value)}
                           className="max-w-[160px]"

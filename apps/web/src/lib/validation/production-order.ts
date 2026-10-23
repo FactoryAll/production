@@ -126,7 +126,7 @@ export function parsePositiveDecimal(raw: unknown): Prisma.Decimal {
     if (value.lessThanOrEqualTo(0)) {
       throw new Error('Плановое количество должно быть больше 0');
     }
-    return value;
+    return assertIntegerQuantity(value, 'Плановое количество');
   }
 
   const str = typeof value === 'string' ? value.trim() : String(value);
@@ -134,11 +134,29 @@ export function parsePositiveDecimal(raw: unknown): Prisma.Decimal {
     throw new Error('Плановое количество должно быть больше 0');
   }
 
+  // Из строки, а не из Number: Decimal(Number('12.3')) тащит двоичную дробь,
+  // и количество вида 2591.9999 рождалось именно так (ОПЭ-32).
   const normalized = str.replace(',', '.');
-  const num = Number(normalized);
-  if (!Number.isFinite(num) || num <= 0) {
+  if (!/^\d+(\.\d+)?$/.test(normalized)) {
+    throw new Error('Плановое количество должно быть числом');
+  }
+  const parsed = new Decimal(normalized);
+  if (parsed.lessThanOrEqualTo(0)) {
     throw new Error('Плановое количество должно быть больше 0');
   }
 
-  return new Decimal(num);
+  return assertIntegerQuantity(parsed, 'Плановое количество');
+}
+
+/**
+ * Количество во всей системе — целое число (решение владельца 23.10.2026, ОПЭ-32).
+ *
+ * Дробное количество не нужно нигде: ни в плане ПЗ, ни в факте, ни в потреблении,
+ * ни в перемещениях. Заодно исчезает класс ошибок «2591.9999 вместо 2592».
+ */
+export function assertIntegerQuantity(value: Prisma.Decimal, field: string): Prisma.Decimal {
+  if (!value.isInteger()) {
+    throw new Error(field + ' указывается целым числом');
+  }
+  return value;
 }

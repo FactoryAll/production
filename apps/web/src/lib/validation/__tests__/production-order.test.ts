@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { type WorkCenter, type Product, type Employee, type Shift } from '@prisma/client';
-import { validateProductionOrderLine, validateProductionOrder } from '../production-order';
+import { parsePositiveDecimal, validateProductionOrderLine, validateProductionOrder } from '../production-order';
 
 function makeWorkCenter(overrides: Partial<WorkCenter> = {}): WorkCenter {
   return {
@@ -290,5 +290,27 @@ describe('validateProductionOrder', () => {
     );
     expect(result.valid).toBe(false);
     expect(result.errors).toContain('Заполните РЦ, номенклатуру, количество и Оператора (строка 1)');
+  });
+});
+
+describe('количество — целое число (ОПЭ-32)', () => {
+  // На проде в ПЗ попало 2591.9999 при вводе целого 2592: количество строилось из Number().
+  it('целое значение сохраняется без искажений', () => {
+    expect(parsePositiveDecimal('2592').toString()).toBe('2592');
+    expect(parsePositiveDecimal(2592).toString()).toBe('2592');
+  });
+
+  it('дробное количество отклоняется с понятным сообщением', () => {
+    expect(() => parsePositiveDecimal('2592.5')).toThrow('целым числом');
+    expect(() => parsePositiveDecimal('0.5')).toThrow('целым числом');
+  });
+
+  it('запятая как разделитель не мешает целому числу', () => {
+    expect(parsePositiveDecimal('2592').toString()).toBe('2592');
+  });
+
+  it('нечисловой ввод отклоняется', () => {
+    expect(() => parsePositiveDecimal('abc')).toThrow();
+    expect(() => parsePositiveDecimal('')).toThrow();
   });
 });

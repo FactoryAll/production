@@ -289,7 +289,7 @@ export default function TransferEditForm({
                       id={line.id + '_qty'}
                       type="number"
                       min="0.01"
-                      step="0.01"
+                      step="1"
                       value={line.plannedQuantity}
                       onChange={(e) => updateLine(line.id, { plannedQuantity: e.target.value })}
                       placeholder={showAvailable ? formatQuantity(available) : '0.00'}

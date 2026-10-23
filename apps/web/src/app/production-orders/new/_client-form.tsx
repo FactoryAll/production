@@ -257,13 +257,13 @@ export default function ProductionOrderForm({
                 <Input
                   id={line.id + '_qty'}
                   type="number"
-                  min="0.0001"
-                  step="0.0001"
+                  min="1"
+                  step="1"
                   value={line.plannedQuantity}
                   onChange={(e) =>
                     updateLine(line.id, { plannedQuantity: e.target.value })
                   }
-                  placeholder="0.0000"
+                  placeholder="0"
                   required
                 />
               </div>

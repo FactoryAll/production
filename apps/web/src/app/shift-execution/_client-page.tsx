@@ -510,7 +510,7 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
                 <Input
                   type="number"
                   min={0}
-                  step="0.01"
+                  step="1"
                   value={form.quantity}
                   onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))}
                 />
@@ -549,7 +549,7 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
                 <Input
                   type="number"
                   min={0}
-                  step="0.01"
+                  step="1"
                   value={form.defectQuantity}
                   onChange={(e) => setForm((f) => ({ ...f, defectQuantity: e.target.value }))}
                 />
@@ -615,7 +615,7 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
                       <Input
                         type="number"
                         min={0}
-                        step="0.01"
+                        step="1"
                         placeholder={selectedProduct ? `Количество, ${selectedProduct.unit}` : 'Количество'}
                         value={row.quantity}
                         onChange={(e) => updateConsumptionRow(index, { quantity: e.target.value })}

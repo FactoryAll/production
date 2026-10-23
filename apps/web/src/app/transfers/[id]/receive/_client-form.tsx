@@ -147,7 +147,7 @@ export default function ReceiveTransferForm({ transfer }: ReceiveTransferFormPro
                         <Input
                           type="number"
                           min="0"
-                          step="0.01"
+                          step="1"
                           value={input?.actualQuantity ?? ''}
                           onChange={(e) => updateLine(line.id, e.target.value)}
                           className="max-w-[160px]"
