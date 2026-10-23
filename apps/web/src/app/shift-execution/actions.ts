@@ -62,6 +62,11 @@ export type FactCategoryInput = 'MASS' | 'GP' | 'PF';
 export interface ConsumptionInput {
   productId: string;
   quantity: number;
+  /**
+   * С какой категории остатка списывать (ОПЭ-34). Не задана — берём категорию продукта,
+   * как было до появления ПФ в потреблении.
+   */
+  stockCategory?: 'MASS' | 'PF' | 'GP';
 }
 
 export interface ReportFactInput {
@@ -278,7 +283,14 @@ function parseConsumptionInput(raw: unknown): ConsumptionInput[] {
     if (Number.isNaN(quantity) || quantity <= 0) {
       throw new Error('Количество потребления должно быть больше 0');
     }
-    return { productId, quantity };
+    if (!Number.isInteger(quantity)) {
+      throw new Error('Количество потребления указывается целым числом');
+    }
+    // ОПЭ-34: оператор выбирает не только позицию, но и категорию остатка (Масса, ПФ).
+    const rawCategory = (item as Record<string, unknown>).stockCategory;
+    const stockCategory =
+      rawCategory === 'MASS' || rawCategory === 'PF' || rawCategory === 'GP' ? rawCategory : undefined;
+    return { productId, quantity, stockCategory };
   });
 }
 
@@ -479,6 +491,8 @@ export async function reportProductionFact(
             productionFactId: fact.id,
             productId: item.productId,
             quantity: new Prisma.Decimal(item.quantity),
+            // ОПЭ-34: категория остатка хранится в строке — иначе ПФ списывался бы с ГП.
+            ...(item.stockCategory ? { stockCategory: item.stockCategory } : {}),
           })),
         });
       }
@@ -498,6 +512,8 @@ export async function reportProductionFact(
           return {
             productId: item.productId,
             productCategory,
+            // ОПЭ-34: списываем с той категории остатка, которую выбрал оператор.
+            stockCategory: item.stockCategory,
             quantity: new Prisma.Decimal(item.quantity),
           };
         }),
@@ -772,11 +788,17 @@ export async function correctFactByOperator(
         f.quantity.times(-1),
       );
       for (const c of f.consumptions) {
+        // ОПЭ-34: возвращаем на ту категорию остатка, с которой списали.
+        const stored = (c as { stockCategory?: 'MASS' | 'PF' | 'GP' }).stockCategory;
         const category = reverseCategoryById.get(c.productId);
-        if (!category) {
+        if (!category && !stored) {
           throw new Error('Продукт потребления не найден');
         }
-        addReverseDelta(c.productId, consumptionProductCategoryToStockCategory(category), c.quantity);
+        addReverseDelta(
+          c.productId,
+          stored ?? consumptionProductCategoryToStockCategory(category!),
+          c.quantity,
+        );
       }
     }
 
@@ -856,6 +878,8 @@ export async function correctFactByOperator(
             productionFactId: fact.id,
             productId: item.productId,
             quantity: new Prisma.Decimal(item.quantity),
+            // ОПЭ-34: категория остатка хранится в строке — иначе ПФ списывался бы с ГП.
+            ...(item.stockCategory ? { stockCategory: item.stockCategory } : {}),
           })),
         });
       }
@@ -875,6 +899,8 @@ export async function correctFactByOperator(
           return {
             productId: item.productId,
             productCategory,
+            // ОПЭ-34: списываем с той категории остатка, которую выбрал оператор.
+            stockCategory: item.stockCategory,
             quantity: new Prisma.Decimal(item.quantity),
           };
         }),

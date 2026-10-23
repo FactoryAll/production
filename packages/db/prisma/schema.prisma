@@ -329,6 +329,10 @@ model FactConsumption {
   productId        String
   product          Product        @relation(fields: [productId], references: [id])
   quantity         Decimal        @db.Decimal(10, 2)
+  /// С какой категории остатка списывается потребление (ОПЭ-34).
+  /// Масса и ПФ — разные остатки одной номенклатуры ГП, поэтому категория хранится
+  /// в строке, а не выводится из категории продукта.
+  stockCategory    StockCategory  @default(GP)
   createdAt        DateTime       @default(now())
 
   @@unique([productionFactId, productId])

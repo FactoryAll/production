@@ -235,7 +235,13 @@ export function buildProductionFactMovements(
     quantity: Prisma.Decimal | number | string;
     warehouseId: string;
     sourceType: string;
-    consumption?: Array<{ productId: string; productCategory: ProductCategory; quantity: Prisma.Decimal | number | string }>;
+    consumption?: Array<{
+      productId: string;
+      productCategory: ProductCategory;
+      /** Категория остатка, с которой списываем (ОПЭ-34); по умолчанию — из категории продукта. */
+      stockCategory?: StockCategory;
+      quantity: Prisma.Decimal | number | string;
+    }>;
   },
 ): NewMovement[] {
   const movements: NewMovement[] = [
@@ -254,7 +260,7 @@ export function buildProductionFactMovements(
     movements.push({
       warehouseId: input.warehouseId,
       productId: item.productId,
-      stockCategory: consumptionProductCategoryToStockCategory(item.productCategory),
+      stockCategory: item.stockCategory ?? consumptionProductCategoryToStockCategory(item.productCategory),
       type: 'CONSUMPTION',
       quantity: item.quantity,
       sourceType: input.sourceType,

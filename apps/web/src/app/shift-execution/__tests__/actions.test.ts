@@ -516,6 +516,46 @@ describe('reportProductionFact', () => {
     vi.clearAllMocks();
   });
 
+  // ОПЭ-34 (решение владельца 23.10.2026): ПФ — отдельный остаток той же номенклатуры.
+  // До правки списание шло по категории продукта (GP) и уменьшало не тот остаток.
+  it('списывает потребление с категории остатка, выбранной оператором (ПФ)', async () => {
+    const line = makeLine({ status: 'ACCEPTED', productId: 'gp-1' });
+    // Потребление бывает только на РЦ, который не производит Массу (ГП/ПФ-РЦ).
+    const deps = buildMockPrisma({
+      line,
+      product: gpProduct,
+      workCenter: { id: 'wc-01', code: 'WC-01', name: 'РЦ 01', active: true, producesMass: false },
+    });
+    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+
+    await reportProductionFact(
+      'line-1',
+      {
+        outputByCategory: { GP: 10 },
+        consumption: [{ productId: 'gp-1', quantity: 4, stockCategory: 'PF' }],
+      },
+      {
+        prisma: deps.prisma,
+        writeAudit: vi.fn(),
+        writeTiming: vi.fn(),
+        requireShiftWindow,
+        getAvailableBalance: deps.getAvailableBalance,
+        applyStockMovements: deps.applyStockMovements,
+        updateShiftSummary: deps.updateShiftSummary,
+        syncOneCTask: vi.fn().mockResolvedValue('created'),
+      },
+    );
+
+    const movements = deps.applyStockMovements.mock.calls.at(-1)?.[1] as Array<{
+      type: string;
+      productId: string;
+      stockCategory: string;
+    }>;
+    const consumed = movements.find((m) => m.type === 'CONSUMPTION' && m.productId === 'gp-1');
+    expect(consumed).toBeDefined();
+    expect(consumed!.stockCategory).toBe('PF');
+  });
+
   it('reports GP line with factCategory GP and creates fact', async () => {
     const { checkAndCloseProductionOrder } = await import('@/lib/production-order-closing');
     const line = makeLine({ status: 'ACCEPTED', productId: 'gp-1' });

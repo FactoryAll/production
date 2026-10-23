@@ -61,6 +61,8 @@ type DialogMode = 'accept' | 'report' | 'correct' | null;
 interface ConsumptionRow {
   productId: string;
   quantity: string;
+  /** Категория остатка, с которой списываем (ОПЭ-34): Масса, ПФ или ГП. */
+  stockCategory?: 'MASS' | 'PF' | 'GP';
 }
 
 interface BalanceInfo {
@@ -161,6 +163,7 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
       fact?.consumptions.map((c) => ({
         productId: c.productId,
         quantity: c.quantity.toString(),
+        stockCategory: (c as { stockCategory?: 'MASS' | 'PF' | 'GP' }).stockCategory,
       })) ?? [];
     setForm(base);
     if (fact?.consumptions) {
@@ -310,7 +313,11 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
           JSON.stringify(
             form.consumption
               .filter((row) => row.productId && row.quantity)
-              .map((row) => ({ productId: row.productId, quantity: Number(row.quantity) })),
+              .map((row) => ({
+                productId: row.productId,
+                quantity: Number(row.quantity),
+                stockCategory: row.stockCategory,
+              })),
           ),
         );
       }
@@ -355,7 +362,11 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
           JSON.stringify(
             form.consumption
               .filter((row) => row.productId && row.quantity)
-              .map((row) => ({ productId: row.productId, quantity: Number(row.quantity) })),
+              .map((row) => ({
+                productId: row.productId,
+                quantity: Number(row.quantity),
+                stockCategory: row.stockCategory,
+              })),
           ),
         );
       }
@@ -600,7 +611,9 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
               <div className="rounded-md border border-neutral-200 p-3">
                 <p className="mb-2 text-sm font-medium text-graphite">Потребление</p>
                 {form.consumption.map((row, index) => {
-                  const selectedProduct = consumableProducts.find((p) => p.id === row.productId);
+                  const selectedProduct = consumableProducts.find(
+                    (p) => p.id === row.productId && (!row.stockCategory || p.category === row.stockCategory),
+                  );
                   const balance = row.productId ? balances[row.productId] : null;
                   const quantityNum = Number(row.quantity);
                   const showWarning = balance && !Number.isNaN(quantityNum) && quantityNum > balance.available && balance.available >= 0;
@@ -609,13 +622,21 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
                       {/* Потребление выбирается с поиском: номенклатуры сотни (фидбэк ОПЭ). */}
                       <SearchSelect
                         options={consumableProducts.map((p) => ({
-                          value: p.id,
-                          label: `${p.name} (${p.unit})`,
+                          // ОПЭ-34: одна номенклатура может лежать двумя остатками (Масса и ПФ),
+                          // поэтому вариант — пара «продукт + категория остатка».
+                          value: `${p.id}|${p.category}`,
+                          label: `${p.name} (${p.unit})${p.category === 'PF' ? ' — ПФ' : ''}`,
                           keywords: p.code,
                         }))}
                         placeholder="Начните вводить наименование"
-                        value={row.productId}
-                        onChange={(value) => updateConsumptionRow(index, { productId: value })}
+                        value={row.stockCategory ? `${row.productId}|${row.stockCategory}` : row.productId}
+                        onChange={(value) => {
+                          const [productId, stockCategory] = value.split('|');
+                          updateConsumptionRow(index, {
+                            productId,
+                            stockCategory: stockCategory as ConsumptionRow['stockCategory'],
+                          });
+                        }}
                       />
                       <Input
                         type="number"
