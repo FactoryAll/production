@@ -736,6 +736,7 @@ export default function ProductionOrderCard({
       <Dialog
         open={showCorrectFactDialog}
         onClose={() => setShowCorrectFactDialog(false)}
+        size="lg"
         title="Корректировать факт"
       >
         <form onSubmit={handleCorrectFactSubmit} className="space-y-4">
@@ -826,6 +827,8 @@ export default function ProductionOrderCard({
       <Dialog
         open={showSubstituteDialog}
         onClose={() => setShowSubstituteDialog(false)}
+        // ОПЭ-45: та же ширина, что у оператора — иначе не видно наименование и количество.
+        size="lg"
         title="Внести итог за Оператора"
       >
         <form onSubmit={handleSubstituteSubmit} className="space-y-4">
