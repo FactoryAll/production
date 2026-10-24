@@ -1332,6 +1332,20 @@ export async function correctProductionFact(
     // M12 (BR-9): корректировка факта меняет данные итога смены — задача С1С обновляется.
     await (deps.syncOneCTask ?? syncProductionOrderTask)(tx, orderId);
 
+    // ОПЭ-29/40: о правке обязан узнать специалист 1С — тем же событием, что и при правке
+    // оператором. Раньше уведомление отправлялось только из пути оператора, а после закрытия
+    // ПЗ правит НП из карточки ПЗ — и специалист о правке не узнавал.
+    await notifyEvent(
+      tx,
+      'EV-11',
+      {
+        orderId,
+        lineId,
+        factIds: [factId],
+      },
+      { context: { productCategory: notificationCategoryOfFacts([{ factCategory: fact.factCategory }]) } },
+    );
+
     if (factChanges.length > 0) {
       await deps.writeAudit(tx, {
         action: 'UPDATE',

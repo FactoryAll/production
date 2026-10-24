@@ -1826,6 +1826,9 @@ function buildCorrectFactDeps(
     warehouse: {
       findFirstOrThrow: vi.fn().mockResolvedValue({ id: 'wh-prod', type: 'PRODUCTION' }),
     },
+    // ОПЭ-40: корректировка уведомляет специалиста 1С — событие пишется в уведомления.
+    notification: { createMany: vi.fn().mockResolvedValue(undefined) },
+    user: { findMany: vi.fn().mockResolvedValue([]) },
   };
 
   const prisma = {
