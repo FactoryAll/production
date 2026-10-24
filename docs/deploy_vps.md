@@ -285,9 +285,12 @@ include /etc/nginx/snippets/prodtrack-junk-paths.conf;
 
 `return 444` закрывает соединение без ответа и без записи в лог.
 
-**2. fail2ban для nginx.** Фильтр `docs/nginx/fail2ban/prodtrack-scanner.conf` →
-`/etc/fail2ban/filter.d/`, jail `docs/nginx/fail2ban/prodtrack-scanner.jail` →
-`/etc/fail2ban/jail.d/`. Порог: 10 мусорных запросов за 10 минут → бан на сутки.
+**2. fail2ban для nginx.** Фильтр `docs/nginx/fail2ban/filter-prodtrack-scanner.conf` →
+`/etc/fail2ban/filter.d/prodtrack-scanner.conf`, jail `docs/nginx/fail2ban/jail-prodtrack-scanner.conf`
+→ `/etc/fail2ban/jail.d/prodtrack-scanner.conf`. Порог: 10 мусорных запросов за 10 минут → бан на сутки.
+
+Имя файла в `jail.d` **обязано** оканчиваться на `.conf` — fail2ban читает только такие
+(файл с расширением `.jail` молча игнорируется, проверено 24.10.2026).
 
 **Ограничение частоты (`limit_req`) сознательно не включено:** офис выходит в интернет через
 один адрес, и лимит по IP ударит по живым людям, а не по сканерам. Если понадобится —
