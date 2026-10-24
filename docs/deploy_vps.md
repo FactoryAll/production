@@ -268,6 +268,44 @@ crontab -e
 
 Альтернатива для АДМ: кнопка «Архивировать старые записи» на экране «Аудит» — та же операция.
 
+### Защита от сканеров (с v2.2.1)
+
+Интернет постоянно обходит сайт по типовым адресам (`/wp-login.php`, `/.env`, `/xmlrpc.php`,
+`/boaform/...`, `/device.rsp`) и шлёт в HTTP-порт мусорные байты — 20.10.2026 таких запросов
+было 336 за сутки с одной сети. Приложению эти пути не нужны никогда.
+
+Две меры, обе безопасны для живых пользователей:
+
+**1. Молчаливый отказ на мусорные пути.** Файл `docs/nginx/snippets/prodtrack-junk-paths.conf`
+кладётся в `/etc/nginx/snippets/`, в server-блок добавляется одна строка **перед** `location /`:
+
+```nginx
+include /etc/nginx/snippets/prodtrack-junk-paths.conf;
+```
+
+`return 444` закрывает соединение без ответа и без записи в лог.
+
+**2. fail2ban для nginx.** Фильтр `docs/nginx/fail2ban/prodtrack-scanner.conf` →
+`/etc/fail2ban/filter.d/`, jail `docs/nginx/fail2ban/prodtrack-scanner.jail` →
+`/etc/fail2ban/jail.d/`. Порог: 10 мусорных запросов за 10 минут → бан на сутки.
+
+**Ограничение частоты (`limit_req`) сознательно не включено:** офис выходит в интернет через
+один адрес, и лимит по IP ударит по живым людям, а не по сканерам. Если понадобится —
+порог должен быть высоким (сотни запросов в секунду), иначе страницы начнут отдавать 503.
+
+**Порядок применения (с копией конфига и проверкой):**
+
+```bash
+cp -a /etc/nginx /root/nginx-backup-$(date +%F-%H%M)
+cp /opt/prodtrack/docs/nginx/snippets/prodtrack-junk-paths.conf /etc/nginx/snippets/
+# вставить include перед location / в server-блоке (одна строка)
+sed -i '0,/    client_max_body_size 50M;/s//    client_max_body_size 50M;\n\n    include \/etc\/nginx\/snippets\/prodtrack-junk-paths.conf;/' \
+  /etc/nginx/sites-available/prodtracker.factoryall.ru.conf
+nginx -t && systemctl reload nginx
+```
+
+Откат: вернуть файл из `/root/nginx-backup-*`, `nginx -t && systemctl reload nginx`.
+
 ### Резервные копии базы
 
 До 23.10.2026 копий не делалось: снятие дампа упоминалось только в разделе «Откат» как ручное действие,

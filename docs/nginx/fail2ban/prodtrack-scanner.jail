@@ -1,0 +1,14 @@
+# Jail для фильтра prodtrack-scanner (ОПЭ-18/v2.2.1).
+#
+# Порог сознательно мягкий по времени и жёсткий по повтору: живой человек
+# не запрашивает 10 мусорных путей за 10 минут, а сканер — запросто.
+# Бан на сутки: на следующий день он придёт с другого адреса, но и этот
+# перестанет нас трогать.
+
+[prodtrack-scanner]
+enabled  = true
+filter   = prodtrack-scanner
+logpath  = /var/log/nginx/access.log
+maxretry = 10
+findtime = 10m
+bantime  = 1d
