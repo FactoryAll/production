@@ -26,6 +26,8 @@ import { emitEvent, type EmitEventInput, type TxClient } from '@prodtrack/db';
 export interface RecipientContext {
   /** Роль, принимающая на складе-приёмнике (ОПЭ-42): КСГП или УСГП. */
   receivingRole?: RoleCodeValue;
+  /** Роль склада-источника (ОПЭ-43): КСГП или УСГП по типу склада-отправителя. */
+  sourceRole?: RoleCodeValue;
   /** Кого не уведомлять — например, автора действия (ОПЭ-42: «сам себе» не пишем). */
   excludeUserIds?: string[];
   /** Табельные id операторов назначенных РЦ (правило ORDER_OPERATORS). */
@@ -129,7 +131,9 @@ export async function resolveRecipients<K extends EventCodeValue>(
       ? [rule.role]
       : rule.kind === 'RECEIVING_ROLE' && context.receivingRole
         ? [context.receivingRole]
-        : [],
+        : rule.kind === 'SOURCE_ROLE' && context.sourceRole
+          ? [context.sourceRole]
+          : [],
   );
 
   // Роль С1С разбирается отдельно: у неё есть направление уведомлений (ОПЭ, 13.10.2026).

@@ -1057,8 +1057,10 @@ export async function receiveGoodsTransfer(
           },
       {
         emit: deps.emitEvent,
+        // ОПЭ-43: о расхождении узнают оба склада — приёмник (нашёл) и источник (согласовывает).
         context: {
           receivingRole: transfer.destinationWarehouse.type === 'FINISHED_GOODS' ? 'KSGP' : 'USGP',
+          sourceRole: transfer.sourceWarehouse.type === 'FINISHED_GOODS' ? 'KSGP' : 'USGP',
         },
       },
     );

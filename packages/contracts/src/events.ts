@@ -139,7 +139,12 @@ export type RecipientRule =
    * Роль, принимающая на складе-приёмнике (ОПЭ-42): на склад ГП — КСГП,
    * на производственный — УСГП. Кто именно, передаёт вызывающая сторона в контексте.
    */
-  | { kind: 'RECEIVING_ROLE' };
+  | { kind: 'RECEIVING_ROLE' }
+  /**
+   * Роль, чей склад отправил перемещение (ОПЭ-43): о расхождении должен узнать и источник —
+   * именно он согласовывает недостачу.
+   */
+  | { kind: 'SOURCE_ROLE' };
 
 export interface NotificationEventDefinition<K extends EventCodeValue = EventCodeValue> {
   /** Код события в форме спека (EV-01…EV-10). */
@@ -419,10 +424,10 @@ export const EVENT_CATALOG: { [K in EventCodeValue]: NotificationEventDefinition
     dbCode: 'EV_06',
     name: 'Расхождение обнаружено',
     title: 'Расхождение обнаружено',
-    // Решение владельца 24.10.2026: по перемещениям уведомляем только представителя
-    // склада-получателя (КСГП или УСГП по типу склада). Уведомления НП по перемещениям
-    // временно сняты — вернуть можно, добавив сюда { kind: 'ROLE', role: 'NP' }.
-    recipients: [{ kind: 'RECEIVING_ROLE' }],
+    // Решение владельца 24.10.2026: склад-приёмник (нашёл расхождение) и склад-источник
+    // (согласовывает недостачу). Уведомления НП по перемещениям временно сняты —
+    // вернуть можно, добавив сюда { kind: 'ROLE', role: 'NP' }.
+    recipients: [{ kind: 'RECEIVING_ROLE' }, { kind: 'SOURCE_ROLE' }],
     deepLink: transferCardLink,
     validatePayload: (raw) => {
       const record = asRecord(raw, 'EV-06');
