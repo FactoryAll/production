@@ -419,7 +419,10 @@ export const EVENT_CATALOG: { [K in EventCodeValue]: NotificationEventDefinition
     dbCode: 'EV_06',
     name: 'Расхождение обнаружено',
     title: 'Расхождение обнаружено',
-    recipients: [{ kind: 'ROLE', role: 'NP' }],
+    // Решение владельца 24.10.2026: по перемещениям уведомляем только представителя
+    // склада-получателя (КСГП или УСГП по типу склада). Уведомления НП по перемещениям
+    // временно сняты — вернуть можно, добавив сюда { kind: 'ROLE', role: 'NP' }.
+    recipients: [{ kind: 'RECEIVING_ROLE' }],
     deepLink: transferCardLink,
     validatePayload: (raw) => {
       const record = asRecord(raw, 'EV-06');
@@ -440,9 +443,10 @@ export const EVENT_CATALOG: { [K in EventCodeValue]: NotificationEventDefinition
     dbCode: 'EV_07',
     name: 'Расхождение согласовано',
     title: 'Расхождение согласовано',
+    // С1С и представитель склада-приёмника (было жёстко УСГП — неверно для направления на склад ГП).
     recipients: [
       { kind: 'ROLE', role: 'S1C' },
-      { kind: 'ROLE', role: 'USGP' },
+      { kind: 'RECEIVING_ROLE' },
     ],
     deepLink: transferCardLink,
     validatePayload: (raw) => {

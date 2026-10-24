@@ -1035,7 +1035,8 @@ export async function receiveGoodsTransfer(
       initiatorId: userId,
     });
 
-    // EV-05 (принято без расхождения → С1С) и EV-06 (расхождение → НП):
+    // EV-05 (принято без расхождения → С1С) и EV-06 (расхождение → представитель склада-приёмника,
+    // уведомления НП по перемещениям сняты решением владельца 24.10.2026):
     // адресаты и deep-link берутся из каталога событий (00 §5).
     const warehouses = {
       sourceWarehouse: { id: transfer.sourceWarehouse.id, name: transfer.sourceWarehouse.name },
@@ -1054,7 +1055,12 @@ export async function receiveGoodsTransfer(
               !line.actualQuantity.equals(line.plannedQuantity),
             ).length,
           },
-      { emit: deps.emitEvent },
+      {
+        emit: deps.emitEvent,
+        context: {
+          receivingRole: transfer.destinationWarehouse.type === 'FINISHED_GOODS' ? 'KSGP' : 'USGP',
+        },
+      },
     );
 
     // M12 (BR-3): приёмка без расхождений даёт готовые данные для 1С (RECEIVED); при расхождении
@@ -1279,7 +1285,13 @@ export async function reconcileDiscrepancies(
         discrepanciesCount: openDiscrepancies.length,
         reconciledByUserId: userId,
       },
-      { emit: deps.emitEvent },
+      {
+        emit: deps.emitEvent,
+        // Решение владельца 24.10.2026: адресат — представитель склада-приёмника.
+        context: {
+          receivingRole: transfer.destinationWarehouse.type === 'FINISHED_GOODS' ? 'KSGP' : 'USGP',
+        },
+      },
     );
 
     // M12 (BR-9): согласование меняет количества — данные задачи обновляются.

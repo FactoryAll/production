@@ -104,7 +104,9 @@ describe('resolveRecipients — адресация по каталогу (M09 BR
     });
   });
 
-  it('EV-07 адресует уведомление С1С и УСГП (00 §5)', async () => {
+  // Решение владельца 24.10.2026: адресат — С1С и представитель склада-приёмника
+  // (УСГП для производственного, КСГП для склада ГП).
+  it('EV-07 адресует уведомление С1С и роли склада-приёмника', async () => {
     const { tx, findMany } = buildTx({
       roleUsers: [
         { id: 's1c-1', roleCodes: ['S1C'] },
@@ -112,11 +114,12 @@ describe('resolveRecipients — адресация по каталогу (M09 BR
       ],
     });
 
-    const ids = await resolveRecipients(tx, 'EV-07', {
-      transferId: 'tr-1',
-      discrepanciesCount: 2,
-      reconciledByUserId: 'user-1',
-    });
+    const ids = await resolveRecipients(
+      tx,
+      'EV-07',
+      { transferId: 'tr-1', discrepanciesCount: 2, reconciledByUserId: 'user-1' },
+      { receivingRole: 'USGP' },
+    );
 
     expect(ids).toEqual(['usgp-1', 's1c-1']);
     expect(findMany.mock.calls[0][0]).toMatchObject({

@@ -72,10 +72,11 @@ describe('каталог событий M09 (00 §5, M09 §7)', () => {
       { kind: 'ROLE', role: 'S1C' },
     ]);
     expect(EVENT_CATALOG['EV-05'].recipients).toEqual([{ kind: 'ROLE', role: 'S1C' }]);
-    expect(EVENT_CATALOG['EV-06'].recipients).toEqual([{ kind: 'ROLE', role: 'NP' }]);
+    // Решение владельца 24.10.2026: по перемещениям уведомляем только склад-приёмник.
+    expect(EVENT_CATALOG['EV-06'].recipients).toEqual([{ kind: 'RECEIVING_ROLE' }]);
     expect(EVENT_CATALOG['EV-07'].recipients).toEqual([
       { kind: 'ROLE', role: 'S1C' },
-      { kind: 'ROLE', role: 'USGP' },
+      { kind: 'RECEIVING_ROLE' },
     ]);
     expect(EVENT_CATALOG['EV-08'].recipients).toEqual([
       { kind: 'LINE_OPERATOR' },
