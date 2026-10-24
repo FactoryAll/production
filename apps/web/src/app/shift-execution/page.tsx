@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { requireSession } from '@/lib/auth/session';
 import { prisma } from '@prodtrack/db';
+import { getConsumableStock } from '@/lib/consumable-stock';
 import ShiftExecutionPage from './_client-page';
 
 export default async function ShiftExecutionRootPage() {
@@ -70,22 +71,6 @@ async function getActiveDefectReasons() {
  * Доступное количество отдаётся рядом — оно и попадает подсказкой в поле «Количество».
  */
 async function getConsumableProducts() {
-  const balances = await prisma.stockBalance.findMany({
-    where: {
-      warehouse: { type: 'PRODUCTION' },
-      stockCategory: { in: ['MASS', 'PF'] },
-      quantity: { gt: 0 },
-    },
-    include: { product: true },
-    orderBy: { product: { name: 'asc' } },
-  });
-
-  return balances.map((balance) => ({
-    id: balance.productId,
-    code: balance.product.code,
-    name: balance.product.name,
-    unit: balance.product.unit,
-    category: balance.stockCategory,
-    available: Number(balance.quantity),
-  }));
+  // Правило одно на всё приложение (ОПЭ-44): остатки Производственного склада, Масса и ПФ.
+  return getConsumableStock(prisma);
 }

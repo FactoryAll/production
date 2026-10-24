@@ -46,14 +46,26 @@ interface ProductionOrderCardProps {
     >;
   };
   defectReasons: DefectReason[];
-  /** Потребляемые позиции (Масса и ГП/ПФ) для правки потребления (Р-10, T-073). */
-  consumableProducts: Product[];
+  /**
+   * Позиции, доступные к потреблению (ОПЭ-44): то, что лежит на Производственном складе
+   * (Масса или ПФ), с доступным количеством. Тот же набор, что на экране исполнения смены.
+   */
+  consumableProducts: {
+    id: string;
+    code: string;
+    name: string;
+    unit: string;
+    category: 'MASS' | 'PF' | 'GP';
+    available: number;
+  }[];
   userRoles: string[];
 }
 
 interface ConsumptionRowState {
   productId: string;
   quantity: string;
+  /** Категория остатка, с которой списываем (ОПЭ-34/44). */
+  stockCategory?: 'MASS' | 'PF' | 'GP';
 }
 
 /**
@@ -68,12 +80,20 @@ function ConsumptionEditor({
 }: {
   idPrefix: string;
   rows: ConsumptionRowState[];
-  products: Product[];
+  products: {
+    id: string;
+    code: string;
+    name: string;
+    unit: string;
+    category: 'MASS' | 'PF' | 'GP';
+    available: number;
+  }[];
   onChange: (rows: ConsumptionRowState[]) => void;
 }) {
   const options = products.map((product) => ({
-    value: product.id,
-    label: `${product.name} (${product.unit})`,
+    // ОПЭ-44: одна номенклатура может лежать двумя остатками (Масса и ПФ) — вариант из пары.
+    value: `${product.id}|${product.category}`,
+    label: `${product.name} (${product.unit})${product.category === 'PF' ? ' — ПФ' : ''}`,
     // В подписи кода нет, но искать по нему нужно.
     keywords: product.code,
   }));
@@ -86,10 +106,17 @@ function ConsumptionEditor({
           <div className="flex-1">
             <SearchSelect
               id={`${idPrefix}-consumption-${index}`}
-              value={row.productId}
-              onChange={(value) =>
-                onChange(rows.map((item, i) => (i === index ? { ...item, productId: value } : item)))
-              }
+              value={row.stockCategory ? `${row.productId}|${row.stockCategory}` : row.productId}
+              onChange={(value) => {
+                const [productId, stockCategory] = value.split('|');
+                onChange(
+                  rows.map((item, i) =>
+                    i === index
+                      ? { ...item, productId, stockCategory: stockCategory as ConsumptionRowState['stockCategory'] }
+                      : item,
+                  ),
+                );
+              }}
               options={options}
               placeholder="Начните вводить наименование"
             />
@@ -333,7 +360,12 @@ export default function ProductionOrderCard({
     formData.set(
       'consumption',
       JSON.stringify(
-        consumption.map((row) => ({ productId: row.productId, quantity: Number(row.quantity) })),
+        consumption.map((row) => ({
+          productId: row.productId,
+          quantity: Number(row.quantity),
+          // ОПЭ-34/44: списание идёт с выбранной категории остатка (Масса или ПФ).
+          stockCategory: row.stockCategory,
+        })),
       ),
     );
     formData.set('correctionReason', reason);

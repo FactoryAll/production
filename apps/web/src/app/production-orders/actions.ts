@@ -21,6 +21,7 @@ import {
   writeAudit,
   writeTiming,
 } from '@prodtrack/db';
+import { getConsumableStock } from '@/lib/consumable-stock';
 import { notificationCategoryOfFacts, notifyEvent } from '@/lib/events/notify';
 import { hasPermission, requireAnyPermission, requirePermission } from '@/lib/auth/access';
 import { getAttributeRole, RoleCode } from '@prodtrack/contracts';
@@ -601,7 +602,14 @@ function parseSubstitutionOutput(
   return result;
 }
 
-function parseSubstitutionConsumption(raw: unknown): { productId: string; quantity: number }[] {
+export interface SubstitutionConsumptionLine {
+  productId: string;
+  quantity: number;
+  /** Категория остатка (ОПЭ-34/44): Масса или ПФ. Не задана — берём категорию продукта. */
+  stockCategory?: 'MASS' | 'PF' | 'GP';
+}
+
+function parseSubstitutionConsumption(raw: unknown): SubstitutionConsumptionLine[] {
   if (!raw || (Array.isArray(raw) && raw.length === 0)) return [];
   if (!Array.isArray(raw)) {
     throw new Error('Некорректный формат потребления');
@@ -610,7 +618,7 @@ function parseSubstitutionConsumption(raw: unknown): { productId: string; quanti
     if (!item || typeof item !== 'object') {
       throw new Error('Некорректный формат строки потребления');
     }
-    const { productId, quantity } = item as Record<string, unknown>;
+    const { productId, quantity, stockCategory } = item as Record<string, unknown>;
     if (!productId || typeof productId !== 'string') {
       throw new Error('Укажите продукт в потреблении');
     }
@@ -618,7 +626,14 @@ function parseSubstitutionConsumption(raw: unknown): { productId: string; quanti
     if (Number.isNaN(q) || q <= 0) {
       throw new Error('Количество потребления должно быть больше 0');
     }
-    return { productId, quantity: q };
+    if (!Number.isInteger(q)) {
+      throw new Error('Количество потребления указывается целым числом');
+    }
+    const category =
+      stockCategory === 'MASS' || stockCategory === 'PF' || stockCategory === 'GP'
+        ? stockCategory
+        : undefined;
+    return { productId, quantity: q, stockCategory: category };
   });
 }
 
@@ -626,7 +641,7 @@ async function validateSubstitutionInput(
   input: SubstitutionInput,
   deps: { prisma: typeof prisma },
   line: ProductionOrderLine & { product: { category: 'MASS' | 'GP' | 'PF'; id: string }; workCenter: { producesMass: boolean }; operator: { id: string } | null },
-): Promise<{ outputByCategory: Partial<Record<SubstitutionFactCategory, Prisma.Decimal>>; defectQuantity: Prisma.Decimal; stopsCount: number; stopsDurationMinutes: number; consumption: { productId: string; quantity: number }[] }> {
+): Promise<{ outputByCategory: Partial<Record<SubstitutionFactCategory, Prisma.Decimal>>; defectQuantity: Prisma.Decimal; stopsCount: number; stopsDurationMinutes: number; consumption: SubstitutionConsumptionLine[] }> {
   const outputByCategory = parseSubstitutionOutput(
     line.product.category,
     input.outputByCategory,
@@ -702,7 +717,7 @@ export interface SubstitutionInput {
   defectReasonId?: string;
   stopsCount?: number;
   stopsDurationMinutes?: number;
-  consumption?: { productId: string; quantity: number }[];
+  consumption?: SubstitutionConsumptionLine[];
 }
 
 export async function substituteOperator(
@@ -799,12 +814,14 @@ export async function substituteOperator(
       });
       createdFacts.push(fact as unknown as ProductionFact);
 
-      if (consumption.length > 0) {
+      // ОПЭ-38/44: потребление пишем один раз на линию и с категорией остатка.
+      if (consumption.length > 0 && createdFacts.length === 1) {
         await tx.factConsumption.createMany({
           data: consumption.map((item) => ({
             productionFactId: fact.id,
             productId: item.productId,
             quantity: new Prisma.Decimal(item.quantity),
+            ...(item.stockCategory ? { stockCategory: item.stockCategory } : {}),
           })),
         });
       }
@@ -816,7 +833,8 @@ export async function substituteOperator(
         quantity,
         warehouseId: productionWarehouse.id,
         sourceType: 'PRODUCTION_FACT',
-        consumption: consumption.map((item) => {
+        // ОПЭ-38: списание потребления — один раз на линию, а не на каждый факт.
+        consumption: (createdFacts.length === 1 ? consumption : []).map((item) => {
           const productCategory = categoryById.get(item.productId);
           if (!productCategory) {
             throw new Error('Продукт потребления не найден');
@@ -824,6 +842,8 @@ export async function substituteOperator(
           return {
             productId: item.productId,
             productCategory,
+            // ОПЭ-34/44: списываем с выбранной категории остатка.
+            stockCategory: item.stockCategory,
             quantity: new Prisma.Decimal(item.quantity),
           };
         }),
@@ -1474,11 +1494,10 @@ export async function getProductionOrderById(id: string) {
       where: { active: true },
       orderBy: { code: 'asc' },
     }),
-    // Потребление (Р-10): Масса и ГП/ПФ-позиции — тот же набор, что на экране исполнения.
-    prisma.product.findMany({
-      where: { active: true, category: { in: ['MASS', 'GP'] } },
-      orderBy: { name: 'asc' },
-    }),
+    // Потребление (Р-10): тот же набор, что на экране исполнения — позиции с остатком
+    // на Производственном складе (Масса и ПФ), ОПЭ-44. Раньше здесь отдавалась вся номенклатура,
+    // и при вводе итога за Оператора предлагалось всё подряд.
+    getConsumableStock(prisma),
   ]);
 
   if (!order) {
