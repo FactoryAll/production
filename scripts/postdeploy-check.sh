@@ -172,7 +172,9 @@ else
     echo 'fail2ban не установлен — защиты от сканеров нет.'
   fi
   # Мусорный путь должен рвать соединение: curl печатает 000, если ответа нет.
-  JUNK_CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "https://${DOMAIN}/wp-login.php" 2>/dev/null || echo 'err')"
+  # На 444 curl завершается с ошибкой (пустой ответ) — не склеиваем код с подписью.
+  JUNK_CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "https://${DOMAIN}/wp-login.php" 2>/dev/null || true)"
+  [ -n "${JUNK_CODE}" ] || JUNK_CODE='err'
   if [ "${JUNK_CODE}" = "000" ]; then
     echo 'сканерский путь /wp-login.php: соединение закрыто (444) — ок'
   else
