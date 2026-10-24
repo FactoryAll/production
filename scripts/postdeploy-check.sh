@@ -12,7 +12,7 @@ set -uo pipefail
 #
 # --no-db-write пропускает раздел 3 (prisma migrate deploy и двукратный сид). Нужен,
 # когда развёртывание не меняет схему и трогать прод-данные не хочется: остальные
-# разделы (коммит, контейнеры, смоук, версия, счётчики, канал, соседи, логи) — только чтение.
+# разделы (коммит, контейнеры, смоук, версия, счётчики, канал, соседи, логи, защита от сканеров) — только чтение.
 #
 # Номер версии в шапке намеренно не указан: раньше здесь стояло «v1.2.0», и строка
 # устарела молча вслед за релизом. Версия берётся из docker-compose.yml в разделе 2.
@@ -141,6 +141,44 @@ curl -sI --max-time 10 "https://${DOMAIN}/login" | head -5 || echo 'домен �
 echo
 echo "=== 8. Логи web (последние 20 строк) ==="
 "${COMPOSE[@]}" logs --tail=20 web
+
+echo
+echo "=== 9. Защита от сканеров и ограничения доступа ==="
+# Хостовая настройка, в контейнерах её нет: сниппет nginx + джейл fail2ban (прод),
+# список разрешённых адресов (дев). После переустановки сервера это накатывается заново
+# по docs/deploy_vps.md — проверка напоминает об этом (ОПЭ-49).
+if [ "${DEV_STAND}" = "1" ]; then
+  if grep -q 'prodtracker-dev-allow' /etc/nginx/sites-enabled/prodtracker-dev.factoryall.ru.conf 2>/dev/null; then
+    echo 'дев закрыт списком разрешённых адресов (snippets/prodtracker-dev-allow.conf) — ок'
+  else
+    echo 'ВНИМАНИЕ: дев-стенд НЕ закрыт списком разрешённых адресов — он виден всему интернету.'
+    echo '  см. docs/dev_environment.md, раздел про nginx'
+  fi
+else
+  if grep -q 'prodtrack-junk-paths' /etc/nginx/sites-enabled/prodtracker.factoryall.ru.conf 2>/dev/null; then
+    echo 'сниппет мусорных путей подключён — ок'
+  else
+    echo 'ВНИМАНИЕ: не подключён сниппет защиты от сканеров (/etc/nginx/snippets/prodtrack-junk-paths.conf).'
+    echo '  см. docs/deploy_vps.md, раздел «Защита от сканеров»'
+  fi
+  if command -v fail2ban-client >/dev/null 2>&1; then
+    if fail2ban-client status prodtrack-scanner >/dev/null 2>&1; then
+      echo "джейл fail2ban: $(fail2ban-client status prodtrack-scanner | grep -E 'Currently banned' | sed 's/.*Currently banned:[[:space:]]*//') забанено сейчас"
+    else
+      echo 'ВНИМАНИЕ: джейл fail2ban prodtrack-scanner не активен.'
+      echo '  см. docs/deploy_vps.md, раздел «Защита от сканеров»'
+    fi
+  else
+    echo 'fail2ban не установлен — защиты от сканеров нет.'
+  fi
+  # Мусорный путь должен рвать соединение: curl печатает 000, если ответа нет.
+  JUNK_CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "https://${DOMAIN}/wp-login.php" 2>/dev/null || echo 'err')"
+  if [ "${JUNK_CODE}" = "000" ]; then
+    echo 'сканерский путь /wp-login.php: соединение закрыто (444) — ок'
+  else
+    echo "ВНИМАНИЕ: /wp-login.php отвечает ${JUNK_CODE} вместо 444 — защита не действует."
+  fi
+fi
 
 echo
 echo "=== Проверка завершена. Пришлите вывод целиком. ==="
