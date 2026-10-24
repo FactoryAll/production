@@ -66,8 +66,9 @@ describe('каталог событий M09 (00 §5, M09 §7)', () => {
     expect(EVENT_CATALOG['EV-01'].recipients).toEqual([{ kind: 'ORDER_OPERATORS' }]);
     expect(EVENT_CATALOG['EV-02'].recipients).toEqual([{ kind: 'ROLE', role: 'NP' }]);
     expect(EVENT_CATALOG['EV-03'].recipients).toEqual([{ kind: 'ROLE', role: 'S1C' }]);
+    // ОПЭ-42: адресат зависит от склада-приёмника (КСГП или УСГП), плюс специалист 1С.
     expect(EVENT_CATALOG['EV-04'].recipients).toEqual([
-      { kind: 'ROLE', role: 'KSGP' },
+      { kind: 'RECEIVING_ROLE' },
       { kind: 'ROLE', role: 'S1C' },
     ]);
     expect(EVENT_CATALOG['EV-05'].recipients).toEqual([{ kind: 'ROLE', role: 'S1C' }]);

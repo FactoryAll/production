@@ -1445,7 +1445,19 @@ describe('reconcileDiscrepancies', () => {
     }, deps);
 
     expect(result.status).toBe('RECONCILED');
-    expect(deps.applyStockMovements).not.toHaveBeenCalled();
+    // ОПЭ-41: списано было плановое (10), принято согласованное (8) — разница возвращается
+    // на склад-источник, иначе она пропадает.
+    expect(deps.applyStockMovements).toHaveBeenCalledTimes(1);
+    const sourceReturn = (deps.applyStockMovements.mock.calls[0] as unknown[])[1] as Array<{
+      type: string;
+      quantity: number;
+      warehouseId: string;
+    }>;
+    expect(sourceReturn[0]).toMatchObject({
+      type: 'RECEIPT',
+      quantity: 2,
+      warehouseId: productionWarehouse.id,
+    });
     // T-050, BR-9: согласование меняет количества — данные задачи обновляются.
     expect(deps.syncOneCTask).toHaveBeenCalledWith(expect.anything(), 'tr-1');
 
@@ -1518,7 +1530,7 @@ describe('reconcileDiscrepancies', () => {
     expect(movement.sourceType).toBe('DISCREPANCY_RECONCILIATION');
   });
 
-  it('reconciles mixed discrepancies and applies two compensating movements', async () => {
+  it('reconciles mixed discrepancies: compensation at destination and return to source', async () => {
     const line1 = buildMockLine({ id: 'tl-1' });
     const line2 = buildMockLine({ id: 'tl-2', productId: gpProduct2.id, product: gpProduct2 });
     const disc1 = buildMockDiscrepancy({ id: 'disc-1', transferLineId: line1.id, productId: gpProduct1.id, actualQuantity: new Decimal(8) }, line1);
@@ -1536,7 +1548,8 @@ describe('reconcileDiscrepancies', () => {
       ],
     }, deps);
 
-    expect(deps.applyStockMovements).toHaveBeenCalledTimes(2);
+    // ОПЭ-41: две компенсации на приёмнике + возврат разницы на склад-источник.
+    expect(deps.applyStockMovements).toHaveBeenCalledTimes(3);
   });
 
   it('blocks reconcile from DRAFT', async () => {

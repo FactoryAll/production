@@ -134,7 +134,12 @@ export interface EventPayloads {
 export type RecipientRule =
   | { kind: 'ROLE'; role: RoleCodeValue }
   | { kind: 'ORDER_OPERATORS' }
-  | { kind: 'LINE_OPERATOR' };
+  | { kind: 'LINE_OPERATOR' }
+  /**
+   * Роль, принимающая на складе-приёмнике (ОПЭ-42): на склад ГП — КСГП,
+   * на производственный — УСГП. Кто именно, передаёт вызывающая сторона в контексте.
+   */
+  | { kind: 'RECEIVING_ROLE' };
 
 export interface NotificationEventDefinition<K extends EventCodeValue = EventCodeValue> {
   /** Код события в форме спека (EV-01…EV-10). */
@@ -369,8 +374,9 @@ export const EVENT_CATALOG: { [K in EventCodeValue]: NotificationEventDefinition
     dbCode: 'EV_04',
     name: 'Перемещение отправлено',
     title: 'Перемещение отправлено',
+    // ОПЭ-42: адресат — тот, чей склад принимает (КСГП или УСГП), плюс специалист 1С.
     recipients: [
-      { kind: 'ROLE', role: 'KSGP' },
+      { kind: 'RECEIVING_ROLE' },
       { kind: 'ROLE', role: 'S1C' },
     ],
     deepLink: transferCardLink,

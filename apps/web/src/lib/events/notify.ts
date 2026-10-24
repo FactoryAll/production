@@ -12,6 +12,7 @@
 // Server Reference и падают при рендере — урок Фазы 3).
 
 import type { NotificationScope, Prisma } from '@prisma/client';
+import type { RoleCodeValue } from '@prodtrack/contracts';
 import {
   EVENT_CATALOG,
   getEventDefinition,
@@ -23,6 +24,10 @@ import { emitEvent, type EmitEventInput, type TxClient } from '@prodtrack/db';
 
 /** Данные, которые вызывающая сторона уже знает и может передать без лишних запросов. */
 export interface RecipientContext {
+  /** Роль, принимающая на складе-приёмнике (ОПЭ-42): КСГП или УСГП. */
+  receivingRole?: RoleCodeValue;
+  /** Кого не уведомлять — например, автора действия (ОПЭ-42: «сам себе» не пишем). */
+  excludeUserIds?: string[];
   /** Табельные id операторов назначенных РЦ (правило ORDER_OPERATORS). */
   operatorEmployeeIds?: string[];
   /** Табельный id оператора строки РЦ (правило LINE_OPERATOR). */
@@ -120,7 +125,11 @@ export async function resolveRecipients<K extends EventCodeValue>(
   const recipientIds = new Set<string>();
 
   const roleCodes = definition.recipients.flatMap((rule) =>
-    rule.kind === 'ROLE' ? [rule.role] : [],
+    rule.kind === 'ROLE'
+      ? [rule.role]
+      : rule.kind === 'RECEIVING_ROLE' && context.receivingRole
+        ? [context.receivingRole]
+        : [],
   );
 
   // Роль С1С разбирается отдельно: у неё есть направление уведомлений (ОПЭ, 13.10.2026).
@@ -179,7 +188,9 @@ export async function resolveRecipients<K extends EventCodeValue>(
     }
   }
 
-  return [...recipientIds];
+  // ОПЭ-42: автор действия не уведомляется о собственном действии.
+  const excluded = new Set(context.excludeUserIds ?? []);
+  return [...recipientIds].filter((id) => !excluded.has(id));
 }
 
 /**

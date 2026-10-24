@@ -430,7 +430,15 @@ export async function submitGoodsTransfer(
         destinationWarehouse: { id: transfer.destinationWarehouse.id, name: transfer.destinationWarehouse.name },
         linesCount: transfer.lines.length,
       },
-      { emit: deps.emitEvent },
+      {
+        emit: deps.emitEvent,
+        // ОПЭ-42: уведомляем того, чей склад принимает (КСГП или УСГП),
+        // и не уведомляем автора отправки о его же действии.
+        context: {
+          receivingRole: transfer.destinationWarehouse.type === 'FINISHED_GOODS' ? 'KSGP' : 'USGP',
+          excludeUserIds: [userId],
+        },
+      },
     );
 
     // M12 (T-050, UC-M12-1): отправка ещё не даёт готовых данных для 1С — принимающая сторона
@@ -1187,6 +1195,25 @@ export async function reconcileDiscrepancies(
           sourceId: transfer.id,
         };
         await deps.applyStockMovements(tx, [movement]);
+      }
+
+      // ОПЭ-41: при отправке со склада-источника списано ПЛАНОВОЕ количество, а после
+      // согласования принимающая сторона оставляет у себя согласованное. Разницу надо вернуть
+      // на склад-источник, иначе она пропадает: получатель держит согласованное, источник
+      // потерял плановое.
+      const sourceReturn = line.plannedQuantity.minus(reconciledQuantity);
+      if (!sourceReturn.equals(0)) {
+        await deps.applyStockMovements(tx, [
+          {
+            warehouseId: transfer.sourceWarehouse.id,
+            productId: discrepancy.productId,
+            stockCategory: 'GP' as const,
+            type: sourceReturn.greaterThan(0) ? ('RECEIPT' as const) : ('ISSUE' as const),
+            quantity: Math.abs(sourceReturn.toNumber()),
+            sourceType: 'DISCREPANCY_RECONCILIATION',
+            sourceId: transfer.id,
+          },
+        ]);
       }
 
       await tx.transferLine.update({

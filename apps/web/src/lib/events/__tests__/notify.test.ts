@@ -79,7 +79,8 @@ describe('resolveRecipients — адресация по каталогу (M09 BR
     });
   });
 
-  it('EV-04 адресует уведомление КСГП и С1С (00 §5)', async () => {
+  // ОПЭ-42: адресат — роль принимающего склада (передаётся в контексте), плюс С1С.
+  it('EV-04 адресует уведомление роли принимающего склада и С1С', async () => {
     const { tx, findMany } = buildTx({
       roleUsers: [
         { id: 'ksgp-1', roleCodes: ['KSGP'] },
@@ -87,7 +88,7 @@ describe('resolveRecipients — адресация по каталогу (M09 BR
       ],
     });
 
-    const ids = await resolveRecipients(tx, 'EV-04', transferPayload);
+    const ids = await resolveRecipients(tx, 'EV-04', transferPayload, { receivingRole: 'KSGP' });
 
     expect(ids).toEqual(['ksgp-1', 's1c-1']);
     // Роли, кроме С1С, разрешаются одним запросом; С1С — вторым, с фильтром направления.
@@ -200,8 +201,9 @@ describe('resolveRecipients — адресация по каталогу (M09 BR
       roleUsers: [{ id: 'ksgp-s1c', scope: 'MASS', roleCodes: ['KSGP', 'S1C'] }],
     });
 
-    // Событие адресовано КСГП и С1С: как КСГП пользователь получает его независимо от настройки.
-    const ids = await resolveRecipients(tx, 'EV-04', transferPayload);
+    // Событие адресовано принимающей роли (КСГП) и С1С: как КСГП пользователь получает его
+    // независимо от своей настройки направления (ОПЭ-42).
+    const ids = await resolveRecipients(tx, 'EV-04', transferPayload, { receivingRole: 'KSGP' });
 
     expect(ids).toEqual(['ksgp-s1c']);
   });
