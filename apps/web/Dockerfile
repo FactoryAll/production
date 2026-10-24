@@ -52,6 +52,11 @@ COPY --from=ssl-source /usr/lib/x86_64-linux-gnu/libssl.so.3 /usr/lib/x86_64-lin
 COPY --from=ssl-source /usr/lib/x86_64-linux-gnu/libcrypto.so.3 /usr/lib/x86_64-linux-gnu/
 # CLI openssl нужен Prisma для определения версии OpenSSL; сама библиотека — из строк выше.
 COPY --from=ssl-source /usr/bin/openssl /usr/bin/openssl
+COPY --from=ssl-source /usr/lib/ssl/openssl.cnf /usr/lib/ssl/openssl.cnf
+# Prisma ищет библиотеку через `ldconfig -p`. Скопированные файлы попадают в каталог,
+# но кэш динамического линкера о них не знает — Prisma не находит OpenSSL и предупреждает,
+# что будет использовать openssl-1.1.x (ОПЭ-46). Обновляем кэш.
+RUN ldconfig
 COPY --from=builder /app/apps/web/.next/standalone ./
 COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
 # В standalone-сборку Next.js не копирует public автоматически: без этой строки логотип

@@ -74,6 +74,26 @@ echo "=== 1. Коммит и контейнеры ==="
 git log -1 --oneline
 "${COMPOSE[@]}" ps
 
+# Свежесть образа (ОПЭ-47). Коммит в каталоге и код в контейнере — разные вещи: сегодня
+# контейнер «Up 5 hours» спокойно жил с новым git-коммитом, и проверка этого не замечала.
+# Сравниваем время сборки образа со временем коммита.
+WEB_IMAGE="$("${COMPOSE[@]}" images -q web 2>/dev/null | head -1)"
+if [ -n "${WEB_IMAGE}" ]; then
+  IMAGE_TS="$(docker image inspect -f '{{.Created}}' "${WEB_IMAGE}" 2>/dev/null || true)"
+  if [ -n "${IMAGE_TS}" ]; then
+    IMAGE_EPOCH="$(date -d "${IMAGE_TS}" +%s 2>/dev/null || echo 0)"
+    COMMIT_EPOCH="$(git log -1 --format=%ct)"
+    if [ "${IMAGE_EPOCH}" -lt "${COMMIT_EPOCH}" ]; then
+      echo "ВНИМАНИЕ: образ собран раньше последнего коммита — контейнер работает на старом коде."
+      echo "  образ:  ${IMAGE_TS}"
+      echo "  коммит: $(git log -1 --format=%ci)"
+      echo "  пересоберите: docker compose build && docker compose up -d"
+    else
+      echo "Образ собран после последнего коммита — код в контейнере актуален."
+    fi
+  fi
+fi
+
 echo
 echo "=== 2. Смоук /login и версия в футере ==="
 curl -sI --max-time 10 -o /dev/null -w 'HTTP %{http_code}\n' http://127.0.0.1:${APP_PORT}/login
