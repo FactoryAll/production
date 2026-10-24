@@ -1,8 +1,21 @@
 # syntax=docker/dockerfile:1
 
+# Источник libssl/openssl: в slim-образе их нет, а apt с этого сервера недоступен
+# (deb.debian.org не отвечает, сборка падала трижды — 20.10 и 23.10).
+FROM node:22-bookworm AS ssl-source
+
 FROM node:22-slim AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
+# Библиотеки нужны и сборке (`prisma generate` в builder), и рантайму (движок запросов),
+# поэтому кладём их в общую базовую стадию — иначе предупреждение Prisma остаётся (ОПЭ-46).
+# `ldconfig` обязателен: Prisma ищет OpenSSL через кэш динамического линкера, а скопированные
+# файлы в кэш сами не попадают.
+COPY --from=ssl-source /usr/lib/x86_64-linux-gnu/libssl.so.3 /usr/lib/x86_64-linux-gnu/
+COPY --from=ssl-source /usr/lib/x86_64-linux-gnu/libcrypto.so.3 /usr/lib/x86_64-linux-gnu/
+COPY --from=ssl-source /usr/bin/openssl /usr/bin/openssl
+COPY --from=ssl-source /usr/lib/ssl/openssl.cnf /usr/lib/ssl/openssl.cnf
+RUN ldconfig
 RUN npm install -g pnpm@11.8.0
 
 FROM base AS deps
@@ -30,33 +43,14 @@ ENV VERSION=${VERSION}
 RUN pnpm --filter @prodtrack/db db:generate
 RUN pnpm build
 
-# Источник libssl/openssl для стадии runner: в slim-образе их нет, а ставить через apt
-# с этого сервера невозможно (см. комментарий в стадии runner).
-FROM node:22-bookworm AS ssl-source
-
 FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ARG VERSION=dev
 ENV VERSION=${VERSION}
-# Движку Prisma нужна библиотека libssl, а в node:22-slim её нет (проверено 20.10.2026:
-# `openssl: not found`, /usr/lib/x86_64-linux-gnu/libssl* отсутствует).
-#
-# Раньше её ставили через apt-get. Это оказалось единственной хрупкой точкой сборки:
-# deb.debian.org с этого сервера недоступен, и сборка падала трижды — 20.10 два раза и 23.10.
-# Повторы не помогали: таймаут на всех зеркалах сразу. Теперь библиотеки просто копируются
-# из официального полного образа node:22-bookworm — без обращения к Debian вообще.
-# Итоговый образ остаётся slim: полный образ живёт только в промежуточной стадии.
-COPY --from=ssl-source /usr/lib/x86_64-linux-gnu/libssl.so.3 /usr/lib/x86_64-linux-gnu/
-COPY --from=ssl-source /usr/lib/x86_64-linux-gnu/libcrypto.so.3 /usr/lib/x86_64-linux-gnu/
-# CLI openssl нужен Prisma для определения версии OpenSSL; сама библиотека — из строк выше.
-COPY --from=ssl-source /usr/bin/openssl /usr/bin/openssl
-COPY --from=ssl-source /usr/lib/ssl/openssl.cnf /usr/lib/ssl/openssl.cnf
-# Prisma ищет библиотеку через `ldconfig -p`. Скопированные файлы попадают в каталог,
-# но кэш динамического линкера о них не знает — Prisma не находит OpenSSL и предупреждает,
-# что будет использовать openssl-1.1.x (ОПЭ-46). Обновляем кэш.
-RUN ldconfig
+# libssl и openssl приходят из базовой стадии (см. комментарий у `base`): они нужны движку
+# Prisma в рантайме, и там же обновлён кэш динамического линкера.
 COPY --from=builder /app/apps/web/.next/standalone ./
 COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
 # В standalone-сборку Next.js не копирует public автоматически: без этой строки логотип
