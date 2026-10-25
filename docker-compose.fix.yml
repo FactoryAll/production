@@ -1,0 +1,68 @@
+# Фикс-стенд ProdTrack: быстрое пространство для мелких правок (docs/branching_model.md).
+#
+# Зачем три стенда:
+#   прод  3000 — то, чем пользуются люди;
+#   дев   3001 — долгие фичи и сложные сценарии, стенд может быть «в разобранном виде»;
+#   фикс  3002 — мелкая правка, которую надо проверить за час и не мешать деву.
+#
+# Правило владельца (24.10.2026): результат фикса уходит и в прод, и в дев.
+# Стартовая ветка фикс-стенда — `fix/*` от `main`, живёт не дольше двух дней.
+#
+# Запуск (из /opt/prodtrack):
+#   bash scripts/make-dev-env.sh --fix    # один раз: создаст .env.fix
+#   docker compose -f docker-compose.fix.yml build
+#   docker compose -f docker-compose.fix.yml up -d
+#
+# ВАЖНО: имя проекта (`name:`) и имена контейнеров не должны совпадать с продовыми,
+# иначе compose примет продовые контейнеры за свои и пересоздаст их.
+
+name: prodtrack-fix
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: ./apps/web/Dockerfile
+      args:
+        # Суффикс -fix виден в футере: на скриншоте сразу понятно, фикс это, дев или прод.
+        VERSION: v2.2.0-fix
+    container_name: prodtrack_fix_web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3002:3000"
+    env_file:
+      - .env.fix
+    environment:
+      - NODE_ENV=production
+      - VERSION=v2.2.0-fix
+      - TZ=Europe/Moscow
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - prodtrack_fix_net
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: prodtrack_fix_postgres
+    restart: unless-stopped
+    env_file:
+      - .env.fix
+    volumes:
+      - prodtrack_fix_pgdata:/var/lib/postgresql/data
+    networks:
+      - prodtrack_fix_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  prodtrack_fix_pgdata:
+    driver: local
+
+networks:
+  prodtrack_fix_net:
+    driver: bridge

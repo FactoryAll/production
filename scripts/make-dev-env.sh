@@ -9,24 +9,33 @@
 #   3. Секреты НЕ печатаются: вывод этого скрипта пересылают в чат, а секрет в чате — утечка.
 #
 # Использование (на сервере, из каталога репозитория):
-#   bash scripts/make-dev-env.sh
+#   bash scripts/make-dev-env.sh            # .env.dev — дев-стенд
+#   bash scripts/make-dev-env.sh --fix      # .env.fix — фикс-стенд
 #   bash scripts/make-dev-env.sh --force    # пересоздать (старые значения будут потеряны)
 
 set -euo pipefail
 
 APP_DIR="${PRODTRACK_DIR:-/opt/prodtrack}"
-TARGET="${APP_DIR}/.env.dev"
-EXAMPLE="${APP_DIR}/.env.dev.example"
-
+# Стенд выбирается флагом: по умолчанию дев, с --fix — фикс-стенд (docs/branching_model.md).
+STAND_SUFFIX="dev"
 FORCE=0
+for raw in "$@"; do
+  case "${raw}" in
+    --fix) STAND_SUFFIX="fix" ;;
+  esac
+done
+TARGET="${APP_DIR}/.env.${STAND_SUFFIX}"
+EXAMPLE="${APP_DIR}/.env.${STAND_SUFFIX}.example"
+
 for arg in "$@"; do
   case "${arg}" in
     --force) FORCE=1 ;;
+    --fix) ;;
     -h|--help)
       awk '/^#!/ { next } f && !/^#/ { exit } /^#/ { sub(/^# ?/, ""); print; f=1 }' "$0"
       exit 0
       ;;
-    *) echo "Неизвестный аргумент: ${arg}" >&2; echo "Допустимо: --force, --help" >&2; exit 2 ;;
+    *) echo "Неизвестный аргумент: ${arg}" >&2; echo "Допустимо: --fix, --force, --help" >&2; exit 2 ;;
   esac
 done
 

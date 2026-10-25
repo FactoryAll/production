@@ -5,6 +5,7 @@ set -uo pipefail
 # Запуск на VPS:  cd /opt/prodtrack && bash scripts/postdeploy-check.sh
 # Без записи в прод-базу:                bash scripts/postdeploy-check.sh --no-db-write
 # Дев-стенд:                             bash scripts/postdeploy-check.sh --dev
+# Фикс-стенд:                            bash scripts/postdeploy-check.sh --fix
 #
 # --dev переключает проверку на дев-стенд (docker-compose.dev.yml, порт 3001, своя база).
 # По правилу docs/dev_environment.md доработка сначала проверяется на деве, и только потом
@@ -24,10 +25,12 @@ APP_DIR="${PRODTRACK_DIR:-/opt/prodtrack}"
 
 NO_DB_WRITE=0
 DEV_STAND=0
+FIX_STAND=0
 for arg in "$@"; do
   case "${arg}" in
     --no-db-write) NO_DB_WRITE=1 ;;
     --dev) DEV_STAND=1 ;;
+    --fix) FIX_STAND=1 ;;
     -h|--help)
       # Шапка целиком: печать начинается с первого комментария и кончается на первой строке кода.
       awk '/^#!/ { next } f && !/^#/ { exit } /^#/ { sub(/^# ?/, ""); print; f=1 }' "$0"
@@ -35,7 +38,7 @@ for arg in "$@"; do
       ;;
     *)
       echo "Неизвестный аргумент: ${arg}" >&2
-      echo "Допустимо: --no-db-write, --dev, --help" >&2
+      echo "Допустимо: --no-db-write, --dev, --fix, --help" >&2
       exit 2
       ;;
   esac
@@ -47,7 +50,14 @@ cd "${APP_DIR}" || { echo "Нет каталога ${APP_DIR}"; exit 1; }
 
 # Какой стенд проверяем. Прод и дев отличаются только файлом compose, портом и подписью —
 # логика проверок одна и та же, поэтому расхождению критериев взяться неоткуда.
-if [ "${DEV_STAND}" = "1" ]; then
+if [ "${FIX_STAND}" = "1" ]; then
+  COMPOSE=(docker compose -f docker-compose.fix.yml)
+  STAND_NAME="ФИКС-СТЕНД"
+  APP_PORT="${PRODTRACK_PORT:-3002}"
+  DOMAIN="prodtracker-fix.factoryall.ru"
+  WEB_CONTAINER="prodtrack_fix_web"
+  PG_CONTAINER="prodtrack_fix_postgres"
+elif [ "${DEV_STAND}" = "1" ]; then
   COMPOSE=(docker compose -f docker-compose.dev.yml)
   STAND_NAME="ДЕВ-СТЕНД"
   APP_PORT="${PRODTRACK_PORT:-3001}"
@@ -147,12 +157,12 @@ echo "=== 9. Защита от сканеров и ограничения дос
 # Хостовая настройка, в контейнерах её нет: сниппет nginx + джейл fail2ban (прод),
 # список разрешённых адресов (дев). После переустановки сервера это накатывается заново
 # по docs/deploy_vps.md — проверка напоминает об этом (ОПЭ-49).
-if [ "${DEV_STAND}" = "1" ]; then
-  if grep -q 'prodtracker-dev-allow' /etc/nginx/sites-enabled/prodtracker-dev.factoryall.ru.conf 2>/dev/null; then
-    echo 'дев закрыт списком разрешённых адресов (snippets/prodtracker-dev-allow.conf) — ок'
+if [ "${DEV_STAND}" = "1" ] || [ "${FIX_STAND}" = "1" ]; then
+  if grep -q 'allow' "/etc/nginx/sites-enabled/${DOMAIN}.conf" 2>/dev/null; then
+    echo "стенд закрыт списком разрешённых адресов (${DOMAIN}) — ок"
   else
-    echo 'ВНИМАНИЕ: дев-стенд НЕ закрыт списком разрешённых адресов — он виден всему интернету.'
-    echo '  см. docs/dev_environment.md, раздел про nginx'
+    echo "ВНИМАНИЕ: стенд ${DOMAIN} НЕ закрыт списком разрешённых адресов — он виден всему интернету."
+    echo '  см. docs/branching_model.md, раздел про доступ'
   fi
 else
   if grep -q 'prodtrack-junk-paths' /etc/nginx/sites-enabled/prodtracker.factoryall.ru.conf 2>/dev/null; then
