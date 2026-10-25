@@ -592,11 +592,6 @@ const ROLE_RESOLVED_RULES: Record<string, string[]> = {
  * Показывать ей центр уведомлений и колокольчик — значит обещать то, чего не будет никогда.
  */
 export function roleCanReceiveEvents(roleCode: string): boolean {
-  // Администратор видит систему целиком, даже если ни одно событие ему не адресовано
-  // напрямую: он управляет настройками и разбирает инциденты.
-  if (roleCode === 'ADM') {
-    return true;
-  }
   return Object.values(EVENT_CATALOG).some((definition) =>
     definition.recipients.some((rule) => {
       if (rule.kind === 'ROLE') {

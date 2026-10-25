@@ -80,9 +80,10 @@ describe('nav-items', () => {
   });
 
   it('builds the full menu for ADM', () => {
+    // Пункта «Уведомления» нет: администратору не адресовано ни одно событие каталога,
+    // его центр уведомлений всегда пуст (решение владельца 25.10.2026, ОПЭ-54).
     expect(hrefsFor(['ADM'])).toEqual([
       '/dashboard',
-      '/notifications',
       '/production-orders',
       '/shift-execution',
       '/stock',
@@ -122,10 +123,13 @@ describe('nav-items', () => {
     }
   });
 
-  it('shows Уведомления for every role (M09 §3: просмотр своих уведомлений — R для всех)', () => {
-    for (const role of ['NP', 'OPR', 'KSGP', 'USGP', 'S1C', 'ADM']) {
+  it('shows Уведомления тем, кому каталог адресует события', () => {
+    for (const role of ['NP', 'OPR', 'KSGP', 'USGP', 'S1C']) {
       expect(hrefsFor([role])).toContain('/notifications');
     }
+    // Гость и администратор событий не получают — пункт им не нужен (ОПЭ-54).
+    expect(hrefsFor(['GUEST'])).not.toContain('/notifications');
+    expect(hrefsFor(['ADM'])).not.toContain('/notifications');
   });
 
   it('shows Хронометраж for every role (M10 §3: просмотр хронометража — R для всех)', () => {
