@@ -34,7 +34,7 @@ export default async function DashboardServerPage({ searchParams }: DashboardSer
     return (
       <AccessDenied
         action="просмотр сводного дашборда"
-        allowedRoles={['NP', 'OPR', 'KSGP', 'USGP', 'S1C', 'ADM']}
+        allowedRoles={['NP', 'OPR', 'KSGP', 'USGP', 'S1C', 'ADM', 'GUEST']}
         requiredPermission="dashboard:read"
       />
     );

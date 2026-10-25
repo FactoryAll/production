@@ -89,7 +89,11 @@ export function getAdminNavItems(userRoles: string[]): NavItem[] {
   }
 
   // Хронометраж M10 доступен всем ролям (M10 §3); ОПР видит только свой РЦ.
-  items.push({ label: 'Хронометраж', href: '/timing' });
+  // Условие по праву, а не безусловный пункт: у гостевой роли (решение владельца 25.10.2026)
+  // права `timing:read` нет, и пункт вёл бы на экран, который её не пустит.
+  if (hasPermission(userRoles, 'timing:read')) {
+    items.push({ label: 'Хронометраж', href: '/timing' });
+  }
 
   return items;
 }

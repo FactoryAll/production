@@ -157,6 +157,13 @@ export const ROLE_PERMISSION_MAP: Record<RoleCode, string[]> = {
     'dashboard:read',
   ],
   ADM: PERMISSIONS.map(({ code }) => code),
+  /**
+   * Гостевой доступ (решение владельца 25.10.2026): только просмотр.
+   * Ровно три экрана — ПЗ, Остатки, Перемещения. Ни одного права на изменение:
+   * ни создания, ни подтверждения, ни приёмки, ни корректировки.
+   * `dashboard:read` — потому что дашборд является точкой входа после входа в систему.
+   */
+  GUEST: ['production_order:read', 'stock:read', 'transfer:read', 'dashboard:read'],
 };
 
 /**

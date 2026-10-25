@@ -10,7 +10,7 @@ import { checkPageAccess } from '@/lib/auth/page-guard';
 export default async function StockPage() {
   const access = await checkPageAccess('stock:read');
   if (!access.allowed) {
-    return <AccessDenied action="просмотр остатков" allowedRoles={['NP', 'OPR', 'KSGP', 'USGP', 'S1C', 'ADM']} requiredPermission='stock:read' />;
+    return <AccessDenied action="просмотр остатков" allowedRoles={['NP', 'OPR', 'KSGP', 'USGP', 'S1C', 'ADM', 'GUEST']} requiredPermission='stock:read' />;
   }
   // ОПЭ-37 (решение владельца 23.10.2026): строки с нулевым остатком на экран не выводим —
   // это не остаток, а пустая строка. Отрицательные показываем: это сигнал о расхождении.

@@ -20,7 +20,7 @@ export default async function ProductionOrdersServerPage({
 }: ProductionOrdersServerPageProps) {
   const access = await checkPageAccess('production_order:read');
   if (!access.allowed) {
-    return <AccessDenied action="просмотр производственных заданий" allowedRoles={['NP', 'ADM', 'S1C']} requiredPermission='production_order:read' />;
+    return <AccessDenied action="просмотр производственных заданий" allowedRoles={['NP', 'ADM', 'S1C', 'GUEST']} requiredPermission='production_order:read' />;
   }
 
   const status = parseOrderStatusFilter(searchParams.status);

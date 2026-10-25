@@ -130,10 +130,20 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     'nsi:read',
   ],
   ADM: [...ALL_PERMISSIONS],
+  /**
+   * Гостевая роль (решение владельца 25.10.2026): только просмотр.
+   *
+   * Ровно три экрана — ПЗ, Остатки, Перемещения — и ни одного права на изменение.
+   * Дашборд открывается потому, что это точка входа после входа в систему; он не даёт
+   * доступа ни к чему сверх этих трёх экранов.
+   */
+  GUEST: ['production_order:read', 'stock:read', 'transfer:read', 'dashboard:read'],
 };
 
 /** Role priority for audit attribution (highest → lowest). */
-export const ROLE_PRIORITY: RoleCode[] = ['ADM', 'NP', 'OPR', 'KSGP', 'USGP', 'S1C'] as RoleCode[];
+// Гость — последним: у него только чтение, и при атрибуции действий аудита его роль
+// не должна перебивать рабочую роль пользователя.
+export const ROLE_PRIORITY: RoleCode[] = ['ADM', 'NP', 'OPR', 'KSGP', 'USGP', 'S1C', 'GUEST'] as RoleCode[];
 
 export function hasPermission(userRoles: string[], action: PermissionCode): boolean {
   return userRoles.some((role) => ROLE_PERMISSIONS[role as RoleCode]?.includes(action));

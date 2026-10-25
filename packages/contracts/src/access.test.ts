@@ -105,8 +105,26 @@ describe('getAttributeRole', () => {
     expect(getAttributeRole([RoleCode.S1C], 'production_order:create')).toBeNull();
   });
 
-  it('priority order is ADM > NP > OPR > KSGP > USGP > S1C', () => {
-    expect(ROLE_PRIORITY).toEqual([RoleCode.ADM, RoleCode.NP, RoleCode.OPR, RoleCode.KSGP, RoleCode.USGP, RoleCode.S1C]);
+  it('priority order is ADM > NP > OPR > KSGP > USGP > S1C > GUEST', () => {
+    expect(ROLE_PRIORITY).toEqual([
+      RoleCode.ADM,
+      RoleCode.NP,
+      RoleCode.OPR,
+      RoleCode.KSGP,
+      RoleCode.USGP,
+      RoleCode.S1C,
+      // Гость — последним: у него только чтение, атрибуцию аудита он перебивать не должен.
+      RoleCode.GUEST,
+    ]);
+  });
+
+  it('гость не получает ни одного права на изменение', () => {
+    const readOnly = ROLE_PERMISSIONS.GUEST;
+    expect(readOnly).toEqual(['production_order:read', 'stock:read', 'transfer:read', 'dashboard:read']);
+    // Ни одного права, которое открывает действие: создание, правка, подтверждение,
+    // приёмка, корректировка, согласование, обработка в 1С.
+    const actionPermissions = readOnly.filter((permission) => !permission.endsWith(':read'));
+    expect(actionPermissions).toEqual([]);
   });
 });
 

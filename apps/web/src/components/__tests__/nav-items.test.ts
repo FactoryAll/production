@@ -27,6 +27,18 @@ describe('nav-items', () => {
     expect(hrefsFor(['OPR', 'KSGP'])).toContain('/transfers');
   });
 
+  // Гостевая роль (решение владельца 25.10.2026): только три экрана на просмотр.
+  it('гость видит ровно ПЗ, Остатки и Перемещения — и никаких рабочих мест', () => {
+    const hrefs = hrefsFor(['GUEST']);
+    expect(hrefs).toContain('/production-orders');
+    expect(hrefs).toContain('/stock');
+    expect(hrefs).toContain('/transfers');
+    // Ни исполнения смены, ни 1С, ни администрирования: прав на действие у гостя нет.
+    expect(hrefs).not.toContain('/shift-execution');
+    expect(hrefs).not.toContain('/onec');
+    expect(adminHrefsFor(['GUEST'])).toEqual([]);
+  });
+
   it('builds the NP menu in a stable order', () => {
     expect(hrefsFor(['NP'])).toEqual([
       '/dashboard',

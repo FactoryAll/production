@@ -86,6 +86,8 @@ export enum RoleCode {
   USGP = 'USGP',
   S1C = 'S1C',
   ADM = 'ADM',
+  /** Гостевой доступ: только просмотр ПЗ, Остатков и Перемещений (решение владельца 25.10.2026). */
+  GUEST = 'GUEST',
 }
 
 export enum DocumentType {

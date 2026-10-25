@@ -123,7 +123,9 @@ describe('contracts enums', () => {
     expect(RoleCode.USGP).toBe('USGP');
     expect(RoleCode.S1C).toBe('S1C');
     expect(RoleCode.ADM).toBe('ADM');
-    expect(ALL_ROLES).toHaveLength(6);
+    // Гостевая роль (решение владельца 25.10.2026).
+    expect(RoleCode.GUEST).toBe('GUEST');
+    expect(ALL_ROLES).toHaveLength(7);
   });
 
   it('DocumentType matches Prisma native enum', () => {
@@ -166,7 +168,8 @@ describe('contracts enums', () => {
     expect(isEventCode('EV-01')).toBe(true);
     expect(isEventCode('EV-99')).toBe(false);
     expect(isRoleCode('ADM')).toBe(true);
-    expect(isRoleCode('GUEST')).toBe(false);
+    expect(isRoleCode('GUEST')).toBe(true);
+    expect(isRoleCode('NOBODY')).toBe(false);
     expect(isStockMovementType('CONSUMPTION')).toBe(true);
     expect(isStockMovementType('ISSUE')).toBe(true);
     expect(isStockMovementType('TRANSFER')).toBe(false);
