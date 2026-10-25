@@ -22,10 +22,18 @@ const TEST_FIRST_LOGIN_LOGIN = 'test_first_login';
 const TEST_FIRST_LOGIN_PASSWORD = 'temp1234';
 
 describe('seed configuration', () => {
-  it('creates 6 roles', () => {
-    expect(ROLES.length).toBe(6);
+  it('creates 7 roles', () => {
+    expect(ROLES.length).toBe(7);
     const codes = ROLES.map((r) => r.code).sort();
-    expect(codes).toEqual(['ADM', 'KSGP', 'NP', 'OPR', 'S1C', 'USGP']);
+    expect(codes).toEqual(['ADM', 'GUEST', 'KSGP', 'NP', 'OPR', 'S1C', 'USGP']);
+  });
+
+  // Регресс 25.10.2026 (ОПЭ-52): роль GUEST была добавлена только в карту прав, но не в список ROLES.
+  // Сид перебирает ROLES, поэтому роль молча не создавалась, а «seeded successfully» печаталось.
+  it('каждая роль из списка имеет набор прав, и наоборот', () => {
+    const listed = ROLES.map((r) => r.code).sort();
+    const mapped = Object.keys(ROLE_PERMISSION_MAP).sort();
+    expect(mapped).toEqual(listed);
   });
 
   it('creates ~20-30 permissions', () => {
