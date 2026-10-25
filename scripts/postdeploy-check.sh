@@ -144,7 +144,9 @@ curl -sI --max-time 10 https://tracker.factoryall.ru | head -1 || echo 'tracker 
 echo
 echo "=== 7. Что отдаёт домен (проверка nginx) ==="
 echo '--- server_name в sites-enabled ---'
-grep -rn 'server_name' /etc/nginx/sites-enabled/ 2>/dev/null || echo 'нет доступа к /etc/nginx'
+# sites-enabled состоит из симлинков, а `grep -r` по симлинкам не ходит: раньше отсюда
+# печаталось «нет доступа к /etc/nginx» при живом и читаемом каталоге. Читаем -R.
+grep -Rh 'server_name' /etc/nginx/sites-enabled/ 2>/dev/null || echo 'server_name не найден (нет /etc/nginx?)'
 echo '--- заголовки ответа домена ---'
 curl -sI --max-time 10 "https://${DOMAIN}/login" | head -5 || echo 'домен недоступен'
 
