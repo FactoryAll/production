@@ -202,7 +202,7 @@ export function ImportProductsDialog({ open, onClose }: ImportProductsDialogProp
             )}
 
             {report.preview.length > 0 && (
-              <div className="overflow-x-auto">
+              <div className="table-scroll">
                 <table className="w-full text-left text-sm font-sans">
                   <thead>
                     <tr className="text-machine-gray">

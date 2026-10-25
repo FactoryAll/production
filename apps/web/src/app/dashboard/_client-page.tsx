@@ -235,7 +235,7 @@ export default function DashboardPage({
               Нет ПЗ текущей смены в статусе «Подтверждено» или «В работе».
             </p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="table-scroll">
               <table className="w-full text-left text-sm">
                 <thead className="bg-graphite-surface">
                   <tr>
@@ -317,7 +317,7 @@ export default function DashboardPage({
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <div className="overflow-x-auto">
+            <div className="table-scroll">
               <table className="w-full text-left text-sm">
                 <thead className="bg-graphite-surface">
                   <tr>
@@ -357,7 +357,7 @@ export default function DashboardPage({
         {documents.length === 0 ? (
           <p className="text-sm text-neutral-600">По заданным условиям документов нет.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="table-scroll">
             <table className="w-full text-left text-sm">
               <thead className="bg-graphite-surface">
                 <tr>

@@ -565,7 +565,7 @@ export default function ProductionOrderCard({
 
       <Card className="space-y-4">
         <h2 className="text-lg font-medium text-graphite">Строки ПЗ</h2>
-        <div className="overflow-x-auto">
+        <div className="table-scroll">
           <table className="w-full text-left text-base font-sans">
             <thead className="bg-graphite-surface">
               <tr>

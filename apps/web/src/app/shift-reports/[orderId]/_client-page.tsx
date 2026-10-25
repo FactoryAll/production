@@ -307,7 +307,7 @@ export default function ShiftReportClientPage({ data }: ShiftReportClientPagePro
         <h2 className="mb-4 font-sans text-lg font-semibold text-graphite">
           Потребление материалов
         </h2>
-        <div className="overflow-x-auto">
+        <div className="table-scroll">
           <table className="w-full border-collapse">
             <thead>
               {table.getHeaderGroups().map((headerGroup) => (

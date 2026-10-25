@@ -261,8 +261,8 @@ export default function TransfersPage({
         ))}
       </div>
 
-      <Card className="overflow-hidden p-0">
-        <div className="overflow-x-auto">
+      <Card className="overflow-clip p-0">
+        <div className="table-scroll">
           <table className="w-full text-left text-base font-sans">
             <thead className="bg-graphite-surface">
               {table.getHeaderGroups().map((headerGroup) => (
