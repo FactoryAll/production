@@ -92,11 +92,14 @@ if [ -n "${WEB_IMAGE}" ]; then
   IMAGE_TS="$(docker image inspect -f '{{.Created}}' "${WEB_IMAGE}" 2>/dev/null || true)"
   if [ -n "${IMAGE_TS}" ]; then
     IMAGE_EPOCH="$(date -d "${IMAGE_TS}" +%s 2>/dev/null || echo 0)"
-    COMMIT_EPOCH="$(git log -1 --format=%ct)"
+    # Сравниваем не с последним коммитом вообще, а с последним, который менял код приложения:
+    # правки документов и скриптов работают прямо из каталога репозитория и образ не трогают
+    # (проверено 25.10.2026: коммит со скриптами давал ложное «образ старее коммита»).
+    COMMIT_EPOCH="$(git log -1 --format=%ct -- apps packages)"
     if [ "${IMAGE_EPOCH}" -lt "${COMMIT_EPOCH}" ]; then
       echo "ВНИМАНИЕ: образ собран раньше последнего коммита — контейнер работает на старом коде."
       echo "  образ:  ${IMAGE_TS}"
-      echo "  коммит: $(git log -1 --format=%ci)"
+      echo "  последний коммит кода: $(git log -1 --format=%ci -- apps packages)"
       echo "  пересоберите: docker compose build && docker compose up -d"
     else
       echo "Образ собран после последнего коммита — код в контейнере актуален."
