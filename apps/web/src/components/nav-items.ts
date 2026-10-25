@@ -15,6 +15,26 @@ export function canViewTransfers(userRoles: string[]): boolean {
   return TRANSFER_VIEW_PERMISSIONS.some((permission) => hasPermission(userRoles, permission));
 }
 
+/** Справочники НСИ — пункты выпадающего меню «НСИ» в шапке. */
+const NSI_ITEMS: NavItem[] = [
+  { label: 'РЦ', href: '/nsi/work-centers' },
+  { label: 'Сотрудники', href: '/nsi/employees' },
+  { label: 'Номенклатура', href: '/nsi/products' },
+  { label: 'Смены', href: '/nsi/shifts' },
+  { label: 'Склады', href: '/nsi/warehouses' },
+  { label: 'Причины', href: '/nsi/defect-reasons' },
+];
+
+/**
+ * Меню «НСИ» показывается только тем, у кого есть право читать справочники.
+ *
+ * Раньше выпадающий список выводился в шапке без всякой проверки: гостевая роль
+ * (решение владельца 25.10.2026) видела «НСИ», а по клику получала отказ доступа.
+ */
+export function getNsiNavItems(userRoles: string[]): NavItem[] {
+  return hasPermission(userRoles, 'nsi:read') ? NSI_ITEMS : [];
+}
+
 /**
  * Пункты главного меню видимы только тем ролям, у которых есть право
  * открыть соответствующую страницу (матрица доступа 00 §4.2).

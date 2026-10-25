@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canViewTransfers, getAdminNavItems, getNavItems } from '../nav-items';
+import { canViewTransfers, getAdminNavItems, getNavItems, getNsiNavItems } from '../nav-items';
 
 const hrefsFor = (roles: string[]) => getNavItems(roles).map((item) => item.href);
 const adminHrefsFor = (roles: string[]) => getAdminNavItems(roles).map((item) => item.href);
@@ -25,6 +25,14 @@ describe('nav-items', () => {
   it('shows Перемещения when any of the multiple roles grants access (Р-23)', () => {
     expect(canViewTransfers(['OPR', 'KSGP'])).toBe(true);
     expect(hrefsFor(['OPR', 'KSGP'])).toContain('/transfers');
+  });
+
+  // Регресс 25.10.2026: меню «НСИ» выводилось в шапке без всякой проверки права —
+  // гость видел его и получал отказ по клику.
+  it('меню НСИ показывается только тем, у кого есть право читать справочники', () => {
+    expect(getNsiNavItems(['GUEST'])).toEqual([]);
+    expect(getNsiNavItems(['OPR']).map((item) => item.href)).toContain('/nsi/products');
+    expect(getNsiNavItems(['NP'])).toHaveLength(6);
   });
 
   // Гостевая роль (решение владельца 25.10.2026): только три экрана на просмотр.

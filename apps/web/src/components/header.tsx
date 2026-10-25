@@ -1,16 +1,7 @@
 import Link from 'next/link';
 import { LogoutButton } from './logout-button';
-import { getAdminNavItems, getNavItems } from './nav-items';
+import { getAdminNavItems, getNavItems, getNsiNavItems } from './nav-items';
 import { UnreadBadge } from './unread-badge';
-
-const nsiItems = [
-  { label: 'РЦ', href: '/nsi/work-centers' },
-  { label: 'Сотрудники', href: '/nsi/employees' },
-  { label: 'Номенклатура', href: '/nsi/products' },
-  { label: 'Смены', href: '/nsi/shifts' },
-  { label: 'Склады', href: '/nsi/warehouses' },
-  { label: 'Причины', href: '/nsi/defect-reasons' },
-];
 
 interface HeaderProps {
   user: {
@@ -25,6 +16,7 @@ export function Header({ user, unreadCount = 0 }: HeaderProps) {
   const roles = user.roles.map((ur) => ur.role.code);
   const navItems = getNavItems(roles);
   const adminItems = getAdminNavItems(roles);
+  const nsiItems = getNsiNavItems(roles);
 
   return (
     <header className="bg-graphite text-white shadow-sm">
@@ -51,6 +43,7 @@ export function Header({ user, unreadCount = 0 }: HeaderProps) {
             </Link>
           ))}
 
+          {nsiItems.length > 0 && (
           <div className="group relative">
             <button className="rounded-sm px-1.5 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-white/10 hover:text-white">
               НСИ
@@ -68,6 +61,7 @@ export function Header({ user, unreadCount = 0 }: HeaderProps) {
               ))}
             </div>
           </div>
+          )}
 
           {adminItems.length > 0 && (
             <div className="group relative">
