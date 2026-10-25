@@ -1,4 +1,4 @@
-import { hasPermission, type PermissionCode } from '@prodtrack/contracts';
+import { hasPermission, roleCanReceiveEvents, type PermissionCode } from '@prodtrack/contracts';
 
 export interface NavItem {
   label: string;
@@ -41,12 +41,14 @@ export function getNsiNavItems(userRoles: string[]): NavItem[] {
  * Иначе пользователь попадает на страницу, падающую с ошибкой доступа.
  */
 export function getNavItems(userRoles: string[]): NavItem[] {
-  const items: NavItem[] = [
-    { label: 'Дашборд', href: '/dashboard' },
-    // Центр уведомлений M09: каждый пользователь видит только свои уведомления,
-    // отдельного права в матрице доступа нет (M09 §3).
-    { label: 'Уведомления', href: '/notifications' },
-  ];
+  const items: NavItem[] = [{ label: 'Дашборд', href: '/dashboard' }];
+
+  // Центр уведомлений M09: каждый пользователь видит только свои, отдельного права
+  // в матрице доступа нет (M09 §3). Но если роль не адресат ни одного события
+  // (гостевая — решение владельца 25.10.2026), пункт и колокольчик ей не нужны.
+  if (userRoles.some((role) => roleCanReceiveEvents(role))) {
+    items.push({ label: 'Уведомления', href: '/notifications' });
+  }
 
   if (hasPermission(userRoles, 'production_order:read')) {
     items.push({ label: 'ПЗ', href: '/production-orders' });

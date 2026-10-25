@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { LogoutButton } from './logout-button';
 import { getAdminNavItems, getNavItems, getNsiNavItems } from './nav-items';
+import { roleCanReceiveEvents } from '@prodtrack/contracts';
 import { UnreadBadge } from './unread-badge';
 
 interface HeaderProps {
@@ -17,6 +18,8 @@ export function Header({ user, unreadCount = 0 }: HeaderProps) {
   const navItems = getNavItems(roles);
   const adminItems = getAdminNavItems(roles);
   const nsiItems = getNsiNavItems(roles);
+  // Колокольчик бессмысленен для роли, которой не адресовано ни одно событие.
+  const showNotifications = roles.some((role) => roleCanReceiveEvents(role));
 
   return (
     <header className="bg-graphite text-white shadow-sm">
@@ -84,7 +87,7 @@ export function Header({ user, unreadCount = 0 }: HeaderProps) {
         </nav>
 
         <div className="flex shrink-0 items-center gap-4">
-          <UnreadBadge initialCount={unreadCount} />
+          {showNotifications && <UnreadBadge initialCount={unreadCount} />}
           {/* Логин прячется раньше (lg, а не sm): узкой полосе шапки сначала нужен бренд и меню. */}
           <span className="hidden text-sm text-neutral-300 lg:inline">
             {user.login}

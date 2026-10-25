@@ -7,6 +7,7 @@ import {
   dbCodeToEventCode,
   getEventDefinition,
   getEventDefinitionByDbCode,
+  roleCanReceiveEvents,
   type Event08Payload,
 } from './events';
 
@@ -234,5 +235,21 @@ describe('доступ к каталогу', () => {
   it('dbCodeToEventCode переводит форму энума в форму спека', () => {
     expect(dbCodeToEventCode('EV_10')).toBe('EV-10');
     expect(dbCodeToEventCode('unknown')).toBeUndefined();
+  });
+});
+
+describe('roleCanReceiveEvents (решение владельца 25.10.2026)', () => {
+  // Гостю не адресовано ни одно событие — значит и центр уведомлений ему не нужен.
+  it('гость не получает ни одного события', () => {
+    expect(roleCanReceiveEvents('GUEST')).toBe(false);
+  });
+
+  it('рабочие роли события получают', () => {
+    expect(roleCanReceiveEvents('NP')).toBe(true);
+    expect(roleCanReceiveEvents('OPR')).toBe(true);
+    expect(roleCanReceiveEvents('S1C')).toBe(true);
+    // КСГП и УСГП получают перемещения через правила «роль приёмника/источника».
+    expect(roleCanReceiveEvents('KSGP')).toBe(true);
+    expect(roleCanReceiveEvents('USGP')).toBe(true);
   });
 });

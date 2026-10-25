@@ -573,6 +573,40 @@ export const EVENT_CATALOG: { [K in EventCodeValue]: NotificationEventDefinition
 };
 
 /** Возвращает определение события по коду спека. */
+/**
+ * Правила адресации, которые разрешаются в роль на лету.
+ * `RECEIVING_ROLE`/`SOURCE_ROLE` — это КСГП или УСГП (по типу склада), `ORDER_OPERATORS`
+ * и `LINE_OPERATOR` — Оператор. Нужны, чтобы понять, получает ли роль события вообще.
+ */
+const ROLE_RESOLVED_RULES: Record<string, string[]> = {
+  ORDER_OPERATORS: ['OPR'],
+  LINE_OPERATOR: ['OPR'],
+  RECEIVING_ROLE: ['KSGP', 'USGP'],
+  SOURCE_ROLE: ['KSGP', 'USGP'],
+};
+
+/**
+ * Получает ли роль хотя бы какие-то события по каталогу (M09).
+ *
+ * Зачем: гостевая роль (решение владельца 25.10.2026) не адресат ни одного события.
+ * Показывать ей центр уведомлений и колокольчик — значит обещать то, чего не будет никогда.
+ */
+export function roleCanReceiveEvents(roleCode: string): boolean {
+  // Администратор видит систему целиком, даже если ни одно событие ему не адресовано
+  // напрямую: он управляет настройками и разбирает инциденты.
+  if (roleCode === 'ADM') {
+    return true;
+  }
+  return Object.values(EVENT_CATALOG).some((definition) =>
+    definition.recipients.some((rule) => {
+      if (rule.kind === 'ROLE') {
+        return rule.role === roleCode;
+      }
+      return (ROLE_RESOLVED_RULES[rule.kind] ?? []).includes(roleCode);
+    }),
+  );
+}
+
 export function getEventDefinition<K extends EventCodeValue>(
   code: K,
 ): NotificationEventDefinition<K> {

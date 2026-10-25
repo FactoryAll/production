@@ -41,6 +41,8 @@ describe('nav-items', () => {
     expect(hrefs).toContain('/production-orders');
     expect(hrefs).toContain('/stock');
     expect(hrefs).toContain('/transfers');
+    // Уведомлений тоже нет: гостю не адресовано ни одно событие (решение владельца 25.10.2026).
+    expect(hrefs).not.toContain('/notifications');
     // Ни исполнения смены, ни 1С, ни администрирования: прав на действие у гостя нет.
     expect(hrefs).not.toContain('/shift-execution');
     expect(hrefs).not.toContain('/onec');
