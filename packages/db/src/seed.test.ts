@@ -203,5 +203,5 @@ describe('Сид не перезаписывает данные, которые 
     const marking = client.workCenter.create.mock.calls
       .map((call) => call[0].data)
       .find((data) => data.code === '13');
-    expect(marking).toMatchObject({ code: '13', name: '13.Маркировка ЧЗ', producesMass: false, active: true });
+    expect(marking).toMatchObject({ code: '13', name: 'Маркировка ЧЗ', producesMass: false, active: true });
   });
