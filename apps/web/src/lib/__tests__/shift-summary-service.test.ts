@@ -60,6 +60,12 @@ function makeMockPrisma() {
     },
     productionOrderLine: {
       findUnique: productionOrderLineFindUnique,
+      // ОПЭ-61: итог по РЦ собирается по всем его строкам. По умолчанию — одна строка,
+      // чтобы старые тесты (про единственное задание) оставались как были.
+      findMany: vi.fn(async () => {
+        const single = await productionOrderLineFindUnique();
+        return single ? [single] : [];
+      }),
     },
     shiftSummary: {
       upsert: shiftSummaryUpsert,
@@ -74,12 +80,19 @@ function makeMockPrisma() {
     stageTiming: { create: timingCreate },
   };
 
+  const clientLineFindUnique = vi.fn();
   const client = {
     productionOrder: {
       findUnique: vi.fn(),
     },
     productionOrderLine: {
-      findUnique: vi.fn(),
+      findUnique: clientLineFindUnique,
+      // ОПЭ-61: итог по РЦ собирается по всем его строкам. По умолчанию — одна строка,
+      // чтобы старые тесты (про единственное задание) оставались как были.
+      findMany: vi.fn(async () => {
+        const single = await clientLineFindUnique();
+        return single ? [single] : [];
+      }),
     },
     shiftSummary: {
       findUnique: shiftSummaryFindUnique,
@@ -458,4 +471,39 @@ describe('transaction client handling', () => {
   });
 });
 
+});
+
+// ОПЭ-61 (решение владельца 26.10.2026): на одном РЦ в одном ПЗ может быть несколько заданий.
+// Итог смены по РЦ обязан быть суммой его строк, иначе каждое следующее внесение затирало бы предыдущее.
+describe('updateShiftSummary при нескольких заданиях на одном РЦ (ОПЭ-61)', () => {
+  it('суммирует план и факты всех строк своего РЦ', async () => {
+    const { client, summaries } = makeMockPrisma();
+    const first = makeLine({
+      id: 'line-1',
+      plannedQuantity: 100,
+      productId: 'gp-1',
+      order: { id: 'po-1', shiftId: 'shift-1', status: 'IN_PROGRESS', shift: { id: 'shift-1' } },
+      facts: [makeFact({ factCategory: 'MASS', quantity: 40 })],
+    });
+    const second = makeLine({
+      id: 'line-2',
+      plannedQuantity: 60,
+      productId: 'gp-2',
+      workCenterId: 'wc-01',
+      order: { id: 'po-1', shiftId: 'shift-1', status: 'IN_PROGRESS', shift: { id: 'shift-1' } },
+      facts: [makeFact({ factCategory: 'MASS', quantity: 25 })],
+    });
+
+    (client.productionOrderLine.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(first);
+    (client.productionOrderLine.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([first, second]);
+
+    await updateShiftSummary('line-1', client);
+
+    const summary = summaries.get('po-1:wc-01');
+    // План — сумма двух заданий, а не план одной строки.
+    expect(new Prisma.Decimal(summary?.plannedQuantity as number).toNumber()).toBe(160);
+    expect((summary?.plannedProductIds as string[]).sort()).toEqual(['gp-1', 'gp-2']);
+    // Выпуск Массы — тоже сумма по строкам: 40 + 25.
+    expect((summary?.massOutput as Prisma.Decimal).toNumber()).toBe(65);
+  });
 });

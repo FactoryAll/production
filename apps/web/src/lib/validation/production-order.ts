@@ -85,8 +85,6 @@ export async function validateProductionOrder(
   const productById = new Map(products.map((p) => [p.id, p]));
   const employeeById = new Map(employees.map((e) => [e.id, e]));
 
-  const seenWorkCenters = new Set<string>();
-
   for (let i = 0; i < input.lines.length; i++) {
     const line = input.lines[i];
     const row = i + 1;
@@ -105,11 +103,9 @@ export async function validateProductionOrder(
       continue;
     }
 
-    if (seenWorkCenters.has(workCenter.id)) {
-      errors.push('РЦ может встречаться в ПЗ только один раз: ' + workCenter.name);
-      continue;
-    }
-    seenWorkCenters.add(workCenter.id);
+    // ОПЭ-61 (решение владельца 26.10.2026): на одном РЦ в одном ПЗ может быть несколько
+    // заданий — например, разные номенклатуры. Ограничение снято; итог смены по РЦ считается
+    // суммой его строк (см. updateShiftSummary).
 
     const lineResult = await validateProductionOrderLine(line, workCenter, product, operator);
     for (const err of lineResult.errors) {

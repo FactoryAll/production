@@ -405,7 +405,7 @@ describe('createProductionOrder', () => {
     ).rejects.toThrow('Сотрудник деактивирован');
   });
 
-  it('rejects duplicate work center in one order', async () => {
+  it('allows several lines on one work center (ОПЭ-61)', async () => {
     const deps = buildMockDeps();
     await expect(
       createProductionOrder(
@@ -428,7 +428,7 @@ describe('createProductionOrder', () => {
         },
         deps,
       ),
-    ).rejects.toThrow('РЦ может встречаться в ПЗ только один раз');
+    ).resolves.toBeDefined(); // ОПЭ-61: несколько заданий на одном РЦ разрешены
   });
 
   it('rejects zero and negative quantity', async () => {
@@ -515,7 +515,7 @@ describe('createProductionOrder', () => {
     ).rejects.toThrow('Смена деактивирована');
   });
 
-  it('rejects duplicate work center with different operators (BR-3)', async () => {
+  it('allows several lines on one work center with different operators (ОПЭ-61)', async () => {
     const deps = buildMockDeps({
       employees: [
         {
@@ -557,7 +557,7 @@ describe('createProductionOrder', () => {
         },
         deps,
       ),
-    ).rejects.toThrow('РЦ может встречаться в ПЗ только один раз');
+    ).resolves.toBeDefined(); // ОПЭ-61: несколько заданий на одном РЦ разрешены
   });
 
   it('rejects line without work center (completeness)', async () => {
@@ -1097,7 +1097,7 @@ describe('updateProductionOrder', () => {
         },
         deps,
       ),
-    ).rejects.toThrow('РЦ может встречаться в ПЗ только один раз');
+    ).resolves.toBeDefined(); // ОПЭ-61: несколько заданий на одном РЦ разрешены
   });
 
   it('blocks update with incomplete line', async () => {

@@ -224,7 +224,9 @@ describe('validateProductionOrder', () => {
     expect(result.errors).toContain('Смена деактивирована');
   });
 
-  it('blocks duplicate work center in lines (BR-3)', async () => {
+  // ОПЭ-61 (решение владельца 26.10.2026): несколько заданий на одном РЦ в одном ПЗ разрешены.
+  // Раньше это блокировалось, из-за чего мелкие задания приходилось дробить на отдельные ПЗ.
+  it('разрешает несколько строк на одном РЦ (ОПЭ-61)', async () => {
     const prisma = makeMockPrisma();
     const result = await validateProductionOrder(
       {
@@ -236,8 +238,8 @@ describe('validateProductionOrder', () => {
       },
       prisma,
     );
-    expect(result.valid).toBe(false);
-    expect(result.errors).toContain('РЦ может встречаться в ПЗ только один раз: 01.Реактор');
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
   });
 
   it('blocks inactive work center via order validation', async () => {

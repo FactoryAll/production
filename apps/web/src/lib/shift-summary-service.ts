@@ -88,9 +88,9 @@ async function upsertShiftSummary(
     shiftId: string;
     workCenterId: string;
   },
-  line: {
+  plan: {
     plannedQuantity: Prisma.Decimal;
-    productId: string;
+    productIds: string[];
   },
   facts: Parameters<typeof aggregatesFromFacts>[0],
   consumptions: Parameters<typeof aggregateConsumption>[0],
@@ -99,8 +99,9 @@ async function upsertShiftSummary(
   existingSummary: { id: string; completed: boolean } | null,
 ): Promise<void> {
   const aggregates = aggregatesFromFacts(facts);
-  const plannedQuantity = line.plannedQuantity ?? zero();
-  const plannedProductIds = [line.productId];
+  const plannedQuantity = plan.plannedQuantity ?? zero();
+  // Номенклатуры всех заданий РЦ без повторов: по ним строится «план по РЦ».
+  const plannedProductIds = [...new Set(plan.productIds)];
   const consumptionAggregates = aggregateConsumption(consumptions);
 
   const summaryData = {
@@ -232,7 +233,7 @@ export async function buildShiftSummary(
           shiftId: order.shiftId,
           workCenterId: line.workCenterId,
         },
-        { plannedQuantity: line.plannedQuantity, productId: line.productId },
+        { plannedQuantity: line.plannedQuantity, productIds: [line.productId] },
         facts,
         consumptions,
         true,
@@ -283,20 +284,48 @@ export async function updateShiftSummary(
     throw new Error('Строка ПЗ не найдена');
   }
 
-  const facts = line.facts.map((f) => ({
-    factCategory: f.factCategory,
-    quantity: f.quantity,
-    defectQuantity: f.defectQuantity,
-    stopsCount: f.stopsCount,
-    stopsDurationMinutes: f.stopsDurationMinutes,
-  }));
+  /**
+   * Итог смены — итог по РЦ, а не по одной строке (ОПЭ-61, решение владельца 26.10.2026).
+   *
+   * В одном ПЗ на одном РЦ может быть несколько заданий с разной номенклатурой. Раньше сводка
+   * собиралась по единственной отчитавшейся строке, и при двух заданиях каждое следующее
+   * внесение затирало предыдущее. Теперь берём ВСЕ строки этого РЦ в этом ПЗ.
+   */
+  const workCenterLines = await client.productionOrderLine.findMany({
+    where: { orderId: line.orderId, workCenterId: line.workCenterId },
+    include: {
+      product: { select: { id: true, unit: true } },
+      facts: {
+        include: {
+          consumptions: {
+            include: {
+              product: { select: { id: true, unit: true } },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
 
-  const consumptions = line.facts.flatMap((f) =>
-    f.consumptions.map((c) => ({
-      productId: c.productId,
-      quantity: c.quantity,
-      product: c.product,
+  const facts = workCenterLines.flatMap((orderLine) =>
+    orderLine.facts.map((f) => ({
+      factCategory: f.factCategory,
+      quantity: f.quantity,
+      defectQuantity: f.defectQuantity,
+      stopsCount: f.stopsCount,
+      stopsDurationMinutes: f.stopsDurationMinutes,
     })),
+  );
+
+  const consumptions = workCenterLines.flatMap((orderLine) =>
+    orderLine.facts.flatMap((f) =>
+      f.consumptions.map((c) => ({
+        productId: c.productId,
+        quantity: c.quantity,
+        product: c.product,
+      })),
+    ),
   );
 
   const existingSummary = await client.shiftSummary.findUnique({
@@ -320,7 +349,14 @@ export async function updateShiftSummary(
       shiftId: line.order.shiftId,
       workCenterId: line.workCenterId,
     },
-    { plannedQuantity: line.plannedQuantity, productId: line.productId },
+    {
+      // План по РЦ — сумма планов его заданий; номенклатуры — все, что на нём планировали.
+      plannedQuantity: workCenterLines.reduce(
+        (sum, orderLine) => sum.plus(orderLine.plannedQuantity),
+        new Prisma.Decimal(0),
+      ),
+      productIds: workCenterLines.map((orderLine) => orderLine.productId),
+    },
     facts,
     consumptions,
     completed,
