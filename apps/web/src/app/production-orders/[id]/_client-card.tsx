@@ -212,6 +212,8 @@ export default function ProductionOrderCard({
   const [substituteError, setSubstituteError] = useState<string | null>(null);
   const [showCorrectFactDialog, setShowCorrectFactDialog] = useState(false);
   const [correctFactId, setCorrectFactId] = useState<string | null>(null);
+  /** Категория правимого факта (ГП, ПФ, Масса) — её видно и в кнопке, и в модалке (ОПЭ-57). */
+  const [correctFactCategory, setCorrectFactCategory] = useState<'MASS' | 'GP' | 'PF' | null>(null);
   const [correctQuantity, setCorrectQuantity] = useState('');
   const [correctDefectQuantity, setCorrectDefectQuantity] = useState('');
   const [correctDefectReasonId, setCorrectDefectReasonId] = useState('');
@@ -282,6 +284,7 @@ export default function ProductionOrderCard({
     lineId: string,
   ) {
     setCorrectFactId(fact.id);
+    setCorrectFactCategory(fact.factCategory as 'MASS' | 'GP' | 'PF');
     setCorrectLineId(lineId);
     setCorrectQuantity(fact.quantity.toString());
     setCorrectDefectQuantity(fact.defectQuantity.toString());
@@ -671,7 +674,9 @@ export default function ProductionOrderCard({
                             disabled={isPending}
                             onClick={() => openCorrectFactDialog(fact, line.id)}
                           >
-                            Корректировать факт
+                            {/* ОПЭ-57: при двух фактах (ГП и ПФ) кнопки без подписи неразличимы,
+                                а на широком экране они встают в одну строку — категория обязательна. */}
+                            Корректировать {factCategoryLabel(fact.factCategory as 'MASS' | 'GP' | 'PF')}
                           </Button>
                         ))}
                       </div>
@@ -737,11 +742,17 @@ export default function ProductionOrderCard({
         open={showCorrectFactDialog}
         onClose={() => setShowCorrectFactDialog(false)}
         size="lg"
-        title="Корректировать факт"
+        title={
+          correctFactCategory
+            ? `Корректировать факт — ${factCategoryLabel(correctFactCategory)}`
+            : 'Корректировать факт'
+        }
       >
         <form onSubmit={handleCorrectFactSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="correct-quantity">Выпуск</Label>
+            <Label htmlFor="correct-quantity">
+              Выпуск{correctFactCategory ? ` ${factCategoryLabel(correctFactCategory)}` : ''}
+            </Label>
             <input
               id="correct-quantity"
               type="number"

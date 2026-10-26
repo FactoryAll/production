@@ -141,7 +141,7 @@ describe('Корректировка факта: потребление (T-073, 
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Корректировать факт' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Корректировать (ГП|ПФ|Масса)$/ }));
 
     const quantityInputs = await screen.findAllByLabelText('Количество потребления');
     expect(quantityInputs).toHaveLength(1);
@@ -163,7 +163,7 @@ describe('Корректировка факта: потребление (T-073, 
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Корректировать факт' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Корректировать (ГП|ПФ|Масса)$/ }));
     await screen.findAllByLabelText('Количество потребления');
 
     fireEvent.change(screen.getByLabelText('Количество потребления'), { target: { value: '20' } });
@@ -192,7 +192,7 @@ describe('Корректировка факта: потребление (T-073, 
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Корректировать факт' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Корректировать (ГП|ПФ|Масса)$/ }));
     await screen.findAllByLabelText('Количество потребления');
 
     fireEvent.click(screen.getByRole('button', { name: 'Удалить строку потребления' }));
@@ -209,3 +209,25 @@ describe('Корректировка факта: потребление (T-073, 
     expect(formData.get('consumption')).toBe('[]');
   });
 });
+
+  // ОПЭ-57 (замечание владельца 26.10.2026): у линии бывает два факта — ГП и ПФ.
+  // Кнопки без подписи на широком экране встают в одну строку и становятся неразличимы.
+  it('подписывает кнопки корректировки категорией факта', () => {
+    render(
+      <ProductionOrderCard
+        order={makeOrder()}
+        defectReasons={[]}
+        consumableProducts={[massProduct] as never}
+        userRoles={['NP']}
+      />,
+    );
+
+    const labels = screen
+      .getAllByRole('button', { name: /^Корректировать (ГП|ПФ|Масса)$/ })
+      .map((button) => (button.textContent ?? '').trim());
+    // У кнопки появилась категория факта: «Корректировать факт» дважды подряд не отличить.
+    expect(labels.length).toBeGreaterThan(0);
+    for (const label of labels) {
+      expect(['Корректировать ГП', 'Корректировать ПФ', 'Корректировать Масса']).toContain(label);
+    }
+  });
