@@ -26,11 +26,23 @@ export function startOfDayDaysAgo(days: number, now: Date = new Date()): Date {
   return date;
 }
 
+/**
+ * Через сколько календарных дней от даты смены появляется напоминание.
+ *
+ * По умолчанию 2 (решение владельца 26.10.2026). Переменная нужна, чтобы увидеть полосу
+ * сразу на стенде: `OVERDUE_REMINDER_DAYS=0` покажет её по любому незакрытому ПЗ,
+ * не дожидаясь двух суток. На проде переменная не задана — там правило по умолчанию.
+ */
+export function reminderThresholdDays(): number {
+  const raw = Number(process.env.OVERDUE_REMINDER_DAYS ?? 2);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 2;
+}
+
 export async function getOverdueOrders(
   client: PrismaClient,
   now: Date = new Date(),
 ): Promise<OverdueOrder[]> {
-  const threshold = startOfDayDaysAgo(2, now);
+  const threshold = startOfDayDaysAgo(reminderThresholdDays(), now);
 
   const orders = await client.productionOrder.findMany({
     where: {

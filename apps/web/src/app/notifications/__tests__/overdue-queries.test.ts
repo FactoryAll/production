@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { daysSinceShift, startOfDayDaysAgo } from '../overdue-queries';
+import { daysSinceShift, reminderThresholdDays, startOfDayDaysAgo } from '../overdue-queries';
 
 /**
  * ОПЭ-60 (решение владельца 26.10.2026): напоминание о незакрытых ПЗ появляется
@@ -24,5 +24,18 @@ describe('порог напоминания о незакрытых ПЗ', () =>
     const now = new Date('2026-10-15T12:00:00');
     expect(daysSinceShift(new Date('2026-10-12T00:00:00'), now)).toBe(3);
     expect(daysSinceShift(new Date('2026-10-15T00:00:00'), now)).toBe(0);
+  });
+});
+
+describe('порог напоминания настраивается переменной (для проверки на стенде)', () => {
+  it('по умолчанию — два дня', () => {
+    delete process.env.OVERDUE_REMINDER_DAYS;
+    expect(reminderThresholdDays()).toBe(2);
+  });
+
+  it('нулевой порог показывает напоминание сразу — так стенд проверяется без ожидания', () => {
+    process.env.OVERDUE_REMINDER_DAYS = '0';
+    expect(reminderThresholdDays()).toBe(0);
+    delete process.env.OVERDUE_REMINDER_DAYS;
   });
 });
