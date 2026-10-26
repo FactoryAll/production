@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
@@ -68,5 +68,33 @@ describe('Список ПЗ: кнопки по правам роли (дефек
     );
 
     expect(screen.getByRole('button', { name: 'Создать ПЗ' })).toBeTruthy();
+  });
+});
+
+// ОПЭ-58 (просьба владельца 26.10.2026): сортировка по столбцу «Смена» — по дате и номеру.
+describe('Сортировка по смене', () => {
+  function orderWithShift(id: string, number: number, isoDate: string) {
+    return {
+      ...order,
+      id,
+      shift: { ...order.shift, id: `shift-${id}`, number, date: new Date(isoDate) },
+    };
+  }
+
+  it('ставит смены по дате, а внутри даты — по номеру', () => {
+    // Порядок в данных намеренно «неправильный»: новая смена раньше старой.
+    const later = orderWithShift('po-c', 2, '2026-10-24');
+    const earlier = orderWithShift('po-a', 1, '2026-10-23');
+    render(
+      <ProductionOrdersPage orders={[later, earlier] as never} userRoles={['NP']} statusFilter="ALL" />,
+    );
+
+    fireEvent.click(screen.getByText('Смена'));
+
+    const rows = screen.getAllByRole('row').slice(1);
+    const first = rows[0].textContent ?? '';
+    const second = rows[1].textContent ?? '';
+    expect(first).toContain('23.10.2026');
+    expect(second).toContain('24.10.2026');
   });
 });
