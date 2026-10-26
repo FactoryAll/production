@@ -315,6 +315,32 @@ nginx -t && systemctl reload nginx
 
 Откат: вернуть файл из `/root/nginx-backup-*`, `nginx -t && systemctl reload nginx`.
 
+### Пароль на стенды дев и фикс (с 26.10.2026)
+
+Стенды закрыты HTTP-паролем — адреса у провайдера плавают, и список IP постоянно отваливался.
+
+**Установка (один раз):**
+
+```bash
+# 1) логин и хеш пароля (пароль спросит интерактивно, в историю команд он не попадёт)
+read -rsp 'Пароль стенда: ' STAND_PASS; echo
+printf 'prodtrack:%s\n' "$(openssl passwd -apr1 "$STAND_PASS")" > /etc/nginx/.htpasswd-prodtrack
+chmod 640 /etc/nginx/.htpasswd-prodtrack && chown root:www-data /etc/nginx/.htpasswd-prodtrack
+
+# 2) сниппет для обоих стендов
+cp /opt/prodtrack/docs/nginx/snippets/prodtracker-stand-auth.conf /etc/nginx/snippets/prodtracker-dev-allow.conf
+cp /opt/prodtrack/docs/nginx/snippets/prodtracker-stand-auth.conf /etc/nginx/snippets/prodtracker-fix-allow.conf
+
+# 3) проверка и перезагрузка
+nginx -t && systemctl reload nginx
+curl -s -o /dev/null -w 'без пароля: %{http_code}\n' https://prodtracker-dev.factoryall.ru/login
+curl -s -o /dev/null -w 'с паролем: %{http_code}\n' -u "prodtrack:$STAND_PASS" https://prodtracker-dev.factoryall.ru/login
+```
+
+Ожидается `401` без учётных данных и `200` с ними.
+
+**Сменить пароль:** повторить шаг 1 и `systemctl reload nginx` (файл читается при каждом запросе).
+
 ### Резервные копии базы
 
 До 23.10.2026 копий не делалось: снятие дампа упоминалось только в разделе «Откат» как ручное действие,
