@@ -25,7 +25,7 @@ services:
       dockerfile: ./apps/web/Dockerfile
       args:
         # Суффикс -fix виден в футере: на скриншоте сразу понятно, фикс это, дев или прод.
-        VERSION: v2.2.4-fix
+        VERSION: v2.2.5-fix
     container_name: prodtrack_fix_web
     restart: unless-stopped
     ports:
@@ -34,7 +34,7 @@ services:
       - .env.fix
     environment:
       - NODE_ENV=production
-      - VERSION=v2.2.4-fix
+      - VERSION=v2.2.5-fix
       - TZ=Europe/Moscow
     depends_on:
       postgres:
