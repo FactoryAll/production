@@ -22,7 +22,7 @@ services:
       dockerfile: ./apps/web/Dockerfile
       args:
         # Суффикс -dev виден в футере: на скриншоте сразу понятно, дев это или прод.
-        VERSION=v2.2.4-dev
+        VERSION: v2.2.4-dev
     container_name: prodtrack_dev_web
     restart: unless-stopped
     ports:
