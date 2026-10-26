@@ -72,7 +72,7 @@ describe('validateProductionOrderLine', () => {
       makeEmployee(),
     );
     expect(result.valid).toBe(false);
-    expect(result.errors).toContain('ГП можно планировать только на РЦ 03–12');
+    expect(result.errors).toContain('ГП можно планировать только на РЦ, не производящих Массу');
   });
 
   it('blocks GP on MASS work center (BR-7)', async () => {
@@ -83,7 +83,7 @@ describe('validateProductionOrderLine', () => {
       makeEmployee(),
     );
     expect(result.valid).toBe(false);
-    expect(result.errors).toContain('Массу можно планировать только на РЦ 01/02');
+    expect(result.errors).toContain('Массу можно планировать только на РЦ, производящих Массу (01, 02)');
   });
 
   it('blocks inactive work center', async () => {

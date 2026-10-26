@@ -266,7 +266,7 @@ describe('createProductionOrder', () => {
         },
         deps,
       ),
-    ).rejects.toThrow('ГП можно планировать только на РЦ 03–12');
+    ).rejects.toThrow('ГП можно планировать только на РЦ, не производящих Массу');
   });
 
   it('rejects GP on РЦ 01 (BR-7)', async () => {
@@ -286,7 +286,7 @@ describe('createProductionOrder', () => {
         },
         deps,
       ),
-    ).rejects.toThrow('Массу можно планировать только на РЦ 01/02');
+    ).rejects.toThrow('Массу можно планировать только на РЦ, производящих Массу (01, 02)');
   });
 
   it('rejects line without operator (BR-3)', async () => {
@@ -1079,7 +1079,7 @@ describe('updateProductionOrder', () => {
         { shiftId: 'shift-1', lines: [{ workCenterId: 'wc-03', productId: 'mass-1', plannedQuantity: 10, operatorId: 'emp-1' }] },
         deps,
       ),
-    ).rejects.toThrow('ГП можно планировать только на РЦ 03–12');
+    ).rejects.toThrow('ГП можно планировать только на РЦ, не производящих Массу');
   });
 
   it('blocks update violating BR-3 duplicate work center', async () => {

@@ -134,7 +134,8 @@ describe('Сид не перезаписывает данные, которые 
 
     await seedWorkCenters(asClient(client));
 
-    expect(client.workCenter.create).toHaveBeenCalledTimes(12);
+    // 12 РЦ наливки и тубировки + «Маркировка ЧЗ» (код 13, решение владельца 26.10.2026).
+    expect(client.workCenter.create).toHaveBeenCalledTimes(13);
     expect(client.workCenter.create.mock.calls[0][0].data).toMatchObject({
       code: '01',
       producesMass: true,
@@ -191,3 +192,16 @@ describe('Сид не перезаписывает данные, которые 
     expect(data.roles).toEqual({ create: { roleId: 'role-adm' } });
   });
 });
+
+  // ОПЭ-59: «Маркировка ЧЗ» — ГП-РЦ (Массу не производит), потребляет только полуфабрикат.
+  it('«Маркировка ЧЗ» создаётся как ГП-РЦ с кодом 13', async () => {
+    const client = mockClient();
+    client.workCenter.findUnique.mockResolvedValue(null);
+
+    await seedWorkCenters(asClient(client));
+
+    const marking = client.workCenter.create.mock.calls
+      .map((call) => call[0].data)
+      .find((data) => data.code === '13');
+    expect(marking).toMatchObject({ code: '13', name: '13.Маркировка ЧЗ', producesMass: false, active: true });
+  });

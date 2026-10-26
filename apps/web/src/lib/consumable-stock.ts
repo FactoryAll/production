@@ -8,6 +8,31 @@
  * Общий источник для экрана исполнения смены и карточки ПЗ (ввод за Оператора):
  * правило должно быть одно, иначе списки расходятся (ОПЭ-44).
  */
+/**
+ * Какие категории остатка доступны в потреблении конкретному РЦ (ОПЭ-59).
+ *
+ * Обычный ГП/ПФ-РЦ потребляет и Массу, и полуфабрикат. Исключение — «Маркировка ЧЗ»
+ * (код 13, решение владельца 26.10.2026): она работает только с полуфабрикатом,
+ * Массу ей в потребление давать нельзя.
+ *
+ * Правило по коду РЦ, а не по флагу в базе: так же устроено и `producesMassByCode`
+ * (Массу производят 01 и 02). Если РЦ станет больше, правило переносится в справочник.
+ */
+export function consumptionCategoriesForWorkCenter(
+  workCenterCode: string,
+): Array<'MASS' | 'PF'> {
+  return workCenterCode === '13' ? ['PF'] : ['MASS', 'PF'];
+}
+
+/** Оставляет в списке только те категории, которые РЦ вправе потреблять. */
+export function filterConsumableForWorkCenter<T extends { category: 'MASS' | 'PF' | 'GP' }>(
+  items: T[],
+  workCenterCode: string,
+): T[] {
+  const allowed = consumptionCategoriesForWorkCenter(workCenterCode);
+  return items.filter((item) => allowed.includes(item.category as 'MASS' | 'PF'));
+}
+
 export interface ConsumableStockItem {
   id: string;
   code: string;

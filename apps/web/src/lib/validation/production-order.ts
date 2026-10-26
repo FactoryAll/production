@@ -40,10 +40,10 @@ export async function validateProductionOrderLine(
   }
 
   if (workCenter.producesMass && product.category !== 'MASS') {
-    errors.push('Массу можно планировать только на РЦ 01/02');
+    errors.push('Массу можно планировать только на РЦ, производящих Массу (01, 02)');
   }
   if (!workCenter.producesMass && product.category !== 'GP') {
-    errors.push('ГП можно планировать только на РЦ 03–12');
+    errors.push('ГП можно планировать только на РЦ, не производящих Массу');
   }
 
   const quantity = typeof line.plannedQuantity === 'number' ? line.plannedQuantity : Number(line.plannedQuantity);

@@ -21,6 +21,7 @@ import type {
 } from '@prisma/client';
 import { confirmProductionOrderAction, substituteOperatorAction, cancelProductionOrderAction, correctProductionFactAction } from '../actions';
 import { factCategoryLabel } from '@/lib/onec/labels';
+import { filterConsumableForWorkCenter } from '@/lib/consumable-stock';
 
 interface ProductionOrderCardProps {
   order: ProductionOrder & {
@@ -303,6 +304,14 @@ export default function ProductionOrderCard({
   }
 
   /** РЦ строки, факт которой корректируется: на МАСС-РЦ потребление не указывается (Р-10). */
+  /** Потребление для строки с учётом правил её РЦ (ОПЭ-59: «Маркировка ЧЗ» — только ПФ). */
+  function consumableForLine(lineId: string | null) {
+    const line = lineId ? order.lines.find((item) => item.id === lineId) : undefined;
+    return line
+      ? filterConsumableForWorkCenter(consumableProducts, line.workCenter.code)
+      : consumableProducts;
+  }
+
   function correctLineProducesMass(): boolean {
     if (!correctLineId) return true;
     const line = order.lines.find((item) => item.id === correctLineId);
@@ -802,7 +811,7 @@ export default function ProductionOrderCard({
             <ConsumptionEditor
               idPrefix="correct"
               rows={correctConsumption}
-              products={consumableProducts}
+              products={consumableForLine(correctLineId)}
               onChange={setCorrectConsumption}
             />
           )}
@@ -910,7 +919,7 @@ export default function ProductionOrderCard({
             <ConsumptionEditor
               idPrefix="substitute"
               rows={substituteConsumption}
-              products={consumableProducts}
+              products={consumableForLine(substituteLineId)}
               onChange={setSubstituteConsumption}
             />
           )}

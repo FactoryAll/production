@@ -193,7 +193,7 @@ function parseOutputByCategory(
 async function validateReportLikeInput(
   input: ReportFactInput,
   deps: { prisma: typeof prisma; getAvailableBalance: typeof getAvailableBalance; applyStockMovements: typeof applyStockMovements },
-  line: ProductionOrderLine & { product: { category: ProductCategory }; workCenter: { producesMass: boolean } },
+  line: ProductionOrderLine & { product: { category: ProductCategory }; workCenter: { producesMass: boolean; code: string } },
 ): Promise<{ outputByCategory: Partial<Record<FactCategoryInput, Prisma.Decimal>>; defectQuantity: Prisma.Decimal; stopsCount: number; stopsDurationMinutes: number; consumption: ConsumptionInput[]; warnings: string[] }> {
   const outputByCategory = parseOutputByCategory(
     line.product.category,
@@ -223,6 +223,15 @@ async function validateReportLikeInput(
 
   if (line.workCenter.producesMass && consumption.length > 0) {
     throw new Error('Потребление указывается только на ГП/ПФ-РЦ');
+  }
+
+  // ОПЭ-59: «Маркировка ЧЗ» (код 13) потребляет только полуфабрикат. Массу ей давать нельзя —
+  // проверка на сервере, а не только скрытие в интерфейсе.
+  if (line.workCenter.code === '13') {
+    const notPf = consumption.find((item) => item.stockCategory && item.stockCategory !== 'PF');
+    if (notPf) {
+      throw new Error('РЦ «Маркировка ЧЗ» потребляет только полуфабрикат (ПФ)');
+    }
   }
 
   const seenProducts = new Set<string>();
@@ -433,7 +442,7 @@ export async function reportProductionFact(
   );
 
   const { outputByCategory, defectQuantity, stopsCount, stopsDurationMinutes, consumption, warnings } =
-    await validateReportLikeInput(input, deps, line as unknown as ProductionOrderLine & { product: { category: ProductCategory }; workCenter: { producesMass: boolean } });
+    await validateReportLikeInput(input, deps, line as unknown as ProductionOrderLine & { product: { category: ProductCategory }; workCenter: { producesMass: boolean; code: string } });
 
   const attributedRole = getAttributeRole(userRoles, 'production_order:report') ?? undefined;
   const now = new Date();
@@ -719,7 +728,7 @@ export async function correctFactByOperator(
   }
 
   const { outputByCategory, defectQuantity, stopsCount, stopsDurationMinutes, consumption, warnings } =
-    await validateReportLikeInput(input, deps, line as unknown as ProductionOrderLine & { product: { category: ProductCategory }; workCenter: { producesMass: boolean } });
+    await validateReportLikeInput(input, deps, line as unknown as ProductionOrderLine & { product: { category: ProductCategory }; workCenter: { producesMass: boolean; code: string } });
 
   const attributedRole = getAttributeRole(userRoles, 'production_order:report') ?? undefined;
   const now = new Date();

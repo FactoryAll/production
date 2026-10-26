@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Card, Dialog, Input, SearchSelect, Select } from '@prodtrack/ui';
 import { formatQuantity } from '@/lib/quantity';
+import { filterConsumableForWorkCenter } from '@/lib/consumable-stock';
 import {
   acceptProductionOrderLineAction,
   reportProductionFactAction,
@@ -96,7 +97,12 @@ function emptyReportForm(): {
 
 export default function ShiftExecutionPage({ lines, employeeId, defectReasons, consumableProducts }: ShiftExecutionPageProps) {
   // ОПЭ-34: список потребления строится на сервере по остаткам Производственного склада
-  // (Масса и ПФ), поэтому клиентских правил фильтрации больше нет.
+  // (Масса и ПФ). ОПЭ-59: конкретному РЦ доступны не все категории — «Маркировка ЧЗ»
+  // (код 13) потребляет только полуфабрикат, поэтому список фильтруется по РЦ строки.
+  function consumptionProductsForRow() {
+    const code = dialogState?.line.workCenter.code;
+    return code ? filterConsumableForWorkCenter(consumableProducts, code) : consumableProducts;
+  }
   function productCategory() {
     if (!dialogState) return undefined;
     const line = lines.find((l) => l.id === dialogState.line.id);
@@ -613,7 +619,8 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
               <div className="rounded-md border border-neutral-200 p-3">
                 <p className="mb-2 text-sm font-medium text-graphite">Потребление</p>
                 {form.consumption.map((row, index) => {
-                  const selectedProduct = consumableProducts.find(
+                  const rowProducts = consumptionProductsForRow();
+                  const selectedProduct = rowProducts.find(
                     (p) => p.id === row.productId && (!row.stockCategory || p.category === row.stockCategory),
                   );
                   const balance = row.productId ? balances[row.productId] : null;
@@ -623,7 +630,7 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
                     <div key={index} className="mb-3 grid grid-cols-[1fr_1fr_auto] gap-2">
                       {/* Потребление выбирается с поиском: номенклатуры сотни (фидбэк ОПЭ). */}
                       <SearchSelect
-                        options={consumableProducts.map((p) => ({
+                        options={rowProducts.map((p) => ({
                           // ОПЭ-34: одна номенклатура может лежать двумя остатками (Масса и ПФ),
                           // поэтому вариант — пара «продукт + категория остатка».
                           value: `${p.id}|${p.category}`,
