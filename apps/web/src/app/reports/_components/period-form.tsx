@@ -14,6 +14,7 @@ export function PeriodForm({
   from,
   to,
   shifts,
+  category,
 }: {
   action: string;
   period: string;
@@ -22,6 +23,8 @@ export function PeriodForm({
   to: string;
   /** Последние смены для режима «смена». */
   shifts: Array<{ id: string; label: string; date: string }>;
+  /** Если задано — показываем выбор категории выпуска (отчёт по номенклатуре). */
+  category?: string;
 }) {
   // Последние 14 месяцев: больше в одном отчёте всё равно не просматривают.
   const today = new Date();
@@ -100,6 +103,22 @@ export function PeriodForm({
           ))}
         </select>
       </label>
+
+      {category !== undefined && (
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-steel-graphite">Категория</span>
+          <select
+            name="category"
+            defaultValue={category}
+            className="h-10 rounded-md border border-mist-metal bg-white px-3 text-base text-graphite"
+          >
+            <option value="">Все</option>
+            <option value="MASS">Масса</option>
+            <option value="GP">ГП</option>
+            <option value="PF">ПФ</option>
+          </select>
+        </label>
+      )}
 
       <button
         type="submit"

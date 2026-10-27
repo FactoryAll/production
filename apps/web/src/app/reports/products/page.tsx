@@ -8,6 +8,19 @@ import { PeriodForm } from '../_components/period-form';
 
 export const dynamic = 'force-dynamic';
 
+const CATEGORY_LABELS = { MASS: 'Масса', PF: 'ПФ', GP: 'ГП' } as const;
+
+type Counts = { plannedMass: number; plannedGp: number; factMass: number; factPf: number; factGp: number };
+
+/** План по выбранной категории: у ПФ отдельного плана нет — полуфабрикат входит в выпуск ГП. */
+function plannedFor(row: Counts, category: keyof typeof CATEGORY_LABELS): number {
+  return category === 'MASS' ? row.plannedMass : category === 'GP' ? row.plannedGp : 0;
+}
+
+function factFor(row: Counts, category: keyof typeof CATEGORY_LABELS): number {
+  return category === 'MASS' ? row.factMass : category === 'GP' ? row.factGp : row.factPf;
+}
+
 /** Отчёт «Выпуск по ГП/ПФ: план и факт» (T-102): тот же расчёт, но по номенклатуре. */
 export default async function ProductsReportPage({
   searchParams,
@@ -29,8 +42,11 @@ export default async function ProductsReportPage({
     months: Array.isArray(monthsParam) ? monthsParam.join(',') : monthsParam,
   });
 
+  const rawCategory = typeof searchParams.category === 'string' ? searchParams.category : '';
+  const category = rawCategory === 'MASS' || rawCategory === 'PF' || rawCategory === 'GP' ? rawCategory : undefined;
+
   const [report, shifts] = await Promise.all([
-    getOutputReport(prisma, period, 'product'),
+    getOutputReport(prisma, period, 'product', { category }),
     prisma.shift.findMany({
       orderBy: { date: 'desc' },
       take: 30,
@@ -50,6 +66,9 @@ export default async function ProductsReportPage({
     to: toDateInputValue(period.to),
     months: period.months.join(','),
   });
+  if (category) {
+    query.set('category', category);
+  }
 
   return (
     <main className="space-y-4 p-6">
@@ -70,6 +89,8 @@ export default async function ProductsReportPage({
 
       <PeriodForm
         action="/reports/products"
+        category={category ?? ''}
+
         period={period.mode}
         months={period.months}
         from={toDateInputValue(period.from)}
@@ -84,11 +105,20 @@ export default async function ProductsReportPage({
           <thead className="bg-graphite-surface">
             <tr className="border-b border-mist-metal text-machine-gray">
               <th className="px-4 py-3 font-bold">Номенклатура</th>
-              <th className="px-4 py-3 font-bold">План Масса</th>
-              <th className="px-4 py-3 font-bold">План ГП</th>
-              <th className="px-4 py-3 font-bold">Факт Масса</th>
-              <th className="px-4 py-3 font-bold">Факт ПФ</th>
-              <th className="px-4 py-3 font-bold">Факт ГП</th>
+              {category ? (
+                <>
+                  <th className="px-4 py-3 font-bold">План {CATEGORY_LABELS[category]}</th>
+                  <th className="px-4 py-3 font-bold">Факт {CATEGORY_LABELS[category]}</th>
+                </>
+              ) : (
+                <>
+                  <th className="px-4 py-3 font-bold">План Масса</th>
+                  <th className="px-4 py-3 font-bold">План ГП</th>
+                  <th className="px-4 py-3 font-bold">Факт Масса</th>
+                  <th className="px-4 py-3 font-bold">Факт ПФ</th>
+                  <th className="px-4 py-3 font-bold">Факт ГП</th>
+                </>
+              )}
               <th className="px-4 py-3 font-bold">Брак</th>
               <th className="px-4 py-3 font-bold">Выполнение</th>
             </tr>
@@ -96,7 +126,7 @@ export default async function ProductsReportPage({
           <tbody>
             {report.rows.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-6 text-machine-gray">
+                <td colSpan={category ? 5 : 8} className="px-4 py-6 text-machine-gray">
                   За выбранный период данных нет.
                 </td>
               </tr>
@@ -106,11 +136,20 @@ export default async function ProductsReportPage({
                   <td className="px-4 py-3 text-graphite">
                     {row.code} — {row.name}
                   </td>
-                  <td className="px-4 py-3">{row.plannedMass || '—'}</td>
-                  <td className="px-4 py-3">{row.plannedGp || '—'}</td>
-                  <td className="px-4 py-3">{row.factMass || '—'}</td>
-                  <td className="px-4 py-3">{row.factPf || '—'}</td>
-                  <td className="px-4 py-3">{row.factGp || '—'}</td>
+                  {category ? (
+                    <>
+                      <td className="px-4 py-3">{plannedFor(row, category) || '—'}</td>
+                      <td className="px-4 py-3">{factFor(row, category) || '—'}</td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="px-4 py-3">{row.plannedMass || '—'}</td>
+                      <td className="px-4 py-3">{row.plannedGp || '—'}</td>
+                      <td className="px-4 py-3">{row.factMass || '—'}</td>
+                      <td className="px-4 py-3">{row.factPf || '—'}</td>
+                      <td className="px-4 py-3">{row.factGp || '—'}</td>
+                    </>
+                  )}
                   <td className="px-4 py-3">{row.defect || '—'}</td>
                   <td className="px-4 py-3 font-medium">
                     {row.completionPercent === null ? '—' : `${row.completionPercent}%`}
@@ -122,11 +161,20 @@ export default async function ProductsReportPage({
           <tfoot>
             <tr className="border-t-2 border-mist-metal font-bold text-graphite">
               <td className="px-4 py-3">Итого</td>
-              <td className="px-4 py-3">{report.totals.plannedMass}</td>
-              <td className="px-4 py-3">{report.totals.plannedGp}</td>
-              <td className="px-4 py-3">{report.totals.factMass}</td>
-              <td className="px-4 py-3">{report.totals.factPf}</td>
-              <td className="px-4 py-3">{report.totals.factGp}</td>
+              {category ? (
+                <>
+                  <td className="px-4 py-3">{plannedFor(report.totals, category)}</td>
+                  <td className="px-4 py-3">{factFor(report.totals, category)}</td>
+                </>
+              ) : (
+                <>
+                  <td className="px-4 py-3">{report.totals.plannedMass}</td>
+                  <td className="px-4 py-3">{report.totals.plannedGp}</td>
+                  <td className="px-4 py-3">{report.totals.factMass}</td>
+                  <td className="px-4 py-3">{report.totals.factPf}</td>
+                  <td className="px-4 py-3">{report.totals.factGp}</td>
+                </>
+              )}
               <td className="px-4 py-3">{report.totals.defect}</td>
               <td className="px-4 py-3">
                 {report.totals.completionPercent === null ? '—' : `${report.totals.completionPercent}%`}

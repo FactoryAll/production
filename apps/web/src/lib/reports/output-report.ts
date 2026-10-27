@@ -50,11 +50,16 @@ function toNumber(value: { toString(): string } | number): number {
 
 export type OutputGrouping = 'workCenter' | 'product';
 
+/** Категория выпуска: без фильтра, только Масса, только ПФ или только ГП (T-102). */
+export type OutputCategory = 'MASS' | 'PF' | 'GP';
+
 export async function getOutputReport(
   client: PrismaClient,
   period: ReportPeriod,
   grouping: OutputGrouping = 'workCenter',
+  options: { category?: OutputCategory } = {},
 ): Promise<OutputReport> {
+  const category = options.category;
   const lines = await client.productionOrderLine.findMany({
     where: {
       order: {
@@ -93,14 +98,21 @@ export async function getOutputReport(
         producesMass: line.workCenter.producesMass,
       };
 
+    // План учитываем только у строк своей категории: у ПФ отдельного плана нет —
+    // полуфабрикат является частью выпуска ГП-строки.
     const planned = toNumber(line.plannedQuantity);
     if (line.product.category === 'MASS') {
-      row.plannedMass += planned;
-    } else {
+      if (!category || category === 'MASS') {
+        row.plannedMass += planned;
+      }
+    } else if (!category || category === 'GP') {
       row.plannedGp += planned;
     }
 
     for (const fact of line.facts) {
+      if (category && fact.factCategory !== category) {
+        continue;
+      }
       const quantity = toNumber(fact.quantity);
       if (fact.factCategory === 'MASS') {
         row.factMass += quantity;
