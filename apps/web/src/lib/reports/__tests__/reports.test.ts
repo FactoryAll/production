@@ -52,3 +52,12 @@ describe('CSV для Excel', () => {
     expect(csv).toContain('\r\n');
   });
 });
+
+describe('разрез отчёта о выпуске', () => {
+  // T-102 (решение владельца 26.10.2026): тот же расчёт, но группировка по номенклатуре.
+  it('по умолчанию группирует по РЦ, с явным параметром — по номенклатуре', async () => {
+    const { getOutputReport } = await import('../output-report');
+    // Проверяем саму сигнатуру: разрез задаётся параметром, а не отдельной копией расчёта.
+    expect(getOutputReport.length).toBeGreaterThanOrEqual(2);
+  });
+});

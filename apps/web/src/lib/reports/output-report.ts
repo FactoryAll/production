@@ -9,13 +9,18 @@ import type { ReportPeriod } from './period';
  *   факт  — сумма фактов по категориям: Масса, ПФ, ГП;
  *   брак  — сумма брака по этим же строкам.
  *
- * Процент выполнения считается по «основному» выпуску РЦ: у РЦ, производящего Массу,
+ * Разрез задаётся параметром: по РЦ (сколько выпустил цех) или по номенклатуре
+ * (план и факт по ГП и ПФ) — расчёт один и тот же, меняется только группировка.
+ *
+ * Процент выполнения считается по «основному» выпуску: у РЦ, производящего Массу,
  * это Масса, у остальных — ГП. Полуфабрикат показывается отдельной колонкой: он не
  * планируется в ПЗ отдельной строкой, а является частью выпуска ГП-РЦ.
  */
 export interface OutputReportRow {
-  workCenterCode: string;
-  workCenterName: string;
+  /** Код группы: РЦ или номенклатура — зависит от разреза отчёта. */
+  code: string;
+  /** Название группы. */
+  name: string;
   plannedMass: number;
   plannedGp: number;
   factMass: number;
@@ -43,9 +48,12 @@ function toNumber(value: { toString(): string } | number): number {
   return typeof value === 'number' ? value : Number(value.toString());
 }
 
+export type OutputGrouping = 'workCenter' | 'product';
+
 export async function getOutputReport(
   client: PrismaClient,
   period: ReportPeriod,
+  grouping: OutputGrouping = 'workCenter',
 ): Promise<OutputReport> {
   const lines = await client.productionOrderLine.findMany({
     where: {
@@ -57,22 +65,24 @@ export async function getOutputReport(
     },
     include: {
       workCenter: { select: { code: true, name: true, producesMass: true } },
-      product: { select: { category: true } },
+      product: { select: { code: true, name: true, category: true } },
       facts: {
         select: { factCategory: true, quantity: true, defectQuantity: true },
       },
     },
   });
 
-  const byWorkCenter = new Map<string, OutputReportRow & { producesMass: boolean }>();
+  const groups = new Map<string, OutputReportRow & { producesMass: boolean }>();
 
   for (const line of lines) {
-    const key = line.workCenter.code;
+    // Разрез отчёта: по РЦ (план/факт производства) или по номенклатуре (план/факт по ГП и ПФ).
+    const groupCode = grouping === 'product' ? line.product.code : line.workCenter.code;
+    const groupName = grouping === 'product' ? line.product.name : line.workCenter.name;
     const row =
-      byWorkCenter.get(key) ??
+      groups.get(groupCode) ??
       {
-        workCenterCode: line.workCenter.code,
-        workCenterName: line.workCenter.name,
+        code: groupCode,
+        name: groupName,
         plannedMass: 0,
         plannedGp: 0,
         factMass: 0,
@@ -102,10 +112,10 @@ export async function getOutputReport(
       row.defect += toNumber(fact.defectQuantity);
     }
 
-    byWorkCenter.set(key, row);
+    groups.set(groupCode, row);
   }
 
-  const rows: OutputReportRow[] = [...byWorkCenter.values()]
+  const rows: OutputReportRow[] = [...groups.values()]
     .map(({ producesMass, ...row }) => {
       const planned = producesMass ? row.plannedMass : row.plannedGp;
       const fact = producesMass ? row.factMass : row.factGp;
@@ -114,13 +124,10 @@ export async function getOutputReport(
         completionPercent: planned > 0 ? Math.round((fact / planned) * 1000) / 10 : null,
       };
     })
-    .sort((a, b) => a.workCenterCode.localeCompare(b.workCenterCode));
+    .sort((a, b) => a.code.localeCompare(b.code));
 
   const sum = (pick: (row: OutputReportRow) => number) => rows.reduce((total, row) => total + pick(row), 0);
-  const plannedMain = rows.reduce(
-    (total, row) => total + (row.plannedMass > 0 ? row.plannedMass : row.plannedGp),
-    0,
-  );
+  const plannedMain = rows.reduce((total, row) => total + (row.plannedMass > 0 ? row.plannedMass : row.plannedGp), 0);
   const factMain = rows.reduce(
     (total, row) => total + (row.plannedMass > 0 ? row.factMass : row.factGp),
     0,

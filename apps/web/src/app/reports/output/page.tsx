@@ -102,9 +102,9 @@ export default async function OutputReportPage({
               </tr>
             ) : (
               report.rows.map((row) => (
-                <tr key={row.workCenterCode} className="border-b border-mist-metal/60">
+                <tr key={row.code} className="border-b border-mist-metal/60">
                   <td className="px-4 py-3 text-graphite">
-                    {row.workCenterCode} — {row.workCenterName}
+                    {row.code} — {row.name}
                   </td>
                   <td className="px-4 py-3">{row.plannedMass || '—'}</td>
                   <td className="px-4 py-3">{row.plannedGp || '—'}</td>

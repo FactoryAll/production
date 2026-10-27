@@ -24,7 +24,7 @@ export async function GET(request: Request) {
     ['РЦ', 'План Масса', 'План ГП', 'Факт Масса', 'Факт ПФ', 'Факт ГП', 'Брак', 'Выполнение, %'],
     [
       ...report.rows.map((row) => [
-        `${row.workCenterCode} — ${row.workCenterName}`,
+        `${row.code} — ${row.name}`,
         row.plannedMass,
         row.plannedGp,
         row.factMass,
