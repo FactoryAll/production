@@ -54,6 +54,8 @@ export const ROLES = [
   { code: 'ADM', name: 'Администратор' },
   // Гостевой доступ (решение владельца 25.10.2026): только просмотр ПЗ, Остатков, Перемещений.
   { code: 'GUEST', name: 'Гостевой доступ (только просмотр)' },
+  // ОТК (решение владельца 26.10.2026): гостевой просмотр + отчёты.
+  { code: 'OTK', name: 'ОТК (просмотр и отчёты)' },
 ];
 
 const ADMIN_LOGIN = 'admin';
@@ -171,6 +173,8 @@ export const ROLE_PERMISSION_MAP: Record<RoleCode, string[]> = {
    * `dashboard:read` — потому что дашборд является точкой входа после входа в систему.
    */
   GUEST: ['production_order:read', 'stock:read', 'transfer:read', 'dashboard:read'],
+  /** ОТК (решение владельца 26.10.2026): гостевой просмотр + отчёты, без прав на изменение. */
+  OTK: ['production_order:read', 'stock:read', 'transfer:read', 'dashboard:read', 'reports:read'],
 };
 
 /**

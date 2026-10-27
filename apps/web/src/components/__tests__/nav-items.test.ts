@@ -27,6 +27,21 @@ describe('nav-items', () => {
     expect(hrefsFor(['OPR', 'KSGP'])).toContain('/transfers');
   });
 
+  // ОТК (решение владельца 26.10.2026): гостевой просмотр + отчёты.
+  it('ОТК видит отчёты и гостевые экраны, но не рабочие места', () => {
+    const hrefs = hrefsFor(['OTK']);
+    expect(hrefs).toContain('/reports');
+    expect(hrefs).toContain('/production-orders');
+    expect(hrefs).toContain('/stock');
+    expect(hrefs).toContain('/transfers');
+    expect(hrefs).not.toContain('/shift-execution');
+    expect(hrefs).not.toContain('/onec');
+  });
+
+  it('гость отчётов не видит', () => {
+    expect(hrefsFor(['GUEST'])).not.toContain('/reports');
+  });
+
   // Регресс 25.10.2026: меню «НСИ» выводилось в шапке без всякой проверки права —
   // гость видел его и получал отказ по клику.
   it('меню НСИ показывается только тем, у кого есть право читать справочники', () => {
@@ -56,6 +71,8 @@ describe('nav-items', () => {
       '/production-orders',
       '/stock',
       '/transfers',
+      // Отчёты — по праву reports:read (решение владельца 26.10.2026).
+      '/reports',
     ]);
     // Аудит и хронометраж у НП есть, но в выпадающем меню администрирования.
     expect(adminHrefsFor(['NP'])).toEqual(['/audit', '/timing']);

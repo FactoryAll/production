@@ -25,7 +25,8 @@ export type PermissionCode =
   | 'nsi:manage_warehouses'
   | 'users:manage'
   | 'roles:manage'
-  | 'nsi:read';
+  | 'nsi:read'
+  | 'reports:read';
 
 export const ALL_PERMISSIONS: PermissionCode[] = [
   'production_order:create',
@@ -57,6 +58,7 @@ export const ALL_PERMISSIONS: PermissionCode[] = [
 
 export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
   NP: [
+    'reports:read',
     'production_order:create',
     'production_order:update',
     'production_order:confirm',
@@ -118,6 +120,7 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     'nsi:read',
   ],
   S1C: [
+    'reports:read',
     'timing:read',
     // Просмотр ПЗ и Перемещений — чтобы переходить из уведомлений в целевой объект
     // (решение владельца продукта, 03.10.2026; согласованное изменение матрицы 00 §4.2).
@@ -138,12 +141,17 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
    * доступа ни к чему сверх этих трёх экранов.
    */
   GUEST: ['production_order:read', 'stock:read', 'transfer:read', 'dashboard:read'],
+  /**
+   * ОТК (решение владельца 26.10.2026): гостевой доступ на просмотр + отчёты.
+   * Ни одного права на изменение — как у гостя.
+   */
+  OTK: ['production_order:read', 'stock:read', 'transfer:read', 'dashboard:read', 'reports:read'],
 };
 
 /** Role priority for audit attribution (highest → lowest). */
 // Гость — последним: у него только чтение, и при атрибуции действий аудита его роль
 // не должна перебивать рабочую роль пользователя.
-export const ROLE_PRIORITY: RoleCode[] = ['ADM', 'NP', 'OPR', 'KSGP', 'USGP', 'S1C', 'GUEST'] as RoleCode[];
+export const ROLE_PRIORITY: RoleCode[] = ['ADM', 'NP', 'OPR', 'KSGP', 'USGP', 'S1C', 'OTK', 'GUEST'] as RoleCode[];
 
 export function hasPermission(userRoles: string[], action: PermissionCode): boolean {
   return userRoles.some((role) => ROLE_PERMISSIONS[role as RoleCode]?.includes(action));

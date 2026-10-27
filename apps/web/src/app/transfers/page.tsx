@@ -23,7 +23,7 @@ export default async function TransfersServerPage({
     return (
       <AccessDenied
         action="просмотр перемещений"
-        allowedRoles={['NP', 'KSGP', 'USGP', 'S1C', 'ADM', 'GUEST']}
+        allowedRoles={['NP', 'KSGP', 'USGP', 'S1C', 'ADM', 'GUEST', 'OTK']}
         requiredPermission="transfer:read"
       />
     );

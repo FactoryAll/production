@@ -66,6 +66,11 @@ export function getNavItems(userRoles: string[]): NavItem[] {
     items.push({ label: 'Перемещения', href: '/transfers' });
   }
 
+  // Отчёты (решение владельца 26.10.2026): НП, С1С, ОТК и АДМ.
+  if (hasPermission(userRoles, 'reports:read')) {
+    items.push({ label: 'Отчёты', href: '/reports' });
+  }
+
   // Рабочее место 1С M12 — С1С и АДМ (M12 §3: просмотр данных для 1С — R у С1С и АДМ).
   if (hasPermission(userRoles, 'onec:read')) {
     items.push({ label: '1С', href: '/onec' });

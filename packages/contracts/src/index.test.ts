@@ -125,7 +125,8 @@ describe('contracts enums', () => {
     expect(RoleCode.ADM).toBe('ADM');
     // Гостевая роль (решение владельца 25.10.2026).
     expect(RoleCode.GUEST).toBe('GUEST');
-    expect(ALL_ROLES).toHaveLength(7);
+    expect(RoleCode.OTK).toBe('OTK');
+    expect(ALL_ROLES).toHaveLength(8);
   });
 
   it('DocumentType matches Prisma native enum', () => {

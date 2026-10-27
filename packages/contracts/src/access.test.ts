@@ -113,9 +113,19 @@ describe('getAttributeRole', () => {
       RoleCode.KSGP,
       RoleCode.USGP,
       RoleCode.S1C,
+      RoleCode.OTK,
       // Гость — последним: у него только чтение, атрибуцию аудита он перебивать не должен.
       RoleCode.GUEST,
     ]);
+  });
+
+  it('ОТК: гостевые права плюс отчёты, без прав на изменение', () => {
+    const readOnly = ROLE_PERMISSIONS.OTK;
+    expect(readOnly).toContain('reports:read');
+    for (const permission of ['production_order:read', 'stock:read', 'transfer:read', 'dashboard:read']) {
+      expect(readOnly).toContain(permission);
+    }
+    expect(readOnly.filter((permission) => !permission.endsWith(':read'))).toEqual([]);
   });
 
   it('гость не получает ни одного права на изменение', () => {
