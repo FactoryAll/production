@@ -99,6 +99,8 @@ export const PERMISSIONS = [
   { code: 'nsi:manage_warehouses', action: 'Управление складами' },
   { code: 'users:manage', action: 'Управление пользователями' },
   { code: 'roles:manage', action: 'Управление ролями' },
+  // Отчёты (решение владельца 26.10.2026).
+  { code: 'reports:read', action: 'Просмотр отчётов' },
 ];
 
 export const ROLE_PERMISSION_MAP: Record<RoleCode, string[]> = {

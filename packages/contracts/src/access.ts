@@ -54,6 +54,10 @@ export const ALL_PERMISSIONS: PermissionCode[] = [
   'users:manage',
   'roles:manage',
   'nsi:read',
+  // Отчёты (решение владельца 26.10.2026). Право обязано быть в ALL_PERMISSIONS:
+  // администратор получает права именно из этого списка, и без строки пункт «Отчёты»
+  // ему не показывался (поймано на дев-стенде).
+  'reports:read',
 ];
 
 export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
