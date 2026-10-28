@@ -1181,6 +1181,9 @@ function buildSubstituteDeps(
   );
   const orderFindUnique = vi.fn().mockResolvedValue(order);
   const productionOrderLineFindUnique = vi.fn().mockResolvedValue(line);
+  // Прошлый состав строки (T-093): пуст по умолчанию, тест может подложить свой.
+  const previousWorkers: Array<Record<string, unknown>> = [];
+  const createComposition = vi.fn().mockResolvedValue(undefined);
   let productionFactCreateCallIndex = 0;
   const productionFactUpsert = vi.fn().mockImplementation((args: { create: Record<string, unknown> }) => {
     productionFactCreateCallIndex += 1;
@@ -1241,6 +1244,22 @@ function buildSubstituteDeps(
     defectReason: {
       findUnique: defectReasonFindUnique,
     },
+    // T-093: состав работников при вводе за Оператора.
+    productionFactWorker: {
+      findMany: vi.fn().mockResolvedValue(previousWorkers),
+      deleteMany: vi.fn().mockResolvedValue(undefined),
+      createMany: createComposition,
+    },
+    employee: {
+      findMany: vi.fn().mockImplementation(({ where }: { where: { id: { in: string[] } } }) =>
+        Promise.resolve(where.id.in.map((id) => ({ id, active: true }))),
+      ),
+    },
+    absenceReason: {
+      findMany: vi.fn().mockImplementation(({ where }: { where: { id: { in: string[] } } }) =>
+        Promise.resolve(where.id.in.map((id) => ({ id, active: true }))),
+      ),
+    },
   };
 
   const prisma = {
@@ -1261,6 +1280,7 @@ function buildSubstituteDeps(
     productionFactUpsert,
     notificationCreateMany,
     userFindMany,
+    createComposition,
     tx,
   };
 }
@@ -1867,6 +1887,8 @@ function buildCorrectFactDeps(
     Promise.resolve({ ...fact, ...data }),
   );
   const factFindUnique = vi.fn().mockResolvedValue(fact);
+  const correctPreviousWorkers: Array<Record<string, unknown>> = [];
+  const correctCreateComposition = vi.fn().mockResolvedValue(undefined);
 
   const consumptionDeleteMany = vi.fn().mockResolvedValue(undefined);
   const consumptionCreateMany = vi.fn().mockResolvedValue(undefined);
@@ -1886,6 +1908,22 @@ function buildCorrectFactDeps(
     // ОПЭ-40: корректировка уведомляет специалиста 1С — событие пишется в уведомления.
     notification: { createMany: vi.fn().mockResolvedValue(undefined) },
     user: { findMany: vi.fn().mockResolvedValue([]) },
+    // T-093: состав работников при корректировке факта НП.
+    productionFactWorker: {
+      findMany: vi.fn().mockResolvedValue(correctPreviousWorkers),
+      deleteMany: vi.fn().mockResolvedValue(undefined),
+      createMany: correctCreateComposition,
+    },
+    employee: {
+      findMany: vi.fn().mockImplementation(({ where }: { where: { id: { in: string[] } } }) =>
+        Promise.resolve(where.id.in.map((id) => ({ id, active: true }))),
+      ),
+    },
+    absenceReason: {
+      findMany: vi.fn().mockImplementation(({ where }: { where: { id: { in: string[] } } }) =>
+        Promise.resolve(where.id.in.map((id) => ({ id, active: true }))),
+      ),
+    },
   };
 
   const prisma = {
@@ -1907,6 +1945,8 @@ function buildCorrectFactDeps(
     writeTiming,
     factUpdate,
     tx,
+    correctCreateComposition,
+    correctPreviousWorkers,
     consumptionDeleteMany,
     consumptionCreateMany,
     applyStockMovements,
@@ -1914,6 +1954,119 @@ function buildCorrectFactDeps(
     syncOneCTask: vi.fn().mockResolvedValue('updated'),
   };
 }
+
+describe('T-093 этап 4: состав работников в путях НП', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('«Ввод за Оператора» пишет состав из прошлого факта, причина не требуется заново', async () => {
+    const line = buildSubstitutableLine('ASSIGNED');
+    const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
+    const deps = buildSubstituteDeps(line, order);
+    // Прошлый факт: работника не назначали, но он выходил — причина уже записана.
+    // Экран прислал его назад без причины: она наследуется, но состав отличается тем,
+    // что в прошлом факте он был отмечен не вышедшим — значит, аудит должен быть.
+    deps.tx.productionFactWorker.findMany.mockResolvedValueOnce([
+      {
+        employeeId: 'emp-9',
+        planned: false,
+        worked: false,
+        absenceReasonId: 'reason-1',
+        comment: 'Вышел вместо заболевшего',
+      },
+    ]);
+
+    await substituteOperator(
+      'line-1',
+      {
+        reasonCode: 'ILLNESS',
+        comment: 'Заболевание',
+        output: 10,
+        factCategory: 'MASS',
+        workers: [{ employeeId: 'emp-9', worked: true }],
+      },
+      {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+        applyStockMovements: deps.applyStockMovements,
+        updateShiftSummary: deps.updateShiftSummary,
+      },
+    );
+
+    const rows = deps.createComposition.mock.calls[0][0].data as Array<{
+      employeeId: string;
+      planned: boolean;
+      worked: boolean;
+      comment: string | null;
+    }>;
+    expect(rows).toEqual([
+      {
+        productionFactId: expect.any(String),
+        employeeId: 'emp-9',
+        planned: false,
+        worked: true,
+        absenceReasonId: null,
+        comment: 'Вышел вместо заболевшего',
+      },
+    ]);
+
+    const compositionAudit = (deps.writeAudit as ReturnType<typeof vi.fn>).mock.calls
+      .map((call) => call[1])
+      .find((input) => input.field === 'workers');
+    expect(compositionAudit).toMatchObject({
+      action: 'UPDATE',
+      objectType: 'ProductionFact',
+      permission: 'production_order:confirm',
+    });
+  });
+
+  it('корректировка НП пишет состав по тем же правилам', async () => {
+    const fact = buildMockProductionFact();
+    const deps = buildCorrectFactDeps(fact);
+
+    await correctProductionFact(
+      fact.id,
+      {
+        quantity: 12,
+        correctionReason: 'Уточнили выпуск',
+        workers: [{ employeeId: 'emp-2', worked: true, comment: 'Вышел вместо заболевшего' }],
+      },
+      {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+        applyStockMovements: deps.applyStockMovements,
+        updateShiftSummary: deps.updateShiftSummary,
+        syncOneCTask: deps.syncOneCTask,
+      },
+    );
+
+    const rows = deps.correctCreateComposition.mock.calls[0][0].data as Array<{
+      employeeId: string;
+      planned: boolean;
+      worked: boolean;
+      comment: string | null;
+    }>;
+    expect(rows).toEqual([
+      {
+        productionFactId: fact.id,
+        employeeId: 'emp-2',
+        planned: false,
+        worked: true,
+        absenceReasonId: null,
+        comment: 'Вышел вместо заболевшего',
+      },
+    ]);
+    const compositionAudit = (deps.writeAudit as ReturnType<typeof vi.fn>).mock.calls
+      .map((call) => call[1])
+      .find((input) => input.field === 'workers');
+    expect(compositionAudit).toMatchObject({ action: 'CREATE', objectType: 'ProductionFact' });
+  });
+});
 
 describe('correctProductionFact', () => {
   beforeEach(() => {

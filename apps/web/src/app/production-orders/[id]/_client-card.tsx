@@ -40,6 +40,15 @@ interface ProductionOrderCardProps {
             // T-073: состав потребления нужен, чтобы корректировать его в карточке,
             // а номенклатура — чтобы показать, что и сколько потреблялось (Р-10).
             consumptions: Array<FactConsumption & { product: Product }>;
+            // T-093: фактический состав работников — прошлый снимок для формы.
+            factWorkers: Array<{
+              employeeId: string;
+              planned: boolean;
+              worked: boolean;
+              absenceReasonId: string | null;
+              comment: string | null;
+              employee: Pick<Employee, 'id' | 'fullName' | 'tabNumber'>;
+            }>;
           }
         >;
         workerAssignments: Array<ProductionOrderLineWorkers & { employee: Employee }>;
@@ -59,6 +68,10 @@ interface ProductionOrderCardProps {
     category: 'MASS' | 'PF' | 'GP';
     available: number;
   }[];
+  /** Действующие причины неявки (T-093): нужны, когда работник не вышел. */
+  absenceReasons: Array<{ id: string; code: string; name: string }>;
+  /** Кого можно добавить в состав, если назначение не совпало с выходом. */
+  workerCandidates: Array<{ id: string; fullName: string; tabNumber: string }>;
   userRoles: string[];
 }
 
@@ -181,6 +194,20 @@ function formatDate(value: Date | null): string {
   return new Date(value).toLocaleString('ru-RU');
 }
 
+/**
+ * Строка фактического состава работников в формах «Ввод за Оператора» и «Корректировать факт»
+ * (T-093). Одна форма на два диалога: правила одинаковые, экраны повторяют друг друга.
+ */
+interface CardWorkerRow {
+  employeeId: string;
+  fullName: string;
+  tabNumber: string;
+  planned: boolean;
+  worked: boolean;
+  absenceReasonId: string;
+  comment: string;
+}
+
 const SUBSTITUTION_REASON_OPTIONS = [
   { value: 'ILLNESS', label: 'Болезнь' },
   { value: 'NO_SHOW', label: 'Неявка' },
@@ -188,10 +215,156 @@ const SUBSTITUTION_REASON_OPTIONS = [
   { value: 'OTHER', label: 'Прочее' },
 ];
 
+/**
+ * Редактор фактического состава работников (T-093). Показывает назначенных отмеченными,
+ * снимает отметку только с причиной из справочника, добавленного требует с причиной словами.
+ * Тот же вид, что у оператора на экране исполнения смены.
+ */
+function WorkerCompositionEditor({
+  rows,
+  absenceReasons,
+  workerCandidates,
+  disabled,
+  onChange,
+}: {
+  rows: CardWorkerRow[];
+  absenceReasons: Array<{ id: string; code: string; name: string }>;
+  workerCandidates: Array<{ id: string; fullName: string; tabNumber: string }>;
+  disabled: boolean;
+  onChange: (rows: CardWorkerRow[]) => void;
+}) {
+  function patch(employeeId: string, changes: Partial<CardWorkerRow>) {
+    onChange(rows.map((row) => (row.employeeId === employeeId ? { ...row, ...changes } : row)));
+  }
+
+  function remove(employeeId: string) {
+    onChange(rows.filter((row) => row.employeeId !== employeeId));
+  }
+
+  function add(employeeId: string) {
+    const candidate = workerCandidates.find((item) => item.id === employeeId);
+    if (!candidate || rows.some((row) => row.employeeId === employeeId)) return;
+    onChange([
+      ...rows,
+      {
+        employeeId: candidate.id,
+        fullName: candidate.fullName,
+        tabNumber: candidate.tabNumber,
+        planned: false,
+        worked: true,
+        absenceReasonId: '',
+        comment: '',
+      },
+    ]);
+  }
+
+  return (
+    <div className="space-y-3 rounded-md border border-mist-metal p-3">
+      <p className="text-sm font-medium text-graphite">
+        Работники смены — назначенные отмечены; снимите отметку у тех, кто не выходил
+      </p>
+
+      {rows.length === 0 && (
+        <p className="text-sm text-steel-graphite">
+          Состав пуст: работники на эту строку не назначались.
+        </p>
+      )}
+
+      {rows.map((row) => (
+        <div key={row.employeeId} className="grid grid-cols-12 items-start gap-2">
+          <label className="col-span-6 flex items-center gap-2 text-sm text-graphite">
+            <input
+              type="checkbox"
+              checked={row.worked}
+              disabled={disabled}
+              onChange={(e) =>
+                patch(row.employeeId, {
+                  worked: e.target.checked,
+                  absenceReasonId: e.target.checked ? '' : row.absenceReasonId,
+                })
+              }
+            />
+            <span>
+              {row.fullName}
+              <span className="text-steel-graphite"> · {row.tabNumber}</span>
+              {!row.planned && <span className="text-steel-graphite"> (добавлен)</span>}
+            </span>
+          </label>
+
+          {!row.worked && (
+            <div className="col-span-5">
+              <select
+                aria-label={'Причина неявки: ' + row.fullName}
+                className="h-10 w-full rounded-md border border-mist-metal bg-white px-3 text-base text-graphite"
+                value={row.absenceReasonId}
+                disabled={disabled}
+                onChange={(e) => patch(row.employeeId, { absenceReasonId: e.target.value })}
+              >
+                <option value="">Причина неявки…</option>
+                {absenceReasons.map((reason) => (
+                  <option key={reason.id} value={reason.id}>
+                    {reason.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {!row.planned && (
+            <div className="col-span-5">
+              <input
+                aria-label={'Почему добавили: ' + row.fullName}
+                placeholder="Почему добавили (обязательно)"
+                value={row.comment}
+                disabled={disabled}
+                onChange={(e) => patch(row.employeeId, { comment: e.target.value })}
+                className="flex h-10 w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
+              />
+            </div>
+          )}
+
+          {!row.planned && (
+            <div className="col-span-1">
+              <Button variant="secondary" type="button" disabled={disabled} onClick={() => remove(row.employeeId)}>
+                ×
+              </Button>
+            </div>
+          )}
+        </div>
+      ))}
+
+      <div className="grid grid-cols-12 items-center gap-2">
+        <div className="col-span-6">
+          <select
+            aria-label="Добавить работника"
+            className="h-10 w-full rounded-md border border-mist-metal bg-white px-3 text-base text-graphite"
+            value=""
+            disabled={disabled}
+            onChange={(e) => {
+              if (e.target.value) add(e.target.value);
+            }}
+          >
+            <option value="">Добавить работника, которого не назначали…</option>
+            {workerCandidates
+              .filter((item) => !rows.some((row) => row.employeeId === item.id))
+              .map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.fullName} · {item.tabNumber}
+                </option>
+              ))}
+          </select>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ProductionOrderCard({
   order,
   defectReasons,
   consumableProducts,
+  absenceReasons,
+  workerCandidates,
   userRoles,
 }: ProductionOrderCardProps) {
   const router = useRouter();
@@ -298,6 +471,8 @@ export default function ProductionOrderCard({
         quantity: item.quantity.toString(),
       })),
     );
+    // T-093: прошлый фактический состав строки — основа для подтверждения состава.
+    setCorrectWorkers(buildCardWorkerRows(lineId));
     setCorrectReason('');
     setCorrectError(null);
     setShowCorrectFactDialog(true);
@@ -348,6 +523,11 @@ export default function ProductionOrderCard({
       setCorrectError('Укажите причину брака');
       return;
     }
+    const workersError = validateWorkers(correctWorkers);
+    if (workersError) {
+      setCorrectError(workersError);
+      return;
+    }
 
     const consumption = correctConsumption.filter((row) => row.productId && row.quantity);
     const seenProducts = new Set<string>();
@@ -381,6 +561,7 @@ export default function ProductionOrderCard({
       ),
     );
     formData.set('correctionReason', reason);
+    formData.set('workers', workersPayload(correctWorkers));
 
     startTransition(async () => {
       const result = await correctProductionFactAction(correctFactId, formData);
@@ -394,6 +575,80 @@ export default function ProductionOrderCard({
   }
 
   const [substituteConsumption, setSubstituteConsumption] = useState<{ productId: string; quantity: string }[]>([]);
+  // T-093: фактический состав работников в обоих диалогах карточки.
+  const [substituteWorkers, setSubstituteWorkers] = useState<CardWorkerRow[]>([]);
+  const [correctWorkers, setCorrectWorkers] = useState<CardWorkerRow[]>([]);
+
+  /**
+   * Состав для формы: прошлый факт линии, если он есть, иначе назначение (T-093).
+   * Прошлый состав важнее: причина неявки у этих работников уже записана, и повторять её
+   * при «Вводе за Оператора» и корректировке не нужно.
+   */
+  function buildCardWorkerRows(lineId: string): CardWorkerRow[] {
+    const line = order.lines.find((item) => item.id === lineId);
+    if (!line) {
+      return [];
+    }
+    const confirmed = new Map<string, CardWorkerRow>();
+    for (const fact of line.facts) {
+      for (const row of fact.factWorkers ?? []) {
+        confirmed.set(row.employeeId, {
+          employeeId: row.employeeId,
+          fullName: row.employee.fullName,
+          tabNumber: row.employee.tabNumber,
+          planned: row.planned,
+          worked: row.worked,
+          absenceReasonId: row.absenceReasonId ?? '',
+          comment: row.comment ?? '',
+        });
+      }
+    }
+
+    const rows: CardWorkerRow[] = [];
+    for (const assignment of line.workerAssignments ?? []) {
+      const previous = confirmed.get(assignment.employee.id);
+      rows.push(
+        previous ?? {
+          employeeId: assignment.employee.id,
+          fullName: assignment.employee.fullName,
+          tabNumber: assignment.employee.tabNumber,
+          planned: true,
+          worked: true,
+          absenceReasonId: '',
+          comment: '',
+        },
+      );
+    }
+    // Добавленные ранее работники остаются: их не было в назначении.
+    for (const row of confirmed.values()) {
+      if (!rows.some((item) => item.employeeId === row.employeeId)) {
+        rows.push(row);
+      }
+    }
+    return rows;
+  }
+
+  /** Правила те же, что на сервере: причина обязательна при любом расхождении. */
+  function validateWorkers(rows: CardWorkerRow[]): string | null {
+    if (rows.some((row) => !row.worked && !row.absenceReasonId)) {
+      return 'Укажите причину неявки для каждого, кто не вышел';
+    }
+    if (rows.some((row) => !row.planned && !row.comment.trim())) {
+      return 'Укажите причину, по которой работника добавили в состав';
+    }
+    return null;
+  }
+
+  function workersPayload(rows: CardWorkerRow[]): string {
+    return JSON.stringify(
+      rows.map((row) => ({
+        employeeId: row.employeeId,
+        worked: row.worked,
+        absenceReasonId: row.worked ? null : row.absenceReasonId || null,
+        comment: row.comment.trim() || null,
+      })),
+    );
+  }
 
   function openSubstituteDialog(lineId: string) {
     setSubstituteLineId(lineId);
@@ -406,6 +661,7 @@ export default function ProductionOrderCard({
     setSubstituteStopsCount('');
     setSubstituteStopsDurationMinutes('');
     setSubstituteConsumption([]);
+    setSubstituteWorkers(buildCardWorkerRows(lineId));
     setSubstituteError(null);
     setShowSubstituteDialog(true);
   }
@@ -426,6 +682,11 @@ export default function ProductionOrderCard({
     }
     if (!substituteComment.trim()) {
       setSubstituteError('Комментарий обязателен');
+      return;
+    }
+    const workersError = validateWorkers(substituteWorkers);
+    if (workersError) {
+      setSubstituteError(workersError);
       return;
     }
 
@@ -461,6 +722,7 @@ export default function ProductionOrderCard({
           .map((row) => ({ productId: row.productId, quantity: Number(row.quantity) })),
       ));
     }
+    formData.set('workers', workersPayload(substituteWorkers));
 
     startTransition(async () => {
       const result = await substituteOperatorAction(substituteLineId, formData);
@@ -827,6 +1089,13 @@ export default function ProductionOrderCard({
               className="flex min-h-[80px] w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
             />
           </div>
+          <WorkerCompositionEditor
+            rows={correctWorkers}
+            absenceReasons={absenceReasons}
+            workerCandidates={workerCandidates}
+            disabled={isPending}
+            onChange={setCorrectWorkers}
+          />
           {correctError && <p className="text-sm text-signal-amber">{correctError}</p>}
           <div className="mt-6 flex justify-end gap-3">
             <Button
@@ -976,6 +1245,14 @@ export default function ProductionOrderCard({
               className="flex h-10 w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
             />
           </div>
+
+          <WorkerCompositionEditor
+            rows={substituteWorkers}
+            absenceReasons={absenceReasons}
+            workerCandidates={workerCandidates}
+            disabled={isPending}
+            onChange={setSubstituteWorkers}
+          />
 
           {substituteError && <p className="text-sm text-signal-amber">{substituteError}</p>}
           <div className="mt-6 flex justify-end gap-3">

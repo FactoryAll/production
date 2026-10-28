@@ -260,6 +260,8 @@ export default function ShiftExecutionPage({
         quantity: c.quantity.toString(),
         stockCategory: (c as { stockCategory?: 'MASS' | 'PF' | 'GP' }).stockCategory,
       })) ?? [];
+    // Прошлый фактический состав, а если его не было — назначение (T-093, §5 постановки).
+    base.workers = buildWorkerRows(line);
     setForm(base);
     if (fact?.consumptions) {
       fact.consumptions.forEach((c) => void fetchBalance(c.productId));
@@ -523,7 +525,20 @@ export default function ShiftExecutionPage({
         );
       }
 
-      const result: CorrectFactResult = await correctFactByOperatorAction(dialogState.line.id, formData);
+            // Состав уходит снимком: сервер сам проставит признак «назначен» по строке ПЗ.
+      formData.set(
+        'workers',
+        JSON.stringify(
+          form.workers.map((row) => ({
+            employeeId: row.employeeId,
+            worked: row.worked,
+            absenceReasonId: row.worked ? null : row.absenceReasonId || null,
+            comment: row.comment.trim() || null,
+          })),
+        ),
+      );
+
+const result: CorrectFactResult = await correctFactByOperatorAction(dialogState.line.id, formData);
       if (result.success) {
         closeDialog();
         if (result.warnings && result.warnings.length > 0) {
@@ -840,7 +855,7 @@ export default function ShiftExecutionPage({
             )}
           </div>
 
-          {dialogState?.mode === 'report' && (
+          {(dialogState?.mode === 'report' || dialogState?.mode === 'correct') && (
             <div className="space-y-3 rounded-md border border-mist-metal p-3">
               <p className="text-sm font-medium text-graphite">
                 Работники смены

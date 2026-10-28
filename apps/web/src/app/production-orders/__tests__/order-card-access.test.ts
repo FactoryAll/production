@@ -20,6 +20,9 @@ vi.mock('@prodtrack/db', () => ({
     product: { findMany: vi.fn().mockResolvedValue([]) },
     // ОПЭ-44: список потребления строится по остаткам Производственного склада.
     stockBalance: { findMany: vi.fn().mockResolvedValue([]) },
+    // T-093: карточка получает справочник причин неявки и кандидатов в работники.
+    absenceReason: { findMany: vi.fn().mockResolvedValue([]) },
+    employee: { findMany: vi.fn().mockResolvedValue([]) },
   },
   writeAudit: vi.fn(),
   writeTiming: vi.fn(),

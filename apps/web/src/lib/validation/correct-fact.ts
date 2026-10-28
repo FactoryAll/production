@@ -15,6 +15,11 @@ export interface CorrectProductionFactInput {
    * пустой список — потребления у факта нет.
    */
   consumption?: { productId: string; quantity: number }[];
+  /**
+   * Фактический состав работников (T-093, этап 4). Не передан — состав не трогаем;
+   * экран корректировки присылает прошлый состав, чтобы оператору не повторять причину.
+   */
+  workers?: { employeeId: string; worked?: boolean; absenceReasonId?: string | null; comment?: string | null }[];
   correctionReason: string;
 }
 
@@ -23,6 +28,7 @@ export function parseCorrectFactFormData(formData: FormData): CorrectProductionF
   const defectQuantityRaw = formData.get('defectQuantity');
   const stopRaw = formData.get('stopsDurationMinutes');
   const consumptionRaw = formData.get('consumption')?.toString();
+  const workersRaw = formData.get('workers')?.toString();
 
   return {
     quantity,
@@ -30,6 +36,7 @@ export function parseCorrectFactFormData(formData: FormData): CorrectProductionF
     defectReasonId: (formData.get('defectReasonId') as string) || undefined,
     stopsDurationMinutes: stopRaw ? Number(stopRaw) : undefined,
     consumption: consumptionRaw ? JSON.parse(consumptionRaw) : undefined,
+    workers: workersRaw ? JSON.parse(workersRaw) : undefined,
     correctionReason: formData.get('correctionReason') as string,
   };
 }

@@ -31,6 +31,14 @@ export interface ResolvedWorkerRow {
   comment: string | null;
 }
 
+/** Строка прошлого факта: что о работнике уже известно из данных. */
+export interface KnownCompositionRow {
+  employeeId: string;
+  worked?: boolean;
+  absenceReasonId?: string | null;
+  comment?: string | null;
+}
+
 /**
  * Приводит присланный состав к снимку, который можно записать в `ProductionFactWorker`.
  *
@@ -39,21 +47,29 @@ export interface ResolvedWorkerRow {
  * работники, о которых экран ничего не сказал, попадают в снимок как вышедшие — это и есть
  * правило «ничего не менял — состав равен назначенному» из §5 постановки.
  *
+ * `options.known` — строки прошлого факта. Из них наследуется всё, чего экран не прислал:
+ * при «Вводе за Оператора» и корректировке причина неявки уже записана, и повторять её
+ * не нужно (уточнение владельца 28.10.2026: причина требуется только при расхождении
+ * с тем, что уже известно, а не при любом вводе).
+ *
  * Проверки, из-за которых сохранение отклоняется:
- *   — работник, который не вышел, обязан иметь причину из справочника причин неявки;
- *   — добавленный работник обязан иметь причину словами (его не было в назначении);
+ *   — работник, который не вышел, обязан иметь причину из справочника причин неявки
+ *     (свою или унаследованную из прошлого факта);
+ *   — добавленный работник обязан иметь причину словами, если о нём данных ещё нет;
  *   — добавленного работника нельзя отметить как не вышедшего: «добавили и не вышел» —
  *     это не расхождение, а ошибка ввода, и такого в данных быть не должно.
  */
 export function resolveWorkerComposition(
   workers: WorkerCompositionInput[] | undefined,
   plannedIds: readonly string[],
+  options: { known?: readonly KnownCompositionRow[] } = {},
 ): ResolvedWorkerRow[] {
   if (!workers) {
     return [];
   }
 
   const planned = new Set(plannedIds);
+  const previousById = new Map((options.known ?? []).map((row) => [row.employeeId, row]));
   const seen = new Set<string>();
   const rows: ResolvedWorkerRow[] = [];
 
@@ -66,9 +82,10 @@ export function resolveWorkerComposition(
     seen.add(employeeId);
 
     const wasPlanned = planned.has(employeeId);
-    const worked = item.worked ?? true;
-    const absenceReasonId = item.absenceReasonId?.trim() || null;
-    const comment = item.comment?.trim() || null;
+    const previous = previousById.get(employeeId);
+    const worked = item.worked ?? previous?.worked ?? true;
+    const absenceReasonId = item.absenceReasonId?.trim() || previous?.absenceReasonId || null;
+    const comment = item.comment?.trim() || previous?.comment || null;
 
     if (!wasPlanned && !worked) {
       throw new Error('Добавленный работник не может быть отмечен как не вышедший');
@@ -76,7 +93,7 @@ export function resolveWorkerComposition(
     if (!worked && !absenceReasonId) {
       throw new Error('Укажите причину неявки работника из справочника');
     }
-    if (!wasPlanned && !comment) {
+    if (!wasPlanned && !comment && !previous) {
       throw new Error('Укажите причину, по которой работника добавили в состав');
     }
 
@@ -105,4 +122,3 @@ export function resolveWorkerComposition(
 
   return rows;
 }
-

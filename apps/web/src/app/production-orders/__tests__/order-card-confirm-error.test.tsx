@@ -71,6 +71,8 @@ describe('ProductionOrderCard: ошибка подтверждения ПЗ ви
         order={makeOrder('DRAFT')}
         defectReasons={[] as DefectReason[]}
         consumableProducts={[]}
+      absenceReasons={[]}
+      workerCandidates={[]}
         userRoles={['NP']}
       />,
     );

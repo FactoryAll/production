@@ -47,6 +47,8 @@ import {
   checkAndCloseProductionOrder,
   transitionToInProgress,
 } from '@/lib/production-order-closing';
+import { pickPrimaryFact, saveWorkerComposition } from '@/lib/fact-worker-composition';
+import type { WorkerCompositionInput } from '@/lib/worker-composition';
 
 export type CreateProductionOrderResult =
   | { success: true; id: string }
@@ -718,6 +720,11 @@ export interface SubstitutionInput {
   stopsCount?: number;
   stopsDurationMinutes?: number;
   consumption?: SubstitutionConsumptionLine[];
+  /**
+   * Фактический состав работников (T-093). Экран присылает прошлый состав, если он был,
+   * иначе состав из назначения — причина нужна только при расхождении.
+   */
+  workers?: WorkerCompositionInput[];
 }
 
 export async function substituteOperator(
@@ -731,7 +738,14 @@ export async function substituteOperator(
 
   const line = await deps.prisma.productionOrderLine.findUnique({
     where: { id: lineId },
-    include: { order: true, operator: true, product: true, workCenter: true },
+    include: {
+      order: true,
+      operator: true,
+      product: true,
+      workCenter: true,
+      // План работников: состав при вводе за Оператора берётся из прошлого факта или из него.
+      workerAssignments: { select: { employeeId: true } },
+    },
   });
   if (!line) {
     throw new Error('Строка ПЗ не найдена');
@@ -885,6 +899,22 @@ export async function substituteOperator(
       });
     }
 
+    const primaryFact = pickPrimaryFact(createdFacts, line.product.category);
+    if (!primaryFact) {
+      throw new Error('Не удалось определить факт для состава работников');
+    }
+    // Состав при «Вводе за Оператора» — по тем же правилам (T-093): экран присылает прошлый
+    // состав, если он был, иначе состав из назначения; причина нужна только при расхождении.
+    await saveWorkerComposition(tx, { writeAudit: deps.writeAudit }, {
+      lineId,
+      primaryFactId: primaryFact.id,
+      plannedIds: (line.workerAssignments ?? []).map((item) => item.employeeId),
+      workers: input.workers,
+      userId,
+      userRoles: roles,
+      permission: 'production_order:confirm',
+    });
+
     await tx.productionOrderLine.update({
       where: { id: lineId },
       data: { status: 'REPORTED', substitutionReasonId: substitutionReason.id },
@@ -973,6 +1003,7 @@ export async function substituteOperatorAction(
     const comment = formData.get('comment') as string;
     const rawConsumption = formData.get('consumption')?.toString();
     const rawOutputByCategory = formData.get('outputByCategory')?.toString();
+    const rawWorkers = formData.get('workers')?.toString();
     const input: SubstitutionInput = {
       reasonCode,
       comment,
@@ -981,6 +1012,7 @@ export async function substituteOperatorAction(
       stopsCount: formData.get('stopsCount') ? Number(formData.get('stopsCount')) : undefined,
       stopsDurationMinutes: formData.get('stopsDurationMinutes') ? Number(formData.get('stopsDurationMinutes')) : undefined,
       consumption: rawConsumption ? JSON.parse(rawConsumption) : undefined,
+      workers: rawWorkers ? (JSON.parse(rawWorkers) as WorkerCompositionInput[]) : undefined,
     };
 
     if (rawOutputByCategory) {
@@ -1161,6 +1193,9 @@ export async function correctProductionFact(
         include: {
           order: true,
           workCenter: true,
+          // План работников: правка состава идёт по тем же правилам (T-093, этап 4).
+          workerAssignments: { select: { employeeId: true } },
+          product: { select: { category: true } },
         },
       },
     },
@@ -1431,6 +1466,18 @@ export async function correctProductionFact(
       permission: 'production_order:confirm',
     });
 
+    // Состав работников правится по тем же правилам, что при вводе итога (T-093).
+    // Если экран его не прислал, состав остаётся как был.
+    await saveWorkerComposition(tx, { writeAudit: deps.writeAudit }, {
+      lineId,
+      primaryFactId: factId,
+      plannedIds: (fact.line.workerAssignments ?? []).map((item) => item.employeeId),
+      workers: input.workers,
+      userId,
+      userRoles: roles,
+      permission: 'production_order:confirm',
+    });
+
     // Корректировка факта (Р-18) не меняет статус строки, поэтому запись хронометража
     // не создаётся: M10 BR-4 фиксирует только переходы 00 §6, а сама корректировка
     // уже отражена в аудите (дефект №9 ручного тестирования v1.2.0).
@@ -1491,6 +1538,8 @@ export async function getProductionOrderById(id: string) {
                 // T-073: корректировка факта правит потребление — нужен его состав.
                 // Номенклатура нужна, чтобы в карточке было видно, что и сколько потреблялось (Р-10).
                 consumptions: { include: { product: true } },
+                // T-093: фактический состав работников — по нему форма подтверждает состав.
+                factWorkers: { include: { employee: true, absenceReason: true } },
               },
             },
             workerAssignments: {
@@ -1512,8 +1561,23 @@ export async function getProductionOrderById(id: string) {
     getConsumableStock(prisma),
   ]);
 
+  // Состав работников (T-093): причины неявки и кого можно добавить в состав.
+  // Для «Ввода за Оператора» и правки факта НП — те же правила, что у оператора.
+  const [absenceReasons, workerCandidates] = await Promise.all([
+    prisma.absenceReason.findMany({
+      where: { active: true },
+      orderBy: { name: 'asc' },
+      select: { id: true, code: true, name: true },
+    }),
+    prisma.employee.findMany({
+      where: { active: true, canBeWorker: true },
+      orderBy: { fullName: 'asc' },
+      select: { id: true, fullName: true, tabNumber: true },
+    }),
+  ]);
+
   if (!order) {
-    return { order: null, defectReasons, consumableProducts };
+    return { order: null, defectReasons, consumableProducts, absenceReasons, workerCandidates };
   }
 
   // ОПР видит только ПЗ, в которых есть строка его РЦ, и только эти строки (свой РЦ, M02).
@@ -1523,12 +1587,18 @@ export async function getProductionOrderById(id: string) {
       ? order.lines.filter((line) => line.operatorId === employeeId)
       : [];
     if (ownLines.length === 0) {
-      return { order: null, defectReasons, consumableProducts };
+      return { order: null, defectReasons, consumableProducts, absenceReasons, workerCandidates };
     }
-    return { order: { ...order, lines: ownLines }, defectReasons, consumableProducts };
+    return {
+      order: { ...order, lines: ownLines },
+      defectReasons,
+      consumableProducts,
+      absenceReasons,
+      workerCandidates,
+    };
   }
 
-  return { order, defectReasons, consumableProducts };
+  return { order, defectReasons, consumableProducts, absenceReasons, workerCandidates };
 }
 
 export async function getProductionOrders() {

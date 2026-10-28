@@ -1155,6 +1155,36 @@ describe('T-093: фактический состав работников при
       ).toThrow('Добавленный работник не может быть отмечен как не вышедший');
     });
 
+    it('прошлый факт — причина неявки наследуется, повторять её не нужно (этап 4)', () => {
+      const rows = resolveWorkerComposition(
+        [{ employeeId: 'emp-2', worked: false }],
+        ['emp-2'],
+        { known: [{ employeeId: 'emp-2', worked: false, absenceReasonId: 'reason-1' }] },
+      );
+      expect(rows[0]).toMatchObject({ worked: false, absenceReasonId: 'reason-1' });
+    });
+
+    it('добавленный ранее работник не требует причины заново — она берётся из прошлого факта', () => {
+      const rows = resolveWorkerComposition(
+        [{ employeeId: 'emp-9', worked: true }],
+        [],
+        {
+          known: [
+            {
+              employeeId: 'emp-9',
+              worked: true,
+              comment: 'Вышел вместо заболевшего',
+            },
+          ],
+        },
+      );
+      expect(rows[0]).toMatchObject({
+        planned: false,
+        worked: true,
+        comment: 'Вышел вместо заболевшего',
+      });
+    });
+
     it('причина неявки у вышедшего не хранится', () => {
       const rows = resolveWorkerComposition(
         [{ employeeId: 'emp-2', worked: true, absenceReasonId: 'reason-1' }],
@@ -1376,6 +1406,60 @@ describe('getAvailableBalance', () => {
 describe('correctFactByOperator', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('корректировка оператора пишет состав по тем же правилам (T-093, этап 4)', async () => {
+    const deps = buildMockPrisma({
+      line: makeLine({ status: 'REPORTED' }),
+      existingFact: { id: 'fact-old', quantity: 5, factCategory: 'MASS', defectQuantity: 0, stopsCount: 0, stopsDurationMinutes: 0 },
+      workCenter: { id: 'wc-01', code: 'WC-01', name: 'РЦ 01', active: true, producesMass: true },
+      workerAssignments: [{ employeeId: 'emp-2' }],
+    });
+    const writeAudit = vi.fn();
+
+    await correctFactByOperator(
+      'line-1',
+      {
+        quantity: 12,
+        factCategory: 'MASS',
+        workers: [{ employeeId: 'emp-2', worked: false, absenceReasonId: 'reason-1' }],
+      },
+      {
+        prisma: deps.prisma,
+        writeAudit,
+        writeTiming: vi.fn(),
+        requireShiftWindow: vi.fn().mockResolvedValue(baseSession),
+        getAvailableBalance: deps.getAvailableBalance,
+        applyStockMovements: deps.applyStockMovements,
+        updateShiftSummary: deps.updateShiftSummary,
+        syncOneCTask: vi.fn().mockResolvedValue('created'),
+      },
+    );
+
+    const rows = deps.productionFactWorkerCreateMany.mock.calls[0][0].data as Array<{
+      employeeId: string;
+      planned: boolean;
+      worked: boolean;
+      absenceReasonId: string | null;
+    }>;
+    expect(rows).toEqual([
+      {
+        productionFactId: expect.any(String),
+        employeeId: 'emp-2',
+        planned: true,
+        worked: false,
+        absenceReasonId: 'reason-1',
+        comment: null,
+      },
+    ]);
+    const compositionAudit = writeAudit.mock.calls
+      .map((call) => call[1])
+      .find((input) => input.field === 'workers');
+    expect(compositionAudit).toMatchObject({
+      action: 'CREATE',
+      objectType: 'ProductionFact',
+      permission: 'production_order:report',
+    });
   });
 
   it('updates quantity, defect, stops and writes audit with oldValue/newValue', async () => {

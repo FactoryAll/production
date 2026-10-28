@@ -122,6 +122,8 @@ describe('Корректировка факта: потребление (T-073, 
         order={makeOrder()}
         defectReasons={[]}
         consumableProducts={[massProduct] as never}
+      absenceReasons={[]}
+      workerCandidates={[]}
         userRoles={['NP']}
       />,
     );
@@ -137,6 +139,8 @@ describe('Корректировка факта: потребление (T-073, 
         order={makeOrder()}
         defectReasons={[]}
         consumableProducts={[massProduct] as never}
+      absenceReasons={[]}
+      workerCandidates={[]}
         userRoles={['NP']}
       />,
     );
@@ -159,6 +163,8 @@ describe('Корректировка факта: потребление (T-073, 
         order={makeOrder()}
         defectReasons={[]}
         consumableProducts={[massProduct] as never}
+      absenceReasons={[]}
+      workerCandidates={[]}
         userRoles={['NP']}
       />,
     );
@@ -188,6 +194,8 @@ describe('Корректировка факта: потребление (T-073, 
         order={makeOrder()}
         defectReasons={[]}
         consumableProducts={[massProduct] as never}
+      absenceReasons={[]}
+      workerCandidates={[]}
         userRoles={['NP']}
       />,
     );
@@ -218,6 +226,8 @@ describe('Корректировка факта: потребление (T-073, 
         order={makeOrder()}
         defectReasons={[]}
         consumableProducts={[massProduct] as never}
+      absenceReasons={[]}
+      workerCandidates={[]}
         userRoles={['NP']}
       />,
     );
