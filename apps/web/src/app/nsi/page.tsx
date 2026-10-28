@@ -7,6 +7,7 @@ const NSI_CATALOGS = [
   { href: '/nsi/employees', title: 'Сотрудники', description: 'ФИО и табельные номера' },
   { href: '/nsi/defect-reasons', title: 'Причины брака', description: 'Справочник причин брака' },
   { href: '/nsi/substitution-reasons', title: 'Причины ввода за Оператора', description: 'ILLNESS, NO_SHOW, LEFT_SHIFT, OTHER' },
+  { href: '/nsi/absence-reasons', title: 'Причины неявки', description: 'Почему работник не вышел в смену — для табеля (T-093)' },
   { href: '/nsi/shifts', title: 'Смены', description: 'Расписание 08:00–20:00 / 20:00–08:00' },
   { href: '/nsi/warehouses', title: 'Склады', description: 'Производственный склад и Склад ГП' },
 ];

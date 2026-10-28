@@ -103,6 +103,21 @@ describe('Предупреждение Р-22: незавершённые док�
     );
   });
 
+  it('Причина неявки: строки, где её указали в фактическом составе (T-093)', async () => {
+    const client = buildClient();
+
+    await warningsFor('AbsenceReason', 'ar-1', client);
+
+    expect(client.productionOrder.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          status: { in: ['DRAFT', 'CONFIRMED', 'IN_PROGRESS'] },
+          lines: { some: { facts: { some: { factWorkers: { some: { absenceReasonId: 'ar-1' } } } } } },
+        },
+      }),
+    );
+  });
+
   it('Смена: ПЗ, привязанные к этой смене', async () => {
     const client = buildClient();
 

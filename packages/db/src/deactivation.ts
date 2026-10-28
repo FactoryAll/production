@@ -11,6 +11,7 @@ export type DeactivatableEntityType =
   | 'Employee'
   | 'DefectReason'
   | 'SubstitutionReason'
+  | 'AbsenceReason'
   | 'Shift';
 
 export interface DeactivationWarning {
@@ -133,6 +134,20 @@ export async function getDeactivationWarnings(
       const orders = await client.productionOrder.findMany({
         where: {
           lines: { some: { substitutionReasonId: entityId, status: 'REPORTED' } },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: ORDER_SELECT,
+      });
+      return orders.map(orderWarning);
+    }
+    case 'AbsenceReason': {
+      // ПЗ, где эту причину неявки уже указали в фактическом составе работников (T-093).
+      const orders = await client.productionOrder.findMany({
+        where: {
+          status: { in: UNFINISHED_ORDER_STATUSES },
+          lines: {
+            some: { facts: { some: { factWorkers: { some: { absenceReasonId: entityId } } } } },
+          },
         },
         orderBy: { createdAt: 'desc' },
         select: ORDER_SELECT,
