@@ -397,7 +397,20 @@ export async function getTimesheetReport(
 
   const rows: TimesheetRow[] = [...cells.values()]
     .map((cell) => {
-      const hours = shiftHours(cell.shift.start, cell.shift.end);
+      // Часы в клетке — это отработанное время, а не длительность смены: у «назначен, не работал»,
+      // неявки и «не отмечен» человек в смене не работал, и 12 часов рядом с такой пометкой
+      // читаются ОТК как отработанные (найдено на проверке скрина 28.10.2026).
+      // Длительность смены остаётся в итогах — там она прибавляется только к засчитанным сменам.
+      const duration = shiftHours(cell.shift.start, cell.shift.end);
+      // Условие одно и то же с итогами по сотруднику: строка получает часы ровно тогда,
+      // когда смена попадает в «отработано». Работник, вышедший на одну строку и не вышедший
+      // на другую в ту же смену, был в смене — и часы у него есть.
+      const counted =
+        cell.employeeId !== '' &&
+        (cell.role === 'OPERATOR'
+          ? cell.operator.reportedLines > 0
+          : cell.worker.workedLines > 0);
+      const hours = counted ? duration : null;
       if (cell.role === 'OPERATOR' && cell.employeeId === '') {
         return {
           employeeId: '',

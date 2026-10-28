@@ -224,7 +224,8 @@ describe('табель: сборка из источников', () => {
       mark: 'NO_FACT',
       factLabel: 'нет итога',
       markLabel: 'назначен, нет итога',
-      hours: 12,
+      // Часов нет: человек в смене не работал, и «12» рядом с пометкой читалось как работа.
+      hours: null,
       reportedLines: 0,
     });
     // Смену Петрова в итоги не засчитываем: работы по ней нет.
@@ -441,6 +442,61 @@ describe('табель: работники по фактическому сос�
     // Смена без оператора не засчитывается никому, но расхождением остаётся.
     expect(report.totals).toEqual({ shifts: 1, hours: 12, discrepancies: 1 });
     expect(report.employees.map((item) => item.employeeName)).toEqual(['Иванов И.И.']);
+  });
+
+  it('у строк без засчитанной работы часы пустые, и в итоги они не идут (проверка скрина 28.10.2026)', async () => {
+    const { client } = fakeClient([
+      // «назначен, нет итога» у оператора
+      operatorLine({ id: 'line-1', employee: IVANOV, shift: SHIFT_DAY, status: 'ACCEPTED' }),
+      // «не отмечен в факте»: строку закрыли, а работника в составе нет
+      timesheetLine({
+        id: 'line-2',
+        shift: SHIFT_DAY,
+        status: 'REPORTED',
+        plannedWorkers: [PETROV],
+        facts: factsOf([]),
+      }),
+      // неявка с причиной
+      timesheetLine({
+        id: 'line-3',
+        shift: SHIFT_NIGHT,
+        status: 'REPORTED',
+        plannedWorkers: [SIDOROV],
+        facts: factsOf([{ employee: SIDOROV, worked: false, absenceReason: 'Прогул' }]),
+      }),
+    ]);
+
+    const report = await getTimesheetReport(client, period);
+
+    // Все три строки видны, ни у одной нет часов — и ни одна не попала в «отработано».
+    expect(report.rows).toHaveLength(3);
+    for (const row of report.rows) {
+      expect(row.hours).toBeNull();
+      expect(row.mark).not.toBe('NONE');
+    }
+    expect(report.totals).toEqual({ shifts: 0, hours: 0, discrepancies: 3 });
+    // В итогах по сотрудникам часов тоже нет, хотя расхождения посчитаны.
+    expect(report.employees.map((item) => [item.shifts, item.hours, item.discrepancies])).toEqual([
+      [0, 0, 1],
+      [0, 0, 1],
+      [0, 0, 1],
+    ]);
+  });
+
+  it('у строки без оператора часов нет: работу приписать некому', async () => {
+    const { client } = fakeClient([
+      timesheetLine({
+        id: 'line-1',
+        shift: SHIFT_DAY,
+        status: 'REPORTED',
+        operator: null,
+        substitutionReasonId: 'sr-1',
+      }),
+    ]);
+
+    const report = await getTimesheetReport(client, period);
+
+    expect(report.rows[0]).toMatchObject({ mark: 'NO_OPERATOR', hours: null });
   });
 
   it('оператор и работник одной смены — две строки с разной ролью', async () => {
