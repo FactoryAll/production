@@ -413,6 +413,36 @@ describe('табель: работники по фактическому сос�
     expect(report.totals).toEqual({ shifts: 1, hours: 12, discrepancies: 0 });
   });
 
+  it('строка без назначенного оператора видна отдельно и не идёт в часы (решение владельца 28.10.2026)', async () => {
+    const { client } = fakeClient([
+      // Ввод за Оператора по строке, где оператора не назначали: приписать работу некому.
+      timesheetLine({
+        id: 'line-1',
+        shift: SHIFT_DAY,
+        status: 'REPORTED',
+        operator: null,
+        substitutionReasonId: 'sr-1',
+      }),
+      operatorLine({ id: 'line-2', employee: IVANOV, shift: SHIFT_DAY, status: 'REPORTED' }),
+    ]);
+
+    const report = await getTimesheetReport(client, period);
+
+    const anonymous = report.rows.find((row) => row.employeeId === '');
+    expect(anonymous).toMatchObject({
+      employeeName: 'Без оператора',
+      role: 'OPERATOR',
+      assignmentLabel: 'нет',
+      factLabel: 'за оператора',
+      mark: 'NO_OPERATOR',
+      markLabel: 'без оператора',
+      reportedLines: 1,
+    });
+    // Смена без оператора не засчитывается никому, но расхождением остаётся.
+    expect(report.totals).toEqual({ shifts: 1, hours: 12, discrepancies: 1 });
+    expect(report.employees.map((item) => item.employeeName)).toEqual(['Иванов И.И.']);
+  });
+
   it('оператор и работник одной смены — две строки с разной ролью', async () => {
     const { client } = fakeClient([
       timesheetLine({

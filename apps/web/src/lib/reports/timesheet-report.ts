@@ -40,7 +40,12 @@ export type TimesheetMark =
   /** Работник вышел, хотя в назначении строки его не было. */
   | 'ADDED'
   /** Строку закрыли, а работника в фактическом составе нет. */
-  | 'NOT_IN_FACT';
+  | 'NOT_IN_FACT'
+  /** Итог внесли за Оператора по строке, где оператора не назначали (решение владельца 28.10.2026). */
+  | 'NO_OPERATOR';
+
+/** Подпись строки без оператора: сотрудника, которому приписать работу, в данных нет. */
+export const NO_OPERATOR_LABEL = 'Без оператора';
 
 export interface TimesheetRow {
   employeeId: string;
@@ -304,6 +309,21 @@ export async function getTimesheetReport(
     const lineClosed = line.status === 'REPORTED';
 
     // --- операторы ---
+    if (!line.operator && lineClosed && line.substitutionReasonId) {
+      // Итог внесли за Оператора, а оператора в строке не было: приписать работу некому.
+      // Показываем отдельной строкой «Без оператора» — в часы и смены она не идёт,
+      // но в расхождения попадает (решение владельца 28.10.2026). Строка без оператора,
+      // но и без подмены — это обычная строка работников, отдельной строки ей не нужно.
+      const anonymous = cellFor(
+        { id: '', fullName: NO_OPERATOR_LABEL, tabNumber: '' },
+        shift,
+        'OPERATOR',
+      );
+      anonymous.operator.reportedLines += 1;
+      if (line.substitutionReasonId) {
+        anonymous.operator.substituted = true;
+      }
+    }
     if (line.operator) {
       const cell = cellFor(line.operator, shift, 'OPERATOR');
       cell.operator.assignedLines += 1;
@@ -378,6 +398,25 @@ export async function getTimesheetReport(
   const rows: TimesheetRow[] = [...cells.values()]
     .map((cell) => {
       const hours = shiftHours(cell.shift.start, cell.shift.end);
+      if (cell.role === 'OPERATOR' && cell.employeeId === '') {
+        return {
+          employeeId: '',
+          employeeName: cell.employeeName,
+          tabNumber: '',
+          shiftId: cell.shift.id,
+          shiftDate: cell.shift.date,
+          shiftNumber: cell.shift.number,
+          role: cell.role,
+          hours,
+          assignedLines: 0,
+          reportedLines: cell.operator.reportedLines,
+          mark: 'NO_OPERATOR',
+          assignmentLabel: 'нет',
+          factLabel: 'за оператора',
+          markLabel: 'без оператора',
+        } satisfies TimesheetRow;
+      }
+
       if (cell.role === 'OPERATOR') {
         const mark = resolveTimesheetMark(cell.operator) as
           | 'NONE'
@@ -440,6 +479,10 @@ export async function getTimesheetReport(
 
   const byEmployee = new Map<string, TimesheetEmployeeTotal>();
   for (const row of rows) {
+    // Строку без оператора не приписываем никому: у неё нет сотрудника.
+    if (row.employeeId === '') {
+      continue;
+    }
     const total =
       byEmployee.get(row.employeeId) ??
       {
@@ -473,7 +516,9 @@ export async function getTimesheetReport(
     totals: {
       shifts: employees.reduce((sum, item) => sum + item.shifts, 0),
       hours: roundHours(employees.reduce((sum, item) => sum + item.hours, 0)),
-      discrepancies: employees.reduce((sum, item) => sum + item.discrepancies, 0),
+      // Расхождения считаем по строкам: строка «Без оператора» не входит в итоги
+      // по сотрудникам, но расхождением быть не перестаёт.
+      discrepancies: rows.filter((row) => row.mark !== 'NONE').length,
     },
   };
 }
