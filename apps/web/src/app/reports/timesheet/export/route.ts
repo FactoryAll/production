@@ -1,7 +1,7 @@
 import { prisma } from '@prodtrack/db';
 import { requirePermission } from '@/lib/auth/access';
 import { parseReportPeriod, reportFileName } from '@/lib/reports/period';
-import { getTimesheetReport } from '@/lib/reports/timesheet-report';
+import { getTimesheetReport, roleLabel } from '@/lib/reports/timesheet-report';
 import { csvHeaders, toCsv } from '@/lib/reports/csv';
 
 export const dynamic = 'force-dynamic';
@@ -38,7 +38,7 @@ export async function GET(request: Request) {
         row.tabNumber,
         row.shiftDate.toLocaleDateString('ru-RU'),
         row.shiftNumber,
-        'Оператор',
+        roleLabel(row.role),
         row.assignmentLabel,
         row.factLabel,
         row.hours ?? '',

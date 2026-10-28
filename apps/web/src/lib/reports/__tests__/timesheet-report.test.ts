@@ -1,16 +1,22 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import { shiftHours } from '../shift-hours';
-import { getTimesheetReport, resolveTimesheetMark } from '../timesheet-report';
+import {
+  getTimesheetReport,
+  resolveTimesheetMark,
+  resolveWorkerMark,
+} from '../timesheet-report';
 import { parseReportPeriod } from '../period';
 
 /**
  * Табель учёта рабочего времени (T-093, постановка `docs/timesheet_design.md`).
  *
- * Проверяем три вещи, на которых отчёт ломается тише всего:
+ * Проверяем то, на чём отчёт ломается тише всего:
  *   — часы смены через полночь (20:00–08:00 это 12 часов, а не минус двенадцать);
- *   — пометки клетки (нет итога / за оператора / частично);
- *   — часы не удваиваются, когда у оператора в смене несколько строк РЦ.
+ *   — пометки клетки: у оператора «нет итога» / «за оператора» / «частично»,
+ *     у работника «назначен, не работал» / «неявка» / «добавлен» / «не отмечен»;
+ *   — часы не удваиваются, когда у сотрудника в смене несколько строк РЦ;
+ *   — работник считается по фактическому составу факта, а не по назначению.
  */
 describe('часы смены', () => {
   it('считает обычную смену', () => {
@@ -38,7 +44,7 @@ describe('часы смены', () => {
   });
 });
 
-describe('пометки клетки табеля', () => {
+describe('пометки клетки оператора', () => {
   it('назначен, но не отчитался — «нет итога»', () => {
     expect(resolveTimesheetMark({ assignedLines: 2, reportedLines: 0, substituted: false })).toBe(
       'NO_FACT',
@@ -64,9 +70,44 @@ describe('пометки клетки табеля', () => {
   });
 });
 
+describe('пометки клетки работника', () => {
+  const base = {
+    plannedLines: 0,
+    workedLines: 0,
+    absentLines: 0,
+    closedWithoutWorker: 0,
+    reportedLines: 0,
+  };
+
+  it('вышел по назначению — без пометки', () => {
+    expect(resolveWorkerMark({ ...base, plannedLines: 1, workedLines: 1, reportedLines: 1 })).toBe(
+      'NONE',
+    );
+  });
+
+  it('вышел, хотя назначен не был — «добавлен»', () => {
+    expect(resolveWorkerMark({ ...base, workedLines: 1, reportedLines: 1 })).toBe('ADDED');
+  });
+
+  it('не вышел по причине — «неявка» сильнее остальных случаев', () => {
+    expect(resolveWorkerMark({ ...base, plannedLines: 1, absentLines: 1, reportedLines: 1 })).toBe(
+      'ABSENT',
+    );
+  });
+
+  it('строку закрыли без него — «не отмечен», а не «не работал»', () => {
+    expect(
+      resolveWorkerMark({ ...base, plannedLines: 1, closedWithoutWorker: 1, reportedLines: 1 }),
+    ).toBe('NOT_IN_FACT');
+  });
+
+  it('смену не закрыли вовсе — «назначен, не работал»', () => {
+    expect(resolveWorkerMark({ ...base, plannedLines: 1, reportedLines: 0 })).toBe('NO_FACT');
+  });
+});
+
 interface TimesheetLineQuery {
   where: {
-    operatorId: unknown;
     order: { status: unknown; shift: { date: unknown } };
   };
 }
@@ -77,22 +118,6 @@ function fakeClient(lines: unknown[]) {
   return { client, findMany };
 }
 
-function operatorLine(input: {
-  id: string;
-  employee: { id: string; fullName: string; tabNumber: string };
-  shift: { id: string; number: number; date: string; start: string; end: string };
-  status: 'ASSIGNED' | 'ACCEPTED' | 'REPORTED';
-  substitutionReasonId?: string | null;
-}) {
-  return {
-    id: input.id,
-    status: input.status,
-    substitutionReasonId: input.substitutionReasonId ?? null,
-    operator: input.employee,
-    order: { shift: { ...input.shift, date: new Date(`${input.shift.date}T00:00:00`) } },
-  };
-}
-
 const IVANOV = { id: 'emp-1', fullName: 'Иванов И.И.', tabNumber: '0001' };
 const PETROV = { id: 'emp-2', fullName: 'Петров П.П.', tabNumber: '0002' };
 const SIDOROV = { id: 'emp-3', fullName: 'Сидоров С.С.', tabNumber: '0003' };
@@ -100,7 +125,57 @@ const SIDOROV = { id: 'emp-3', fullName: 'Сидоров С.С.', tabNumber: '00
 const SHIFT_DAY = { id: 'shift-1', number: 1, date: '2026-10-26', start: '08:00', end: '20:00' };
 const SHIFT_NIGHT = { id: 'shift-2', number: 2, date: '2026-10-27', start: '20:00', end: '08:00' };
 
-describe('табель: сборка из трёх источников', () => {
+interface FactWorkerInput {
+  employee: { id: string; fullName: string; tabNumber: string };
+  worked?: boolean;
+  absenceReason?: string | null;
+}
+
+function factRow(worker: FactWorkerInput) {
+  return {
+    employeeId: worker.employee.id,
+    worked: worker.worked ?? true,
+    absenceReason: worker.absenceReason ? { name: worker.absenceReason } : null,
+    employee: worker.employee,
+  };
+}
+
+/** Фактический состав: список фактов линии, в каждом — строки состава. */
+function factsOf(workers: FactWorkerInput[]) {
+  return [{ factWorkers: workers.map(factRow) }];
+}
+
+function timesheetLine(input: {
+  id: string;
+  shift: { id: string; number: number; date: string; start: string; end: string };
+  status: 'ASSIGNED' | 'ACCEPTED' | 'REPORTED';
+  operator?: { id: string; fullName: string; tabNumber: string } | null;
+  substitutionReasonId?: string | null;
+  plannedWorkers?: Array<{ id: string; fullName: string; tabNumber: string }>;
+  facts?: Array<{ factWorkers: ReturnType<typeof factRow>[] }>;
+}) {
+  return {
+    id: input.id,
+    status: input.status,
+    substitutionReasonId: input.substitutionReasonId ?? null,
+    operator: input.operator ?? null,
+    workerAssignments: (input.plannedWorkers ?? []).map((employee) => ({ employee })),
+    facts: input.facts ?? [],
+    order: { shift: { ...input.shift, date: new Date(`${input.shift.date}T00:00:00`) } },
+  };
+}
+
+function operatorLine(input: {
+  id: string;
+  employee: { id: string; fullName: string; tabNumber: string };
+  shift: { id: string; number: number; date: string; start: string; end: string };
+  status: 'ASSIGNED' | 'ACCEPTED' | 'REPORTED';
+  substitutionReasonId?: string | null;
+}) {
+  return timesheetLine({ ...input, operator: input.employee });
+}
+
+describe('табель: сборка из источников', () => {
   const period = parseReportPeriod({ period: 'months', months: '2026-10' });
 
   it('берёт строки только по сменам периода и без отменённых ПЗ', async () => {
@@ -111,24 +186,13 @@ describe('табель: сборка из трёх источников', () => 
     const where = findMany.mock.calls[0][0].where;
     expect(where.order.status).toEqual({ not: 'CANCELLED' });
     expect(where.order.shift.date).toEqual({ gte: period.from, lte: period.to });
-    expect(where.operatorId).toEqual({ not: null });
   });
 
   it('строит строку на пару «сотрудник × смена» и не удваивает часы', async () => {
     const { client } = fakeClient([
-      operatorLine({
-        id: 'line-1',
-        employee: IVANOV,
-        shift: SHIFT_DAY,
-        status: 'REPORTED',
-      }),
+      operatorLine({ id: 'line-1', employee: IVANOV, shift: SHIFT_DAY, status: 'REPORTED' }),
       // Вторая строка того же оператора в той же смене: часов всё равно 12, а не 24.
-      operatorLine({
-        id: 'line-2',
-        employee: IVANOV,
-        shift: SHIFT_DAY,
-        status: 'REPORTED',
-      }),
+      operatorLine({ id: 'line-2', employee: IVANOV, shift: SHIFT_DAY, status: 'REPORTED' }),
     ]);
 
     const report = await getTimesheetReport(client, period);
@@ -201,7 +265,7 @@ describe('табель: сборка из трёх источников', () => 
 
     const report = await getTimesheetReport(client, period);
 
-    // Порядок строк — по дате смены, затем по номеру, затем по ФИО.
+    // Порядок строк — по дате смены, затем по номеру, затем роль, затем ФИО.
     expect(report.rows.map((row) => row.employeeName)).toEqual(['Иванов И.И.', 'Сидоров С.С.']);
     expect(report.rows[1].hours).toBe(12);
     expect(report.totals).toEqual({ shifts: 2, hours: 24, discrepancies: 0 });
@@ -209,5 +273,164 @@ describe('табель: сборка из трёх источников', () => 
       'Иванов И.И.',
       'Сидоров С.С.',
     ]);
+  });
+});
+
+describe('табель: работники по фактическому составу', () => {
+  const period = parseReportPeriod({ period: 'months', months: '2026-10' });
+
+  it('работник, отмеченный вышедшим, даёт работу и часы', async () => {
+    const { client } = fakeClient([
+      timesheetLine({
+        id: 'line-1',
+        shift: SHIFT_DAY,
+        status: 'REPORTED',
+        plannedWorkers: [PETROV],
+        facts: factsOf([{ employee: PETROV, worked: true }]),
+      }),
+    ]);
+
+    const report = await getTimesheetReport(client, period);
+
+    expect(report.rows).toHaveLength(1);
+    expect(report.rows[0]).toMatchObject({
+      role: 'WORKER',
+      assignmentLabel: 'да',
+      factLabel: 'работал',
+      mark: 'NONE',
+      hours: 12,
+    });
+    expect(report.totals).toEqual({ shifts: 1, hours: 12, discrepancies: 0 });
+  });
+
+  it('назначенный работник незакрытой строки — «назначен, не работал» (решение владельца 28.10.2026)', async () => {
+    const { client } = fakeClient([
+      timesheetLine({
+        id: 'line-1',
+        shift: SHIFT_DAY,
+        status: 'ACCEPTED',
+        plannedWorkers: [PETROV],
+      }),
+    ]);
+
+    const report = await getTimesheetReport(client, period);
+
+    expect(report.rows[0]).toMatchObject({
+      role: 'WORKER',
+      assignmentLabel: 'да',
+      factLabel: 'не работал',
+      mark: 'NO_FACT',
+      markLabel: 'назначен, не работал',
+    });
+    // Не работал — значит ни смена, ни часы в итоги не идут, но расхождение видно.
+    expect(report.totals).toEqual({ shifts: 0, hours: 0, discrepancies: 1 });
+  });
+
+  it('строку закрыли без работника — «не отмечен»', async () => {
+    const { client } = fakeClient([
+      timesheetLine({
+        id: 'line-1',
+        shift: SHIFT_DAY,
+        status: 'REPORTED',
+        plannedWorkers: [PETROV],
+        facts: factsOf([]),
+      }),
+    ]);
+
+    const report = await getTimesheetReport(client, period);
+
+    expect(report.rows[0]).toMatchObject({
+      factLabel: 'не отмечен',
+      mark: 'NOT_IN_FACT',
+      markLabel: 'не отмечен в факте',
+    });
+  });
+
+  it('неявка берёт причину из справочника и не считается работой', async () => {
+    const { client } = fakeClient([
+      timesheetLine({
+        id: 'line-1',
+        shift: SHIFT_DAY,
+        status: 'REPORTED',
+        plannedWorkers: [PETROV],
+        facts: factsOf([{ employee: PETROV, worked: false, absenceReason: 'Болезнь' }]),
+      }),
+    ]);
+
+    const report = await getTimesheetReport(client, period);
+
+    expect(report.rows[0]).toMatchObject({
+      factLabel: 'неявка (Болезнь)',
+      mark: 'ABSENT',
+      markLabel: 'неявка с причиной',
+    });
+    expect(report.totals).toEqual({ shifts: 0, hours: 0, discrepancies: 1 });
+  });
+
+  it('работник, которого не назначали, но он вышел — «добавлен»', async () => {
+    const { client } = fakeClient([
+      timesheetLine({
+        id: 'line-1',
+        shift: SHIFT_DAY,
+        status: 'REPORTED',
+        plannedWorkers: [],
+        facts: factsOf([{ employee: SIDOROV, worked: true }]),
+      }),
+    ]);
+
+    const report = await getTimesheetReport(client, period);
+
+    expect(report.rows[0]).toMatchObject({
+      employeeName: 'Сидоров С.С.',
+      assignmentLabel: 'нет',
+      factLabel: 'работал',
+      mark: 'ADDED',
+      markLabel: 'добавлен в факт',
+    });
+    expect(report.totals).toEqual({ shifts: 1, hours: 12, discrepancies: 1 });
+  });
+
+  it('состав, продублированный по двум фактам линии, не даёт двух смен', async () => {
+    const { client } = fakeClient([
+      timesheetLine({
+        id: 'line-1',
+        shift: SHIFT_DAY,
+        status: 'REPORTED',
+        plannedWorkers: [PETROV],
+        // Состав относится к событию ввода итога, а фактов у линии два (ГП и ПФ):
+        // даже если строки продублированы, смены и часы считаются один раз.
+        facts: [
+          { factWorkers: [factRow({ employee: PETROV, worked: true })] },
+          { factWorkers: [factRow({ employee: PETROV, worked: true })] },
+        ],
+      }),
+    ]);
+
+    const report = await getTimesheetReport(client, period);
+
+    expect(report.rows).toHaveLength(1);
+    expect(report.rows[0].mark).toBe('NONE');
+    expect(report.totals).toEqual({ shifts: 1, hours: 12, discrepancies: 0 });
+  });
+
+  it('оператор и работник одной смены — две строки с разной ролью', async () => {
+    const { client } = fakeClient([
+      timesheetLine({
+        id: 'line-1',
+        shift: SHIFT_DAY,
+        status: 'REPORTED',
+        operator: IVANOV,
+        plannedWorkers: [PETROV],
+        facts: factsOf([{ employee: PETROV, worked: true }]),
+      }),
+    ]);
+
+    const report = await getTimesheetReport(client, period);
+
+    expect(report.rows.map((row) => `${row.role}:${row.employeeName}`)).toEqual([
+      'OPERATOR:Иванов И.И.',
+      'WORKER:Петров П.П.',
+    ]);
+    expect(report.totals).toEqual({ shifts: 2, hours: 24, discrepancies: 0 });
   });
 });

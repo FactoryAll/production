@@ -3,7 +3,7 @@ import { prisma } from '@prodtrack/db';
 import { AccessDenied } from '@/components/access-denied';
 import { checkPageAccess } from '@/lib/auth/page-guard';
 import { parseReportPeriod, toDateInputValue } from '@/lib/reports/period';
-import { getTimesheetReport } from '@/lib/reports/timesheet-report';
+import { getTimesheetReport, roleLabel } from '@/lib/reports/timesheet-report';
 import { PeriodForm } from '../_components/period-form';
 
 export const dynamic = 'force-dynamic';
@@ -91,9 +91,10 @@ export default async function TimesheetPage({
 
       <p className="text-sm text-steel-graphite">
         Период: {period.label}. Часы — длительность смены из справочника, они не удваиваются,
-        если у сотрудника в смене несколько строк РЦ. Работники появятся в табеле после того,
-        как ввод итога смены будет подтверждать фактический состав (этап 3 постановки): пока
-        такого учёта нет, показать их как «работал» было бы неправдой.
+        если у сотрудника в смене несколько строк РЦ. Работники считаются по фактическому
+        составу факта, а не по назначению; пока ввод итога не подтверждает состав (этап 3
+        постановки), у работника будет «не отмечен» или «назначен, не работал» — это и есть
+        разница между «не работал» и «работал, но не отметился».
       </p>
 
       <div className="table-scroll rounded-md border border-mist-metal bg-graphite-surface">
@@ -121,14 +122,14 @@ export default async function TimesheetPage({
             ) : (
               report.rows.map((row) => (
                 <tr
-                  key={`${row.employeeId}-${row.shiftId}`}
+                  key={`${row.employeeId}-${row.shiftId}-${row.role}`}
                   className="border-b border-mist-metal/60"
                 >
                   <td className="px-4 py-3 text-graphite">{row.employeeName}</td>
                   <td className="px-4 py-3">{row.tabNumber}</td>
                   <td className="px-4 py-3">{row.shiftDate.toLocaleDateString('ru-RU')}</td>
                   <td className="px-4 py-3">{row.shiftNumber}</td>
-                  <td className="px-4 py-3">Оператор</td>
+                  <td className="px-4 py-3">{roleLabel(row.role)}</td>
                   <td className="px-4 py-3">{row.assignmentLabel}</td>
                   <td className="px-4 py-3">{row.factLabel}</td>
                   <td className="px-4 py-3">{row.hours ?? '—'}</td>
