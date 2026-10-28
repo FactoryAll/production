@@ -39,6 +39,15 @@ const SUBSTITUTION_REASONS = [
   { code: 'OTHER', name: 'Иное' },
 ];
 
+// Причины неявки работника в табеле (T-093, решение владельца 26.10.2026).
+const ABSENCE_REASONS = [
+  { code: 'ILLNESS', name: 'Болезнь' },
+  { code: 'ABSENTEEISM', name: 'Прогул' },
+  { code: 'VACATION', name: 'Отпуск' },
+  { code: 'UNPAID_LEAVE', name: 'Отгул за свой счёт' },
+  { code: 'UNEXCUSED', name: 'Неявка без объяснения' },
+];
+
 const DEFECT_REASONS = [
   { code: 'DEFECT_A', name: 'Брак A' },
   { code: 'DEFECT_B', name: 'Брак B' },
@@ -223,6 +232,16 @@ export async function seedSubstitutionReasons(client: PrismaClient = prisma): Pr
   }
 }
 
+export async function seedAbsenceReasons(client: PrismaClient = prisma): Promise<void> {
+  for (const { code, name } of ABSENCE_REASONS) {
+    const existing = await client.absenceReason.findUnique({ where: { code } });
+    if (existing) {
+      continue;
+    }
+    await client.absenceReason.create({ data: { code, name, active: true } });
+  }
+}
+
 export async function seedDefectReasons(client: PrismaClient = prisma): Promise<void> {
   for (const { code, name } of DEFECT_REASONS) {
     const existing = await client.defectReason.findUnique({ where: { code } });
@@ -378,6 +397,7 @@ async function main() {
   await seedWarehouses();
   await seedSubstitutionReasons();
   await seedDefectReasons();
+  await seedAbsenceReasons();
   // Смены сид больше не создаёт (T-075): это данные, а не справочник — запись смены заводит
   // система, когда НП выбирает дату и номер в форме ПЗ. Шаблонные смены с датой 2000-01-01
   // остались только в исторических базах и больше не поднимаются при каждом деплое.

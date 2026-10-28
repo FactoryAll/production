@@ -63,6 +63,7 @@ model Employee {
   workerAssignments ProductionOrderLineWorkers[] @relation("EmployeeWorkers")
 
   @@map("employees")
+  factWorkers ProductionFactWorker[]
 }
 
 model Product {
@@ -297,6 +298,19 @@ model ProductionOrderLineWorkers {
 
 // === M04: Shift execution / facts ===
 
+/// Причины неявки работника в табеле (T-093, решение владельца 26.10.2026).
+/// Устроен как DefectReason и SubstitutionReason: код, название, активность.
+model AbsenceReason {
+  id     String  @id @default(uuid())
+  code   String  @unique
+  name   String
+  active Boolean @default(true)
+
+  workers ProductionFactWorker[]
+
+  @@map("absence_reasons")
+}
+
 model ProductionFact {
   id                       String              @id @default(uuid())
   lineId                   String
@@ -324,6 +338,31 @@ model ProductionFact {
 
   @@unique([lineId, factCategory])
   @@map("production_facts")
+  factWorkers ProductionFactWorker[]
+}
+
+/// Фактический состав работников по факту (T-093).
+///
+/// Назначение (`ProductionOrderLineWorkers`) — план, оно не меняется; здесь — кто вышел
+/// на самом деле. `planned = false` — работника добавили при вводе итога,
+/// `worked = false` — назначен, но не вышел, и тогда обязательна причина неявки.
+/// Строки пишутся один раз на линию (на факт основной категории), а не в каждый факт —
+/// тот же урок, что ОПЭ-38 у потребления.
+model ProductionFactWorker {
+  id               String        @id @default(uuid())
+  productionFactId String
+  productionFact   ProductionFact @relation(fields: [productionFactId], references: [id], onDelete: Cascade)
+  employeeId       String
+  employee         Employee      @relation(fields: [employeeId], references: [id])
+  planned          Boolean       @default(false)
+  worked           Boolean       @default(true)
+  absenceReasonId  String?
+  absenceReason    AbsenceReason? @relation(fields: [absenceReasonId], references: [id])
+  comment          String?
+  createdAt        DateTime      @default(now())
+
+  @@unique([productionFactId, employeeId])
+  @@map("production_fact_workers")
 }
 
 model FactConsumption {

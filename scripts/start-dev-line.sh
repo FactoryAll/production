@@ -10,7 +10,14 @@
 #   bash scripts/start-dev-line.sh --check    # только проверить состояние, без промпта
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Корень репозитория берём у git, а не от места запуска: скрипт вызывают и из дерева
+# поддержки, и из дерева разработки, и относительный путь от $0 давал
+# `.worktrees/dev/.worktrees/dev` (дефект найден рабочей линией 28.10.2026).
+ROOT="$(git -C "$(dirname "$0")/.." worktree list --porcelain | sed -n '1s/^worktree //p')"
+if [ -z "${ROOT}" ] || [ ! -d "${ROOT}" ]; then
+  echo "Не удалось определить корень репозитория (git worktree list)." >&2
+  exit 1
+fi
 WORKTREE="${ROOT}/.worktrees/dev"
 CHECK_ONLY=0
 [ "${1:-}" = "--check" ] && CHECK_ONLY=1
@@ -18,10 +25,18 @@ CHECK_ONLY=0
 cd "${ROOT}"
 
 # 1. Второе дерево должно существовать и стоять на dev.
-if ! git worktree list | grep -q "${WORKTREE}"; then
-  echo "Второго дерева нет — создаю." >&2
-  git worktree add "${WORKTREE}" dev
-fi
+#
+# Проверку делаем по строке, а не через `grep -q` в конвейере: под `pipefail` SIGPIPE
+# от grep -q роняет весь конвейер, и существующее дерево объявляется отсутствующим
+# (второй дефект этого скрипта, найден 28.10.2026).
+WORKTREE_LIST="$(git worktree list --porcelain)"
+case "${WORKTREE_LIST}" in
+  *"worktree ${WORKTREE}"*) ;;
+  *)
+    echo "Второго дерева нет — создаю." >&2
+    git worktree add "${WORKTREE}" dev
+    ;;
+esac
 
 cd "${WORKTREE}"
 CURRENT_BRANCH="$(git branch --show-current)"
