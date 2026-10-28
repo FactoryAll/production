@@ -778,6 +778,18 @@ export async function substituteOperator(
       : [];
     const categoryById = new Map(consumedProducts.map((p) => [p.id, p.category]));
 
+    // Причина ввода за Оператора пишется в строку ПЗ, а не только в аудит: по ней табель
+    // помечает клетку «введено за оператора» (T-093), а проверка деактивации справочника
+    // (`packages/db/src/deactivation.ts`) находит ПЗ, где итог уже внесён с этой причиной.
+    // До 28.10.2026 поле оставалось пустым, и обе проверки молчали.
+    const substitutionReason = await tx.substitutionReason.findUnique({
+      where: { code: reasonCode },
+      select: { id: true },
+    });
+    if (!substitutionReason) {
+      throw new Error('Причина ввода за Оператора не найдена в справочнике');
+    }
+
     const createdFacts: ProductionFact[] = [];
     const now = new Date();
     for (const [category, quantity] of Object.entries(outputByCategory) as ['MASS' | 'GP' | 'PF', Prisma.Decimal][]) {
@@ -875,7 +887,7 @@ export async function substituteOperator(
 
     await tx.productionOrderLine.update({
       where: { id: lineId },
-      data: { status: 'REPORTED' },
+      data: { status: 'REPORTED', substitutionReasonId: substitutionReason.id },
     });
 
     await deps.writeAudit(tx, {

@@ -1232,6 +1232,9 @@ function buildSubstituteDeps(
     warehouse: {
       findFirstOrThrow: warehouseFindFirstOrThrow,
     },
+    substitutionReason: {
+      findUnique: vi.fn().mockResolvedValue({ id: 'substitution-reason-1' }),
+    },
     product: {
       findMany: productFindMany,
     },
@@ -1298,7 +1301,11 @@ describe('substituteOperator', () => {
       }),
     );
     expect(deps.applyStockMovements).toHaveBeenCalled();
-    expect(deps.lineUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REPORTED' } }));
+    expect(deps.lineUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { status: 'REPORTED', substitutionReasonId: 'substitution-reason-1' },
+      }),
+    );
     expect(deps.writeAudit).toHaveBeenCalledTimes(3);
     expect(deps.writeTiming).toHaveBeenCalledTimes(1);
   });
@@ -1316,7 +1323,57 @@ describe('substituteOperator', () => {
       updateShiftSummary: deps.updateShiftSummary,
     });
 
-    expect(deps.lineUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REPORTED' } }));
+    expect(deps.lineUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { status: 'REPORTED', substitutionReasonId: 'substitution-reason-1' },
+      }),
+    );
+  });
+
+  // T-093: причина подмены должна лежать в строке ПЗ, а не только в аудите.
+  // По этому полю табель помечает клетку «введено за оператора» и проверка деактивации
+  // справочника (packages/db/src/deactivation.ts) находит ПЗ с уже внесённым итогом.
+  it('записывает причину ввода за Оператора в строку ПЗ', async () => {
+    const line = buildSubstitutableLine('ASSIGNED');
+    const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
+    const deps = buildSubstituteDeps(line, order);
+    await substituteOperator('line-1', { reasonCode: 'ILLNESS', comment: 'Заболевание', output: 50, factCategory: 'MASS' }, {
+      prisma: deps.prisma,
+      requirePermission: deps.requirePermission,
+      writeAudit: deps.writeAudit,
+      writeTiming: deps.writeTiming,
+      applyStockMovements: deps.applyStockMovements,
+      updateShiftSummary: deps.updateShiftSummary,
+    });
+
+    expect(deps.tx.substitutionReason.findUnique).toHaveBeenCalledWith({
+      where: { code: 'ILLNESS' },
+      select: { id: true },
+    });
+    expect(deps.lineUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { status: 'REPORTED', substitutionReasonId: 'substitution-reason-1' },
+      }),
+    );
+  });
+
+  it('не закрывает строку, если причина подмены отсутствует в справочнике', async () => {
+    const line = buildSubstitutableLine('ASSIGNED');
+    const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
+    const deps = buildSubstituteDeps(line, order);
+    deps.tx.substitutionReason.findUnique.mockResolvedValue(null);
+
+    await expect(
+      substituteOperator('line-1', { reasonCode: 'ILLNESS', comment: 'Заболевание', output: 50, factCategory: 'MASS' }, {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+        applyStockMovements: deps.applyStockMovements,
+        updateShiftSummary: deps.updateShiftSummary,
+      }),
+    ).rejects.toThrow('Причина ввода за Оператора не найдена в справочнике');
+    expect(deps.lineUpdate).not.toHaveBeenCalled();
   });
 
   // ОПЭ-34 (решение владельца 23.10.2026): при вводе за Оператора специалист 1С получает
