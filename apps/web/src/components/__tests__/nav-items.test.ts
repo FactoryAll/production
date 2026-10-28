@@ -47,7 +47,20 @@ describe('nav-items', () => {
   it('меню НСИ показывается только тем, у кого есть право читать справочники', () => {
     expect(getNsiNavItems(['GUEST'])).toEqual([]);
     expect(getNsiNavItems(['OPR']).map((item) => item.href)).toContain('/nsi/products');
-    expect(getNsiNavItems(['NP'])).toHaveLength(6);
+    // Проверяем адреса, а не количество: проверка длины («6 пунктов») пропустила
+    // отсутствие нового справочника — экран был, а пункта в меню не было
+    // (находка на проверке стенда 28.10.2026).
+    expect(getNsiNavItems(['NP']).map((item) => item.href)).toEqual(
+      expect.arrayContaining([
+        '/nsi/work-centers',
+        '/nsi/employees',
+        '/nsi/products',
+        '/nsi/shifts',
+        '/nsi/warehouses',
+        '/nsi/defect-reasons',
+        '/nsi/absence-reasons',
+      ]),
+    );
   });
 
   // Гостевая роль (решение владельца 25.10.2026): только три экрана на просмотр.

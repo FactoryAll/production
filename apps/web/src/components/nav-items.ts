@@ -23,6 +23,7 @@ const NSI_ITEMS: NavItem[] = [
   { label: 'Смены', href: '/nsi/shifts' },
   { label: 'Склады', href: '/nsi/warehouses' },
   { label: 'Причины', href: '/nsi/defect-reasons' },
+  { label: 'Причины неявки', href: '/nsi/absence-reasons' },
 ];
 
 /**
