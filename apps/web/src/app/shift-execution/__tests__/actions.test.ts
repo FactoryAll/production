@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Prisma, type ProductionOrder, type ProductionOrderLine, type Product, type DefectReason } from '@prisma/client';
 const Decimal = Prisma.Decimal;
 import { acceptProductionOrderLine, reportProductionFact, correctFactByOperator } from '../actions';
+import { resolveWorkerComposition } from '@/lib/worker-composition';
 
 vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
@@ -92,12 +93,16 @@ function buildMockPrisma(overrides: {
   defectReason?: DefectReason | null;
   workCenter?: { id: string; code: string; name: string; active: boolean; producesMass: boolean };
   existingFact?: { id?: string; quantity?: number; factCategory?: 'MASS' | 'GP' | 'PF'; defectQuantity?: number; defectReasonId?: string | null; stopsCount?: number; stopsDurationMinutes?: number; consumptions?: Array<{ productId: string; quantity: number | Prisma.Decimal }> };
+  /** Назначенные работники строки (план) — T-093. */
+  workerAssignments?: Array<{ employeeId: string }>;
 } = {}) {
   const order = overrides.order ?? makeOrder();
   const line = overrides.line ?? makeLine({ orderId: order.id });
   const product = overrides.product ?? baseProduct;
   const workCenter = overrides.workCenter ?? { id: 'wc-01', code: 'WC-01', name: 'РЦ 01', active: true, producesMass: true };
   const existingFact = overrides.existingFact;
+  const previousWorkers: Array<Record<string, unknown>> = [];
+  const inactiveReasonIds: string[] = [];
   const defaultFactId = 'fact-1';
   const existingFactId = line.id ? `fact-${line.id}` : defaultFactId;
 
@@ -110,6 +115,7 @@ function buildMockPrisma(overrides: {
     product,
     workCenter,
     operator: { id: 'emp-1', tabNumber: '001', fullName: 'Иванов И.И.', active: true },
+    workerAssignments: overrides.workerAssignments ?? [],
     facts: existingFact ? [
       {
         id: existingFact?.id ?? existingFactId,
@@ -203,7 +209,26 @@ function buildMockPrisma(overrides: {
     });
   });
 
+  const productionFactWorkerFindMany = vi.fn().mockResolvedValue(previousWorkers ?? []);
+  const productionFactWorkerDeleteMany = vi.fn().mockResolvedValue(undefined);
+  const productionFactWorkerCreateMany = vi.fn().mockResolvedValue(undefined);
+  // Отдаём ровно тех, кого спросили: состав проверяется на длину выдачи.
+  const employeeFindMany = vi.fn().mockImplementation(
+    ({ where }: { where: { id: { in: string[] } } }) =>
+      Promise.resolve(where.id.in.map((id) => ({ id, active: true }))),
+  );
+  const absenceReasonFindMany = vi.fn().mockImplementation(({ where }: { where: { id: { in: string[] } } }) =>
+    Promise.resolve(where.id.in.map((id) => ({ id, active: !inactiveReasonIds.includes(id) }))),
+  );
+
   const tx = {
+    productionFactWorker: {
+      findMany: productionFactWorkerFindMany,
+      deleteMany: productionFactWorkerDeleteMany,
+      createMany: productionFactWorkerCreateMany,
+    },
+    employee: { findMany: employeeFindMany },
+    absenceReason: { findMany: absenceReasonFindMany },
     productionOrderLine: {
       update: lineUpdate,
       findUnique: lineFindUnique,
@@ -288,6 +313,12 @@ function buildMockPrisma(overrides: {
     notificationCreateMany,
     userFindMany,
     defectReasonFindUnique,
+    productionFactWorkerCreateMany,
+    productionFactWorkerDeleteMany,
+    productionFactWorkerFindMany,
+    employeeFindMany,
+    absenceReasonFindMany,
+    tx,
     getAvailableBalance,
     applyStockMovements,
     updateShiftSummary,
@@ -924,6 +955,213 @@ describe('reportProductionFact', () => {
         { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements, updateShiftSummary: deps.updateShiftSummary, syncOneCTask: vi.fn().mockResolvedValue('created') },
       ),
     ).rejects.toThrow('Вне рабочего времени');
+  });
+});
+
+describe('T-093: фактический состав работников при вводе итога', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function reportDeps(deps: ReturnType<typeof buildMockPrisma>, writeAudit = vi.fn()) {
+    return {
+      prisma: deps.prisma,
+      writeAudit,
+      writeTiming: vi.fn(),
+      requireShiftWindow: vi.fn().mockResolvedValue(baseSession),
+      getAvailableBalance: deps.getAvailableBalance,
+      applyStockMovements: deps.applyStockMovements,
+      updateShiftSummary: deps.updateShiftSummary,
+      syncOneCTask: vi.fn().mockResolvedValue('created'),
+    };
+  }
+
+  it('состав — снимок: план сервер берёт сам, а не из запроса', async () => {
+    const line = makeLine({ status: 'ACCEPTED' });
+    const deps = buildMockPrisma({
+      line,
+      workerAssignments: [{ employeeId: 'emp-2' }, { employeeId: 'emp-3' }],
+    });
+
+    await reportProductionFact(
+      'line-1',
+      {
+        outputByCategory: { MASS: 10 },
+        // Клиент пытается выдать добавленного за назначенного — сервер это игнорирует.
+        workers: [
+          { employeeId: 'emp-2', worked: true, planned: true } as never,
+          { employeeId: 'emp-3', worked: false, absenceReasonId: 'reason-1' },
+        ],
+      },
+      reportDeps(deps),
+    );
+
+    const rows = deps.productionFactWorkerCreateMany.mock.calls[0][0].data as Array<{
+      employeeId: string;
+      planned: boolean;
+      worked: boolean;
+      absenceReasonId: string | null;
+    }>;
+    expect(rows).toEqual([
+      { productionFactId: expect.any(String), employeeId: 'emp-2', planned: true, worked: true, absenceReasonId: null, comment: null },
+      { productionFactId: expect.any(String), employeeId: 'emp-3', planned: true, worked: false, absenceReasonId: 'reason-1', comment: null },
+    ]);
+    // Старые строки состава заменяются снимком: план мог измениться после первого ввода.
+    expect(deps.productionFactWorkerDeleteMany).toHaveBeenCalledWith({
+      where: { productionFact: { lineId: 'line-1' } },
+    });
+  });
+
+  it('пишет состав один раз — на факт основной категории линии', async () => {
+    const line = makeLine({ status: 'ACCEPTED', productId: 'gp-1' });
+    const deps = buildMockPrisma({
+      line,
+      product: gpProduct,
+      workCenter: { id: 'wc-01', code: 'WC-01', name: 'РЦ 01', active: true, producesMass: false },
+      workerAssignments: [{ employeeId: 'emp-2' }],
+    });
+
+    await reportProductionFact(
+      'line-1',
+      { outputByCategory: { GP: 5, PF: 3 }, workers: [{ employeeId: 'emp-2', worked: true }] },
+      reportDeps(deps),
+    );
+
+    const rows = deps.productionFactWorkerCreateMany.mock.calls[0][0].data as Array<{
+      productionFactId: string;
+    }>;
+    expect(rows).toHaveLength(1);
+    // Оба факта (ГП и ПФ) относятся к одной линии, а состав — к событию ввода итога.
+    expect(rows[0].productionFactId).toBe('fact-line-1-GP');
+  });
+
+  it('добавленный работник требует причину словами, не назначенный — причины неявки', async () => {
+    const line = makeLine({ status: 'ACCEPTED' });
+    const deps = buildMockPrisma({ line, workerAssignments: [] });
+
+    await expect(
+      reportProductionFact(
+        'line-1',
+        { outputByCategory: { MASS: 10 }, workers: [{ employeeId: 'emp-2', worked: true }] },
+        reportDeps(deps),
+      ),
+    ).rejects.toThrow('Укажите причину, по которой работника добавили в состав');
+    expect(deps.productionFactWorkerCreateMany).not.toHaveBeenCalled();
+  });
+
+  it('неявка без причины из справочника отклоняется', async () => {
+    const line = makeLine({ status: 'ACCEPTED' });
+    const deps = buildMockPrisma({ line, workerAssignments: [{ employeeId: 'emp-2' }] });
+
+    await expect(
+      reportProductionFact(
+        'line-1',
+        { outputByCategory: { MASS: 10 }, workers: [{ employeeId: 'emp-2', worked: false }] },
+        reportDeps(deps),
+      ),
+    ).rejects.toThrow('Укажите причину неявки работника из справочника');
+    expect(deps.productionFactWorkerCreateMany).not.toHaveBeenCalled();
+  });
+
+  it('деактивированная причина неявки не принимается', async () => {
+    const line = makeLine({ status: 'ACCEPTED' });
+    const deps = buildMockPrisma({ line, workerAssignments: [{ employeeId: 'emp-2' }] });
+    deps.absenceReasonFindMany.mockImplementationOnce(
+      ({ where }: { where: { id: { in: string[] } } }) =>
+        Promise.resolve(where.id.in.map((id) => ({ id, active: false }))),
+    );
+
+    await expect(
+      reportProductionFact(
+        'line-1',
+        {
+          outputByCategory: { MASS: 10 },
+          workers: [{ employeeId: 'emp-2', worked: false, absenceReasonId: 'reason-off' }],
+        },
+        reportDeps(deps),
+      ),
+    ).rejects.toThrow('Причина неявки деактивирована');
+  });
+
+  it('аудит состава: «было → стало» с причиной', async () => {
+    const line = makeLine({ status: 'ACCEPTED' });
+    const deps = buildMockPrisma({ line, workerAssignments: [{ employeeId: 'emp-2' }] });
+    // В прошлом факте работник был отмечен вышедшим — сейчас отметку снимают с причиной.
+    deps.productionFactWorkerFindMany.mockResolvedValueOnce([
+      { employeeId: 'emp-2', planned: true, worked: true, absenceReasonId: null, comment: null },
+    ]);
+    const writeAudit = vi.fn();
+
+    await reportProductionFact(
+      'line-1',
+      {
+        outputByCategory: { MASS: 10 },
+        workers: [{ employeeId: 'emp-2', worked: false, absenceReasonId: 'reason-1' }],
+      },
+      reportDeps(deps, writeAudit),
+    );
+
+    const workerAudit = writeAudit.mock.calls
+      .map((call) => call[1])
+      .find((input) => input.field === 'workers');
+    expect(workerAudit).toBeDefined();
+    expect(workerAudit.action).toBe('UPDATE');
+    expect(JSON.parse(workerAudit.oldValue as string)[0].worked).toBe(true);
+    const next = JSON.parse(workerAudit.newValue as string);
+    expect(next[0]).toMatchObject({ employeeId: 'emp-2', worked: false, absenceReasonId: 'reason-1' });
+  });
+
+  it('без подтверждения состава (поле не прислали) старый состав не трогаем', async () => {
+    const line = makeLine({ status: 'ACCEPTED' });
+    const deps = buildMockPrisma({ line, workerAssignments: [{ employeeId: 'emp-2' }] });
+
+    await reportProductionFact('line-1', { outputByCategory: { MASS: 10 } }, reportDeps(deps));
+
+    expect(deps.productionFactWorkerDeleteMany).not.toHaveBeenCalled();
+    expect(deps.productionFactWorkerCreateMany).not.toHaveBeenCalled();
+  });
+
+  describe('resolveWorkerComposition', () => {
+    it('плановые без упоминания считаются вышедшими', () => {
+      expect(resolveWorkerComposition([], ['emp-2'])).toEqual([
+        {
+          employeeId: 'emp-2',
+          planned: true,
+          worked: true,
+          absenceReasonId: null,
+          comment: null,
+        },
+      ]);
+    });
+
+    it('дубли и пустые строки не ломают снимок', () => {
+      const rows = resolveWorkerComposition(
+        [
+          { employeeId: 'emp-2' },
+          { employeeId: 'emp-2' },
+          { employeeId: '  ' },
+        ],
+        ['emp-2'],
+      );
+      expect(rows).toHaveLength(1);
+    });
+
+    it('добавленного нельзя отметить не вышедшим', () => {
+      expect(() =>
+        resolveWorkerComposition(
+          [{ employeeId: 'emp-9', worked: false, comment: 'так вышло' }],
+          [],
+        ),
+      ).toThrow('Добавленный работник не может быть отмечен как не вышедший');
+    });
+
+    it('причина неявки у вышедшего не хранится', () => {
+      const rows = resolveWorkerComposition(
+        [{ employeeId: 'emp-2', worked: true, absenceReasonId: 'reason-1' }],
+        ['emp-2'],
+      );
+      expect(rows[0].absenceReasonId).toBeNull();
+    });
   });
 });
 

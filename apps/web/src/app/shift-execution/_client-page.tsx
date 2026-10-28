@@ -29,10 +29,30 @@ interface ShiftExecutionPageProps {
       order: ProductionOrder & { shift: Shift };
       workCenter: WorkCenter;
       product: Product;
-      facts: Array<ProductionFact & { consumptions: FactConsumption[] }>;
+      workerAssignments: Array<{
+        employeeId: string;
+        employee: { id: string; fullName: string; tabNumber: string };
+      }>;
+      facts: Array<
+        ProductionFact & {
+          consumptions: FactConsumption[];
+          factWorkers: Array<{
+            employeeId: string;
+            planned: boolean;
+            worked: boolean;
+            absenceReasonId: string | null;
+            comment: string | null;
+            employee: { id: string; fullName: string; tabNumber: string };
+          }>;
+        }
+      >;
     }
   >;
   defectReasons: DefectReason[];
+  /** Действующие причины неявки (T-093): нужны, когда работник не вышел. */
+  absenceReasons: Array<{ id: string; code: string; name: string }>;
+  /** Кого можно добавить в состав, если назначение не совпало с выходом. */
+  workerCandidates: Array<{ id: string; fullName: string; tabNumber: string }>;
   /** Позиции, доступные к потреблению: то, что лежит на Производственном складе (Масса или ПФ). */
   consumableProducts: {
     id: string;
@@ -71,6 +91,20 @@ interface BalanceInfo {
   unit: string;
 }
 
+/** Строка фактического состава работников в форме итога смены (T-093, §5 постановки). */
+interface WorkerRow {
+  employeeId: string;
+  fullName: string;
+  tabNumber: string;
+  /** Был ли работник в назначении строки ПЗ — решает сервер, здесь только для подписи. */
+  planned: boolean;
+  worked: boolean;
+  /** Причина неявки из справочника; обязательна, если `worked` снят. */
+  absenceReasonId: string;
+  /** Словами, почему добавили: обязательно для добавленных работников. */
+  comment: string;
+}
+
 function emptyReportForm(): {
   quantity: string;
   factCategory: string;
@@ -81,6 +115,7 @@ function emptyReportForm(): {
   stopsCount: string;
   stopsDurationMinutes: string;
   consumption: ConsumptionRow[];
+  workers: WorkerRow[];
 } {
   return {
     quantity: '',
@@ -92,10 +127,18 @@ function emptyReportForm(): {
     stopsCount: '',
     stopsDurationMinutes: '',
     consumption: [],
+    workers: [],
   };
 }
 
-export default function ShiftExecutionPage({ lines, employeeId, defectReasons, consumableProducts }: ShiftExecutionPageProps) {
+export default function ShiftExecutionPage({
+  lines,
+  employeeId,
+  defectReasons,
+  consumableProducts,
+  absenceReasons,
+  workerCandidates,
+}: ShiftExecutionPageProps) {
   // ОПЭ-34: список потребления строится на сервере по остаткам Производственного склада
   // (Масса и ПФ). ОПЭ-59: конкретному РЦ доступны не все категории — «Маркировка ЧЗ»
   // (код 13) потребляет только полуфабрикат, поэтому список фильтруется по РЦ строки.
@@ -134,12 +177,58 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
     setError(null);
   }
 
+  /**
+   * Состав для формы итога (T-093): по умолчанию — назначенные работники, отмеченные вышедшими.
+   * Если итог уже вносили, берём прошлый фактический состав, чтобы оператор не подтверждал
+   * одно и то же дважды (§5 постановки).
+   */
+  function buildWorkerRows(line: ShiftExecutionPageProps['lines'][number]): WorkerRow[] {
+    const confirmed = new Map<string, WorkerRow>();
+    for (const fact of line.facts) {
+      for (const row of fact.factWorkers ?? []) {
+        confirmed.set(row.employeeId, {
+          employeeId: row.employeeId,
+          fullName: row.employee.fullName,
+          tabNumber: row.employee.tabNumber,
+          planned: row.planned,
+          worked: row.worked,
+          absenceReasonId: row.absenceReasonId ?? '',
+          comment: row.comment ?? '',
+        });
+      }
+    }
+
+    const rows: WorkerRow[] = [];
+    for (const assignment of line.workerAssignments ?? []) {
+      const previous = confirmed.get(assignment.employeeId);
+      rows.push(
+        previous ?? {
+          employeeId: assignment.employeeId,
+          fullName: assignment.employee.fullName,
+          tabNumber: assignment.employee.tabNumber,
+          planned: true,
+          worked: true,
+          absenceReasonId: '',
+          comment: '',
+        },
+      );
+    }
+    // Добавленные ранее работники остаются в списке: их не было в назначении.
+    for (const row of confirmed.values()) {
+      if (!rows.some((item) => item.employeeId === row.employeeId)) {
+        rows.push(row);
+      }
+    }
+    return rows;
+  }
+
   function openReportDialog(line: ShiftExecutionPageProps['lines'][number]) {
     setDialogState({ line, mode: 'report' });
     const base = emptyReportForm();
     if (line.product.category === 'MASS') {
       base.factCategory = 'MASS';
     }
+    base.workers = buildWorkerRows(line);
     setForm(base);
     setError(null);
     setFieldErrors({});
@@ -237,6 +326,14 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
       errors.stopsDurationMinutes = 'Количество и длительность остановок должны быть заданы вместе';
     }
 
+    // T-093: любое расхождение с назначением требует причины — иначе сохранение отклоняется
+    // и здесь, и на сервере (`resolveWorkerComposition`).
+    if (form.workers.some((row) => !row.worked && !row.absenceReasonId)) {
+      errors.workers = 'Укажите причину неявки для каждого, кто не вышел';
+    } else if (form.workers.some((row) => !row.planned && !row.comment.trim())) {
+      errors.workers = 'Укажите причину, по которой работника добавили в состав';
+    }
+
     const seen = new Set<string>();
     for (const row of form.consumption) {
       if (!row.productId) {
@@ -293,6 +390,42 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
     }
   }
 
+  function updateWorkerRow(employeeId: string, patch: Partial<WorkerRow>) {
+    setForm((f) => ({
+      ...f,
+      workers: f.workers.map((row) => (row.employeeId === employeeId ? { ...row, ...patch } : row)),
+    }));
+  }
+
+  function removeWorkerRow(employeeId: string) {
+    setForm((f) => ({ ...f, workers: f.workers.filter((row) => row.employeeId !== employeeId) }));
+  }
+
+  function addWorkerRow(employeeId: string) {
+    const candidate = workerCandidates.find((item) => item.id === employeeId);
+    if (!candidate) return;
+    setForm((f) => {
+      if (f.workers.some((row) => row.employeeId === employeeId)) {
+        return f;
+      }
+      return {
+        ...f,
+        workers: [
+          ...f.workers,
+          {
+            employeeId: candidate.id,
+            fullName: candidate.fullName,
+            tabNumber: candidate.tabNumber,
+            planned: false,
+            worked: true,
+            absenceReasonId: '',
+            comment: '',
+          },
+        ],
+      };
+    });
+  }
+
   function handleReport() {
     if (!dialogState) return;
     if (!validateReportForm()) return;
@@ -327,6 +460,19 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
           ),
         );
       }
+
+      // Состав уходит снимком: сервер сам проставит признак «назначен» по строке ПЗ.
+      formData.set(
+        'workers',
+        JSON.stringify(
+          form.workers.map((row) => ({
+            employeeId: row.employeeId,
+            worked: row.worked,
+            absenceReasonId: row.worked ? null : row.absenceReasonId || null,
+            comment: row.comment.trim() || null,
+          })),
+        ),
+      );
 
       const result: ReportFactResult = await reportProductionFactAction(dialogState.line.id, formData);
       if (result.success) {
@@ -693,6 +839,121 @@ export default function ShiftExecutionPage({ lines, employeeId, defectReasons, c
               </div>
             )}
           </div>
+
+          {dialogState?.mode === 'report' && (
+            <div className="space-y-3 rounded-md border border-mist-metal p-3">
+              <p className="text-sm font-medium text-graphite">
+                Работники смены
+                {(dialogState.line.workerAssignments ?? []).length > 0
+                  ? ' — назначенные отмечены; снимите отметку у тех, кто не выходил'
+                  : ' — в строке ПЗ работники не назначались, состав можно указать здесь'}
+              </p>
+
+              {form.workers.length === 0 && (
+                <p className="text-sm text-steel-graphite">
+                  Состав пуст: работники на эту строку не назначались.
+                </p>
+              )}
+
+              {form.workers.map((row) => (
+                <div key={row.employeeId} className="grid grid-cols-12 items-start gap-2">
+                  <label className="col-span-6 flex items-center gap-2 text-sm text-graphite">
+                    <input
+                      type="checkbox"
+                      checked={row.worked}
+                      disabled={isPending}
+                      onChange={(e) =>
+                        updateWorkerRow(row.employeeId, {
+                          worked: e.target.checked,
+                          // Отметку вернули — причина неявки больше не нужна.
+                          absenceReasonId: e.target.checked ? '' : row.absenceReasonId,
+                        })
+                      }
+                    />
+                    <span>
+                      {row.fullName}
+                      <span className="text-steel-graphite"> · {row.tabNumber}</span>
+                      {!row.planned && <span className="text-steel-graphite"> (добавлен)</span>}
+                    </span>
+                  </label>
+
+                  {!row.worked && (
+                    <div className="col-span-5">
+                      <select
+                        aria-label={'Причина неявки: ' + row.fullName}
+                        className="h-10 w-full rounded-md border border-mist-metal bg-white px-3 text-base text-graphite"
+                        value={row.absenceReasonId}
+                        disabled={isPending}
+                        onChange={(e) =>
+                          updateWorkerRow(row.employeeId, { absenceReasonId: e.target.value })
+                        }
+                      >
+                        <option value="">Причина неявки…</option>
+                        {absenceReasons.map((reason) => (
+                          <option key={reason.id} value={reason.id}>
+                            {reason.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {!row.planned && (
+                    <div className="col-span-5">
+                      <Input
+                        placeholder="Почему добавили (обязательно)"
+                        value={row.comment}
+                        disabled={isPending}
+                        onChange={(e) =>
+                          updateWorkerRow(row.employeeId, { comment: e.target.value })
+                        }
+                      />
+                    </div>
+                  )}
+
+                  {!row.planned && (
+                    <div className="col-span-1">
+                      <Button
+                        variant="secondary"
+                        type="button"
+                        disabled={isPending}
+                        onClick={() => removeWorkerRow(row.employeeId)}
+                      >
+                        ×
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              <div className="grid grid-cols-12 items-center gap-2">
+                <div className="col-span-6">
+                  <select
+                    aria-label="Добавить работника"
+                    className="h-10 w-full rounded-md border border-mist-metal bg-white px-3 text-base text-graphite"
+                    value=""
+                    disabled={isPending}
+                    onChange={(e) => {
+                      if (e.target.value) addWorkerRow(e.target.value);
+                    }}
+                  >
+                    <option value="">Добавить работника, которого не назначали…</option>
+                    {workerCandidates
+                      .filter((item) => !form.workers.some((row) => row.employeeId === item.id))
+                      .map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.fullName} · {item.tabNumber}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+
+              {fieldErrors.workers && (
+                <p className="text-sm text-signal-amber">{fieldErrors.workers}</p>
+              )}
+            </div>
+          )}
 
           {error && <p className="text-sm text-signal-amber">{error}</p>}
 

@@ -56,6 +56,8 @@ function renderPage(lines: Array<ReturnType<typeof makeLine>>) {
       lines={lines as never}
       defectReasons={[]}
       consumableProducts={[]}
+      absenceReasons={[]}
+      workerCandidates={[]}
       employeeId="emp-1"
     />,
   );

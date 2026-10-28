@@ -20,6 +20,10 @@ import {
 import { updateShiftSummary } from '@/lib/shift-summary-service';
 import { syncProductionOrderTask } from '@/lib/onec/tasks';
 import { formatQuantity } from '@/lib/quantity';
+import {
+  resolveWorkerComposition,
+  type WorkerCompositionInput,
+} from '@/lib/worker-composition';
 
 export type AcceptLineResult =
   | { success: true }
@@ -80,6 +84,11 @@ export interface ReportFactInput {
   stopsCount?: number;
   stopsDurationMinutes?: number;
   consumption?: ConsumptionInput[];
+  /**
+   * Фактический состав работников (T-093). Не задан — состав не трогаем (так работают
+   * пути, которые ещё не научились его подтверждать: этап 4 постановки).
+   */
+  workers?: WorkerCompositionInput[];
 }
 
 export interface CorrectFactInput extends ReportFactInput {}
@@ -429,6 +438,8 @@ export async function reportProductionFact(
       order: true,
       product: true,
       workCenter: true,
+      // План работников: по нему оператор подтверждает состав (T-093, §5 постановки).
+      workerAssignments: { select: { employeeId: true } },
     },
   });
 
@@ -446,6 +457,11 @@ export async function reportProductionFact(
 
   const attributedRole = getAttributeRole(userRoles, 'production_order:report') ?? undefined;
   const now = new Date();
+
+  const plannedWorkerIds = (line.workerAssignments ?? []).map((item) => item.employeeId);
+  const workerComposition = input.workers
+    ? resolveWorkerComposition(input.workers, plannedWorkerIds)
+    : null;
 
   const result = await deps.prisma.$transaction(async (tx) => {
     const productionWarehouse = await tx.warehouse.findFirstOrThrow({
@@ -558,6 +574,104 @@ export async function reportProductionFact(
       throw new Error('Не удалось создать факты');
     }
 
+    if (workerComposition !== null) {
+      // Справочники проверяем в этой же транзакции: причина неявки и работник должны быть
+      // действующими, иначе табель сошлётся в никуда.
+      const reasonIds = [
+        ...new Set(
+          workerComposition
+            .map((row) => row.absenceReasonId)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
+      const employeeIds = workerComposition.map((row) => row.employeeId);
+
+      if (employeeIds.length > 0) {
+        const employees = await tx.employee.findMany({
+          where: { id: { in: employeeIds } },
+          select: { id: true, active: true },
+        });
+        if (employees.length !== employeeIds.length) {
+          throw new Error('Работник не найден — состав не сохранён');
+        }
+        if (employees.some((employee) => !employee.active)) {
+          throw new Error('Работник деактивирован — состав не сохранён');
+        }
+      }
+
+      if (reasonIds.length > 0) {
+        const reasons = await tx.absenceReason.findMany({
+          where: { id: { in: reasonIds } },
+          select: { id: true, active: true },
+        });
+        if (reasons.length !== reasonIds.length) {
+          throw new Error('Причина неявки не найдена — состав не сохранён');
+        }
+        if (reasons.some((reason) => !reason.active)) {
+          throw new Error('Причина неявки деактивирована — состав не сохранён');
+        }
+      }
+
+      const previous = await tx.productionFactWorker.findMany({
+        where: { productionFact: { lineId } },
+        select: {
+          employeeId: true,
+          planned: true,
+          worked: true,
+          absenceReasonId: true,
+          comment: true,
+        },
+      });
+
+      // Состав относится к событию ввода итога, а фактов у линии бывает два (ГП и ПФ):
+      // снимок пишется один раз — на факт основной категории линии (урок ОПЭ-38 у потребления).
+      const primaryFact =
+        createdFacts.find((fact) => fact.factCategory === line.product.category) ?? createdFacts[0];
+
+      await tx.productionFactWorker.deleteMany({ where: { productionFact: { lineId } } });
+      if (workerComposition.length > 0) {
+        await tx.productionFactWorker.createMany({
+          data: workerComposition.map((row) => ({
+            productionFactId: primaryFact.id,
+            employeeId: row.employeeId,
+            planned: row.planned,
+            worked: row.worked,
+            absenceReasonId: row.absenceReasonId,
+            comment: row.comment,
+          })),
+        });
+      }
+
+      // Аудит пишем, только если состав действительно изменился: подтверждение того же
+      // самого состава — не событие, и засорять журнал нечем (§5 постановки).
+      const unchanged =
+        previous.length === workerComposition.length &&
+        workerComposition.every((row) => {
+          const before = previous.find((item) => item.employeeId === row.employeeId);
+          return (
+            before !== undefined &&
+            before.worked === row.worked &&
+            before.planned === row.planned &&
+            before.absenceReasonId === row.absenceReasonId &&
+            (before.comment ?? null) === row.comment
+          );
+        });
+
+      if (!unchanged) {
+        await deps.writeAudit(tx, {
+          action: previous.length > 0 ? 'UPDATE' : 'CREATE',
+          objectType: 'ProductionFact',
+          objectId: primaryFact.id,
+          field: 'workers',
+          oldValue: previous.length > 0 ? JSON.stringify(previous) : undefined,
+          newValue: JSON.stringify(workerComposition),
+          userId: session.userId,
+          userRoles,
+          permission: 'production_order:report',
+        });
+      }
+    }
+
     await deps.updateShiftSummary(lineId, tx);
 
     // ОПЭ-29 (решение владельца 22.10.2026): задача для 1С появляется сразу по вводу итога.
@@ -621,12 +735,15 @@ export async function reportProductionFactAction(lineId: string, formData: FormD
   try {
     const rawConsumption = formData.get('consumption')?.toString();
     const rawOutputByCategory = formData.get('outputByCategory')?.toString();
+    const rawWorkers = formData.get('workers')?.toString();
     const input: ReportFactInput = {
       defectQuantity: formData.get('defectQuantity') ? Number(formData.get('defectQuantity')) : undefined,
       defectReasonId: formData.get('defectReasonId')?.toString() || undefined,
       stopsCount: formData.get('stopsCount') ? Number(formData.get('stopsCount')) : undefined,
       stopsDurationMinutes: formData.get('stopsDurationMinutes') ? Number(formData.get('stopsDurationMinutes')) : undefined,
       consumption: rawConsumption ? JSON.parse(rawConsumption) : undefined,
+      // Не задан — состав не трогаем: так работают пути, которые ещё не подтверждают состав.
+      workers: rawWorkers ? (JSON.parse(rawWorkers) as WorkerCompositionInput[]) : undefined,
     };
 
     if (rawOutputByCategory) {
@@ -993,6 +1110,7 @@ export async function correctFactByOperatorAction(lineId: string, formData: Form
       stopsCount: formData.get('stopsCount') ? Number(formData.get('stopsCount')) : undefined,
       stopsDurationMinutes: formData.get('stopsDurationMinutes') ? Number(formData.get('stopsDurationMinutes')) : undefined,
       consumption: rawConsumption ? JSON.parse(rawConsumption) : undefined,
+      // Состав при корректировке появится в этапе 4 (постановка §13).
     };
 
     const { warnings } = await correctFactByOperator(lineId, input);

@@ -9,11 +9,14 @@ export default async function ShiftExecutionRootPage() {
   const session = await requireSession();
   const employeeId = session.user.employeeId;
 
-  const [lines, defectReasons, consumableProducts] = await Promise.all([
-    employeeId ? getOperatorLines(employeeId) : Promise.resolve([]),
-    getActiveDefectReasons(),
-    getConsumableProducts(),
-  ]);
+  const [lines, defectReasons, consumableProducts, absenceReasons, workerCandidates] =
+    await Promise.all([
+      employeeId ? getOperatorLines(employeeId) : Promise.resolve([]),
+      getActiveDefectReasons(),
+      getConsumableProducts(),
+      getActiveAbsenceReasons(),
+      getWorkerCandidates(employeeId),
+    ]);
 
   return (
     <ShiftExecutionPage
@@ -21,6 +24,8 @@ export default async function ShiftExecutionRootPage() {
       employeeId={employeeId}
       defectReasons={defectReasons}
       consumableProducts={consumableProducts}
+      absenceReasons={absenceReasons}
+      workerCandidates={workerCandidates}
     />
   );
 }
@@ -43,9 +48,12 @@ async function getOperatorLines(employeeId: string) {
       },
       workCenter: true,
       product: true,
+      // План работников: оператор подтверждает назначенный состав при вводе итога (T-093).
+      workerAssignments: { include: { employee: true } },
       facts: {
         include: {
           consumptions: true,
+          factWorkers: { include: { absenceReason: true, employee: true } },
         },
       },
     },
@@ -53,6 +61,35 @@ async function getOperatorLines(employeeId: string) {
       { order: { createdAt: 'desc' } },
       { createdAt: 'asc' },
     ],
+  });
+}
+
+/**
+ * Причины неявки для формы состава (T-093, §10 постановки): берутся только действующие —
+ * деактивированную причину в новом составе указывать нельзя.
+ */
+async function getActiveAbsenceReasons() {
+  return prisma.absenceReason.findMany({
+    where: { active: true },
+    orderBy: { name: 'asc' },
+    select: { id: true, code: true, name: true },
+  });
+}
+
+/**
+ * Кого оператор может добавить в состав, если назначение не совпало с выходом:
+ * действующие сотрудники, отмеченные как «может привлекаться работником» (M01 §4.1).
+ * Сам оператор в этот список не попадает — он ведёт итог, а не выходит работником.
+ */
+async function getWorkerCandidates(operatorEmployeeId: string | null) {
+  return prisma.employee.findMany({
+    where: {
+      active: true,
+      canBeWorker: true,
+      ...(operatorEmployeeId ? { id: { not: operatorEmployeeId } } : {}),
+    },
+    orderBy: { fullName: 'asc' },
+    select: { id: true, fullName: true, tabNumber: true },
   });
 }
 
