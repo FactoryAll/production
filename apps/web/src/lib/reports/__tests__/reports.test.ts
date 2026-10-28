@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { parseReportPeriod, monthBounds, currentMonth, toDateInputValue } from '../period';
+import {
+  parseReportPeriod,
+  parseReportPeriodFromSearchParams,
+  monthBounds,
+  currentMonth,
+  reportPeriodQuery,
+  toDateInputValue,
+} from '../period';
 import { toCsv } from '../csv';
 
 /**
@@ -59,5 +66,78 @@ describe('разрез отчёта о выпуске', () => {
     const { getOutputReport } = await import('../output-report');
     // Проверяем саму сигнатуру: разрез задаётся параметром, а не отдельной копией расчёта.
     expect(getOutputReport.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+/**
+ * Фильтры отчётов (переделка 29.10.2026): одна точка разбора параметров на четыре отчёта
+ * и ссылка выгрузки, которая повторяет показанный период.
+ */
+describe('период из параметров адреса', () => {
+  it('«Смена» берёт дату выбранной смены, а не сегодняшнюю', () => {
+    // До переделки дата смены в разбор не передавалась, и отчёт «по смене» показывал
+    // данные за сегодня — при любой выбранной смене.
+    const period = parseReportPeriodFromSearchParams({
+      period: 'shift',
+      shiftId: 'shift-1',
+      shiftDate: '2026-10-26',
+      shiftLabel: 'Смена 1 от 26.10.2026',
+    });
+
+    expect(period.mode).toBe('shift');
+    expect(period.shiftId).toBe('shift-1');
+    expect(toDateInputValue(period.from)).toBe('2026-10-26');
+    expect(toDateInputValue(period.to)).toBe('2026-10-26');
+    expect(period.label).toBe('Смена 1 от 26.10.2026');
+  });
+
+  it('«Неделя» берёт границы, которые посчитал список недель', () => {
+    const period = parseReportPeriodFromSearchParams({
+      period: 'week',
+      from: '2026-10-19',
+      to: '2026-10-25',
+    });
+
+    expect(period.mode).toBe('week');
+    expect(toDateInputValue(period.from)).toBe('2026-10-19');
+    expect(toDateInputValue(period.to)).toBe('2026-10-25');
+  });
+
+  it('несколько месяцев приходят массивом и склеиваются', () => {
+    const period = parseReportPeriodFromSearchParams({
+      period: 'months',
+      months: ['2026-09', '2026-11'],
+    });
+    expect(period.months).toEqual(['2026-09', '2026-11']);
+  });
+
+  it('ссылка выгрузки повторяет показанный период по смене', () => {
+    const period = parseReportPeriodFromSearchParams({
+      period: 'shift',
+      shiftId: 'shift-1',
+      shiftDate: '2026-10-26',
+      shiftLabel: 'Смена 1 от 26.10.2026',
+    });
+
+    const query = reportPeriodQuery(period);
+
+    expect(query.get('period')).toBe('shift');
+    expect(query.get('shiftId')).toBe('shift-1');
+    expect(query.get('shiftDate')).toBe('2026-10-26');
+    expect(query.get('shiftLabel')).toBe('Смена 1 от 26.10.2026');
+  });
+
+  it('ссылка выгрузки по месяцам не тащит параметры смены', () => {
+    const period = parseReportPeriodFromSearchParams({
+      period: 'months',
+      months: '2026-10',
+    });
+
+    const query = reportPeriodQuery(period);
+
+    expect(query.get('period')).toBe('months');
+    expect(query.get('months')).toBe('2026-10');
+    expect(query.get('shiftDate')).toBeNull();
+    expect(query.get('shiftId')).toBeNull();
   });
 });

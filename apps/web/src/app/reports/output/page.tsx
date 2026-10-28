@@ -2,7 +2,12 @@ import Link from 'next/link';
 import { prisma } from '@prodtrack/db';
 import { AccessDenied } from '@/components/access-denied';
 import { checkPageAccess } from '@/lib/auth/page-guard';
-import { parseReportPeriod, toDateInputValue } from '@/lib/reports/period';
+import {
+  parseReportPeriodFromSearchParams,
+  reportPeriodQuery,
+  toDateInputValue,
+} from '@/lib/reports/period';
+import { buildWeekOptions } from '@/lib/reports/weeks';
 import { getOutputReport } from '@/lib/reports/output-report';
 import { PeriodForm } from '../_components/period-form';
 
@@ -21,13 +26,7 @@ export default async function OutputReportPage({
     );
   }
 
-  const monthsParam = searchParams.months;
-  const period = parseReportPeriod({
-    period: typeof searchParams.period === 'string' ? searchParams.period : undefined,
-    from: typeof searchParams.from === 'string' ? searchParams.from : undefined,
-    to: typeof searchParams.to === 'string' ? searchParams.to : undefined,
-    months: Array.isArray(monthsParam) ? monthsParam.join(',') : monthsParam,
-  });
+  const period = parseReportPeriodFromSearchParams(searchParams);
 
   const [report, shifts] = await Promise.all([
     getOutputReport(prisma, period),
@@ -44,12 +43,9 @@ export default async function OutputReportPage({
     label: `Смена ${shift.number} от ${shift.date.toLocaleDateString('ru-RU')}`,
   }));
 
-  const query = new URLSearchParams({
-    period: period.mode,
-    from: toDateInputValue(period.from),
-    to: toDateInputValue(period.to),
-    months: period.months.join(','),
-  });
+  const query = reportPeriodQuery(period);
+  // Недели для фильтра: только те, в которые есть смены (29.10.2026).
+  const weeks = buildWeekOptions(shifts.map((shift) => shift.date));
 
   return (
     <main className="space-y-4 p-6">
@@ -75,6 +71,7 @@ export default async function OutputReportPage({
         from={toDateInputValue(period.from)}
         to={toDateInputValue(period.to)}
         shifts={shiftsForForm}
+        weeks={weeks}
       />
 
       <p className="text-sm text-steel-graphite">Период: {period.label}</p>
