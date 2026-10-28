@@ -58,6 +58,7 @@ describe('nav-items', () => {
         '/nsi/shifts',
         '/nsi/warehouses',
         '/nsi/defect-reasons',
+        '/nsi/substitution-reasons',
         '/nsi/absence-reasons',
       ]),
     );

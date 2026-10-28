@@ -23,6 +23,9 @@ const NSI_ITEMS: NavItem[] = [
   { label: 'Смены', href: '/nsi/shifts' },
   { label: 'Склады', href: '/nsi/warehouses' },
   { label: 'Причины', href: '/nsi/defect-reasons' },
+  // Коды причин подмены зафиксированы контрактом (ILLNESS/NO_SHOW/LEFT_SHIFT/OTHER),
+  // но наименования редактируемы и их видит оператор в диалоге — вход администратору нужен.
+  { label: 'Причины ввода за Оператора', href: '/nsi/substitution-reasons' },
   { label: 'Причины неявки', href: '/nsi/absence-reasons' },
 ];
 
