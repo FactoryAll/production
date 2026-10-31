@@ -5,6 +5,8 @@ vi.mock('@/lib/reports/timesheet-report', () => ({ getTimesheetReport: vi.fn() }
 vi.mock('@prodtrack/db', () => ({
   prisma: {
     shift: { findMany: vi.fn() },
+    // Месяцы для фильтра (29.10.2026): от месяца первого ПЗ до текущего.
+    productionOrder: { findFirst: vi.fn().mockResolvedValue(null) },
   },
 }));
 

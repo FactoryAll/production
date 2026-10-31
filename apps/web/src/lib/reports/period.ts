@@ -127,12 +127,18 @@ export function parseReportPeriod(params: {
   const [rangeFrom, rangeTo] = from <= to ? [from, to] : [to, from];
 
   if (mode === 'day') {
+    // Режим называется «День», но это **диапазон дат** «с даты … по дату» (решение владельца
+    // 29.10.2026): раньше здесь стоял `endOfDay(rangeFrom)`, и вторая дата из формы молча
+    // игнорировалась — отчёт за 21–25 октября показывал только 21-е.
     return {
       mode: 'day',
       from: startOfDay(rangeFrom),
-      to: endOfDay(rangeFrom),
+      to: endOfDay(rangeTo),
       months: [],
-      label: rangeFrom.toLocaleDateString('ru-RU'),
+      label:
+        rangeFrom.getTime() === rangeTo.getTime()
+          ? rangeFrom.toLocaleDateString('ru-RU')
+          : `${rangeFrom.toLocaleDateString('ru-RU')} — ${rangeTo.toLocaleDateString('ru-RU')}`,
     };
   }
 
@@ -156,6 +162,66 @@ export function parseReportPeriod(params: {
     to: endOfDay(rangeTo),
     label: `${rangeFrom.toLocaleDateString('ru-RU')} — ${rangeTo.toLocaleDateString('ru-RU')}`,
   };
+}
+
+/**
+ * Строковое значение параметра адреса. Массив значений (месяцев можно выбрать несколько)
+ * склеивается через запятую — так же, как его разбирает `parseReportPeriod`.
+ */
+export function searchParamValue(
+  params: Record<string, string | string[] | undefined>,
+  name: string,
+): string | undefined {
+  const value = params[name];
+  return Array.isArray(value) ? value.join(',') : value;
+}
+
+/**
+ * Период прямо из `searchParams` страницы отчёта.
+ *
+ * Одна точка правды для четырёх отчётов: раньше каждый экран перечислял параметры у себя,
+ * и выбранная смена в разборе не участвовала вовсе — «Смена» показывала сегодняшнюю дату
+ * независимо от того, какая смена выбрана в фильтре (найдено при переделке фильтров 29.10.2026).
+ */
+export function parseReportPeriodFromSearchParams(
+  params: Record<string, string | string[] | undefined>,
+  now?: Date,
+): ReportPeriod {
+  return parseReportPeriod({
+    period: searchParamValue(params, 'period'),
+    from: searchParamValue(params, 'from'),
+    to: searchParamValue(params, 'to'),
+    months: searchParamValue(params, 'months'),
+    shiftId: searchParamValue(params, 'shiftId'),
+    shiftDate: searchParamValue(params, 'shiftDate'),
+    shiftLabel: searchParamValue(params, 'shiftLabel'),
+    now,
+  });
+}
+
+/**
+ * Параметры для ссылки выгрузки: ровно тот период, который показан на экране.
+ *
+ * Ключевое здесь — выбранная смена: без её даты выгрузка «по смене» строила бы период
+ * от сегодняшнего дня, то есть отдавала бы в CSV не то, что видно в таблице.
+ */
+export function reportPeriodQuery(period: ReportPeriod): URLSearchParams {
+  const query = new URLSearchParams({
+    period: period.mode,
+    from: toDateInputValue(period.from),
+    to: toDateInputValue(period.to),
+    months: period.months.join(','),
+  });
+
+  if (period.mode === 'shift') {
+    if (period.shiftId) {
+      query.set('shiftId', period.shiftId);
+    }
+    query.set('shiftDate', toDateInputValue(period.from));
+    query.set('shiftLabel', period.label);
+  }
+
+  return query;
 }
 
 /** Имя файла выгрузки: отчёт + период. */

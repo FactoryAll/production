@@ -1,6 +1,6 @@
 import { prisma } from '@prodtrack/db';
 import { requirePermission } from '@/lib/auth/access';
-import { parseReportPeriod, reportFileName } from '@/lib/reports/period';
+import { parseReportPeriodFromSearchParams, reportFileName } from '@/lib/reports/period';
 import { getOutputReport } from '@/lib/reports/output-report';
 import { csvHeaders, toCsv } from '@/lib/reports/csv';
 
@@ -11,12 +11,9 @@ export async function GET(request: Request) {
   await requirePermission('reports:read');
 
   const params = new URL(request.url).searchParams;
-  const period = parseReportPeriod({
-    period: params.get('period') ?? undefined,
-    from: params.get('from') ?? undefined,
-    to: params.get('to') ?? undefined,
-    months: params.get('months') ?? undefined,
-  });
+  // Тот же разбор, что на экране: смена приходит с датой, иначе выгрузка «по смене»
+  // строила бы период от сегодняшнего дня (найдено при переделке фильтров 29.10.2026).
+  const period = parseReportPeriodFromSearchParams(Object.fromEntries(params.entries()));
 
   const report = await getOutputReport(prisma, period);
 

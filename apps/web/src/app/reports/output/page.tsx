@@ -2,7 +2,13 @@ import Link from 'next/link';
 import { prisma } from '@prodtrack/db';
 import { AccessDenied } from '@/components/access-denied';
 import { checkPageAccess } from '@/lib/auth/page-guard';
-import { parseReportPeriod, toDateInputValue } from '@/lib/reports/period';
+import {
+  parseReportPeriodFromSearchParams,
+  reportPeriodQuery,
+  toDateInputValue,
+} from '@/lib/reports/period';
+import { buildWeekOptions } from '@/lib/reports/weeks';
+import { getAvailableReportMonths } from '@/lib/reports/months';
 import { getOutputReport } from '@/lib/reports/output-report';
 import { PeriodForm } from '../_components/period-form';
 
@@ -21,21 +27,17 @@ export default async function OutputReportPage({
     );
   }
 
-  const monthsParam = searchParams.months;
-  const period = parseReportPeriod({
-    period: typeof searchParams.period === 'string' ? searchParams.period : undefined,
-    from: typeof searchParams.from === 'string' ? searchParams.from : undefined,
-    to: typeof searchParams.to === 'string' ? searchParams.to : undefined,
-    months: Array.isArray(monthsParam) ? monthsParam.join(',') : monthsParam,
-  });
+  const period = parseReportPeriodFromSearchParams(searchParams);
 
-  const [report, shifts] = await Promise.all([
+  const [report, shifts, monthsAvailable] = await Promise.all([
     getOutputReport(prisma, period),
     prisma.shift.findMany({
       orderBy: { date: 'desc' },
       take: 30,
       select: { id: true, number: true, date: true },
     }),
+    // Месяцы для фильтра — от первого ПЗ в базе до текущего (решение владельца 29.10.2026).
+    getAvailableReportMonths(prisma),
   ]);
 
   const shiftsForForm = shifts.map((shift) => ({
@@ -44,12 +46,9 @@ export default async function OutputReportPage({
     label: `Смена ${shift.number} от ${shift.date.toLocaleDateString('ru-RU')}`,
   }));
 
-  const query = new URLSearchParams({
-    period: period.mode,
-    from: toDateInputValue(period.from),
-    to: toDateInputValue(period.to),
-    months: period.months.join(','),
-  });
+  const query = reportPeriodQuery(period);
+  // Недели для фильтра: только те, в которые есть смены (29.10.2026).
+  const weeks = buildWeekOptions(shifts.map((shift) => shift.date));
 
   return (
     <main className="space-y-4 p-6">
@@ -72,9 +71,11 @@ export default async function OutputReportPage({
         action="/reports/output"
         period={period.mode}
         months={period.months}
+        monthsAvailable={monthsAvailable}
         from={toDateInputValue(period.from)}
         to={toDateInputValue(period.to)}
         shifts={shiftsForForm}
+        weeks={weeks}
       />
 
       <p className="text-sm text-steel-graphite">Период: {period.label}</p>
