@@ -87,6 +87,8 @@ function transfer(overrides: Record<string, unknown> = {}) {
       {
         product: { code: 'GP002', name: 'Готовая продукция Б', unit: 'шт' },
         plannedQuantity: { toString: () => '10' },
+        actualQuantity: null,
+        discrepancies: [],
       },
     ],
     ...overrides,
@@ -297,6 +299,116 @@ describe('доска: перемещения (колонки 6–9)', () => {
     );
     expect(inSecondShift.cards.find((card) => card.kind === 'transfer')).toMatchObject({
       column: 'TRANSFER_SUBMITTED',
+    });
+  });
+});
+
+describe('доска: количество на карточке перемещения (ОПЭ-75)', () => {
+  function line(planned: string, actual: string | null, difference?: string) {
+    return {
+      product: { code: 'GP002', name: 'Готовая продукция Б', unit: 'шт' },
+      plannedQuantity: { toString: () => planned },
+      actualQuantity: actual === null ? null : { toString: () => actual },
+      discrepancies:
+        difference === undefined
+          ? []
+          : [
+              {
+                actualQuantity: { toString: () => actual ?? planned },
+                difference: { toString: () => difference },
+              },
+            ],
+    };
+  }
+
+  it('приёмка с расхождением 40 → 37: карточка показывает 37 и план 40, а не 40', async () => {
+    const { client } = fakeClient({
+      transfers: [
+        transfer({
+          status: 'DISCREPANCY',
+          updatedAt: new Date('2026-10-30T17:00:00'),
+          lines: [line('40', '37', '-3')],
+        }),
+      ],
+    });
+
+    const board = await getKanbanBoard(client, {}, { now: NOW });
+    const card = board.cards.find((item) => item.kind === 'transfer');
+
+    expect(card).toMatchObject({
+      column: 'DISCREPANCY',
+      quantity: 37,
+      plannedQuantity: 40,
+      difference: -3,
+    });
+  });
+
+  it('после согласования показывается согласованное количество', async () => {
+    const { client } = fakeClient({
+      transfers: [
+        transfer({
+          status: 'RECONCILED',
+          updatedAt: new Date('2026-10-30T18:00:00'),
+          lines: [line('40', '38', '-2')],
+        }),
+      ],
+    });
+
+    const board = await getKanbanBoard(client, {}, { now: NOW });
+    expect(board.cards.find((item) => item.kind === 'transfer')).toMatchObject({
+      quantity: 38,
+      plannedQuantity: 40,
+      difference: -2,
+    });
+  });
+
+  it('приёмка без расхождения: принято равно плану, разницы нет', async () => {
+    const { client } = fakeClient({
+      transfers: [
+        transfer({
+          status: 'RECEIVED',
+          updatedAt: new Date('2026-10-30T15:00:00'),
+          lines: [line('40', '40')],
+        }),
+      ],
+    });
+
+    const board = await getKanbanBoard(client, {}, { now: NOW });
+    expect(board.cards.find((item) => item.kind === 'transfer')).toMatchObject({
+      quantity: 40,
+      plannedQuantity: 40,
+      difference: 0,
+    });
+  });
+
+  it('черновик и отправленное показывают план: приёмки ещё не было', async () => {
+    const draft = await getKanbanBoard(
+      fakeClient({ transfers: [transfer({ status: 'DRAFT', lines: [line('40', null)] })] }).client,
+      {},
+      { now: NOW },
+    );
+    expect(draft.cards.find((item) => item.kind === 'transfer')).toMatchObject({
+      quantity: 40,
+      plannedQuantity: 40,
+      difference: null,
+    });
+
+    const submitted = await getKanbanBoard(
+      fakeClient({
+        transfers: [
+          transfer({
+            status: 'SUBMITTED',
+            submittedAt: new Date('2026-10-30T12:00:00'),
+            lines: [line('40', null)],
+          }),
+        ],
+      }).client,
+      {},
+      { now: NOW },
+    );
+    expect(submitted.cards.find((item) => item.kind === 'transfer')).toMatchObject({
+      quantity: 40,
+      difference: null,
     });
   });
 });

@@ -78,8 +78,16 @@ export interface KanbanTransferCard {
   productCode: string;
   productName: string;
   productUnit: string;
-  /** Количество строк перемещения (сумма). */
+  /**
+   * Количество на карточке: **принятое**, если приёмка была (`RECEIVED`, `RECONCILED`,
+   * `DISCREPANCY`), иначе плановое (ОПЭ-75). Раньше здесь всегда был план — после согласования
+   * расхождения карточка показывала количество ДО согласования.
+   */
   quantity: number;
+  /** Плановое количество (сумма по строкам) — показывается рядом, когда отличается. */
+  plannedQuantity: number;
+  /** Разница «принято − план»; null — приёмки ещё не было. */
+  difference: number | null;
   sourceWarehouseName: string;
   destinationWarehouseName: string;
   /** Дата, по которой перемещение попало в смену. */
@@ -225,7 +233,14 @@ export async function getKanbanBoard(
       submittedAt: true,
       sourceWarehouse: { select: { id: true, name: true } },
       destinationWarehouse: { select: { id: true, name: true } },
-      lines: { select: { product: { select: { code: true, name: true, unit: true } }, plannedQuantity: true } },
+      lines: {
+        select: {
+          product: { select: { code: true, name: true, unit: true } },
+          plannedQuantity: true,
+          actualQuantity: true,
+          discrepancies: { select: { actualQuantity: true, difference: true } },
+        },
+      },
     },
   })) as Array<
     TransferDates & {
@@ -235,6 +250,11 @@ export async function getKanbanBoard(
       lines: Array<{
         product: { code: string; name: string; unit: string };
         plannedQuantity: { toString(): string };
+        actualQuantity: { toString(): string } | null;
+        discrepancies: Array<{
+          actualQuantity: { toString(): string };
+          difference: { toString(): string };
+        }>;
       }>;
     }
   >;
@@ -256,7 +276,22 @@ export async function getKanbanBoard(
       continue;
     }
 
-    const quantity = transfer.lines.reduce((sum, line) => sum + toNumber(line.plannedQuantity), 0);
+    // ОПЭ-75: после приёмки показываем ПРИНЯТОЕ количество, а не план. Если по строке
+    // фактического количества нет (черновик, отправлено), остаётся план.
+    const plannedQuantity = transfer.lines.reduce((sum, line) => sum + toNumber(line.plannedQuantity), 0);
+    const accepted = transfer.lines.reduce(
+      (sum, line) => sum + toNumber(line.actualQuantity ?? line.plannedQuantity),
+      0,
+    );
+    const isAccepted = ACCEPTED_TRANSFER_STATUSES.has(transfer.status);
+    const quantity = isAccepted ? accepted : plannedQuantity;
+    // Разница — из записи расхождения, если она есть (там она посчитана при приёмке),
+    // иначе как арифметика двух количеств.
+    const storedDifference = transfer.lines.reduce((sum, line) => {
+      const discrepancy = line.discrepancies[0];
+      return discrepancy ? sum + toNumber(discrepancy.difference) : sum;
+    }, 0);
+    const difference = isAccepted ? roundQuantity(storedDifference || quantity - plannedQuantity) : null;
     const first = transfer.lines[0];
 
     transferCards.push({
@@ -270,6 +305,8 @@ export async function getKanbanBoard(
       productName: first?.product.name ?? 'Номенклатура не указана',
       productUnit: first?.product.unit ?? '',
       quantity: roundQuantity(quantity),
+      plannedQuantity: roundQuantity(plannedQuantity),
+      difference,
       sourceWarehouseName: transfer.sourceWarehouse.name,
       destinationWarehouseName: transfer.destinationWarehouse.name,
       eventDate: transferEventDate(transfer),
@@ -313,6 +350,9 @@ export function transferNoteTone(status: string): NoteTone {
   }
   return 'neutral';
 }
+
+/** Статусы, в которых фактическое количество уже есть (ОПЭ-75). */
+const ACCEPTED_TRANSFER_STATUSES = new Set(['RECEIVED', 'RECONCILED', 'DISCREPANCY']);
 
 function roundQuantity(value: number): number {
   return Math.round(value * 1000) / 1000;

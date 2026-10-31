@@ -28,6 +28,12 @@ const NOTE_TONE_CLASS: Record<NoteTone, string> = {
   neutral: 'bg-neutral-200',
 };
 
+/** Разница со знаком: −3 читается как недополучение, +2 — как излишек. */
+function formatDifference(value: number): string {
+  const rounded = Math.round(value * 1000) / 1000;
+  return rounded > 0 ? `+${rounded}` : `${rounded}`;
+}
+
 function cardKey(card: KanbanCard): string {
   return card.kind === 'line' ? `line-${card.lineId}` : `transfer-${card.transferId}`;
 }
@@ -65,9 +71,16 @@ function TransferCardBody({ card }: { card: KanbanTransferCard }) {
       <p className="text-steel-graphite">
         {card.productCode} — {card.productName}
       </p>
+      {/* ОПЭ-75: количество — принятое, если приёмка была. Когда принятое отличается
+          от плана, показываем оба числа: «принято 37 шт · план 40 шт». */}
       <p className="text-steel-graphite">
-        {card.quantity} {card.productUnit}
+        {card.difference !== null && card.difference !== 0
+          ? `принято ${card.quantity} ${card.productUnit} · план ${card.plannedQuantity} ${card.productUnit}`
+          : `${card.quantity} ${card.productUnit}`}
       </p>
+      {card.difference !== null && card.difference !== 0 && (
+        <p className="text-steel-graphite">разница {formatDifference(card.difference)}</p>
+      )}
       <p className="text-steel-graphite">
         {card.sourceWarehouseName} → {card.destinationWarehouseName}
       </p>

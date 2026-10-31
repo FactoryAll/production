@@ -182,6 +182,8 @@ describe('Экран «Канбан»: колонки и карточки', () =
           {
             product: { code: 'GP002', name: 'Готовая продукция Б', unit: 'шт' },
             plannedQuantity: { toString: () => '10' },
+            actualQuantity: { toString: () => '10' },
+            discrepancies: [],
           },
         ],
       },
@@ -222,6 +224,40 @@ describe('Экран «Канбан»: колонки и карточки', () =
     expect(actionButtons).toEqual([]);
   });
 
+  // ОПЭ-75: после согласования расхождения карточка обязана показывать принятое количество.
+  it('карточка приёмки с расхождением показывает принятое и план', async () => {
+    mockAccess(['KSGP']);
+    lineFindMany.mockResolvedValue([]);
+    transferFindMany.mockResolvedValue([
+      {
+        id: 'tr-1',
+        status: 'RECONCILED',
+        createdAt: new Date('2026-10-30T09:00:00'),
+        updatedAt: new Date('2026-10-30T18:00:00'),
+        submittedAt: new Date('2026-10-30T12:00:00'),
+        sourceWarehouse: { id: 'wh-prod', name: 'Производственный склад' },
+        destinationWarehouse: { id: 'wh-gp', name: 'Склад ГП' },
+        lines: [
+          {
+            product: { code: 'GP002', name: 'Готовая продукция Б', unit: 'шт' },
+            plannedQuantity: { toString: () => '40' },
+            actualQuantity: { toString: () => '37' },
+            discrepancies: [
+              { actualQuantity: { toString: () => '37' }, difference: { toString: () => '-3' } },
+            ],
+          },
+        ],
+      },
+    ]);
+
+    render((await KanbanPage({ searchParams: { shiftId: 'shift-1' } })) as never);
+
+    const card = screen.getByRole('link', { name: /Перемещение/ });
+    expect(within(card).getByText('принято 37 шт · план 40 шт')).toBeTruthy();
+    expect(within(card).getByText('разница -3')).toBeTruthy();
+    expect(within(card).queryByText(/^40 шт$/)).toBeNull();
+  });
+
   it('плашки карточек окрашены токенами темы', async () => {
     mockAccess(['NP']);
     transferFindMany.mockResolvedValue([
@@ -237,6 +273,8 @@ describe('Экран «Канбан»: колонки и карточки', () =
           {
             product: { code: 'GP002', name: 'Готовая продукция Б', unit: 'шт' },
             plannedQuantity: { toString: () => '10' },
+            actualQuantity: { toString: () => '10' },
+            discrepancies: [],
           },
         ],
       },
@@ -265,6 +303,8 @@ describe('Экран «Канбан»: колонки и карточки', () =
           {
             product: { code: 'GP002', name: 'Готовая продукция Б', unit: 'шт' },
             plannedQuantity: { toString: () => '10' },
+            actualQuantity: { toString: () => '10' },
+            discrepancies: [],
           },
         ],
       },
@@ -300,6 +340,8 @@ describe('Экран «Канбан»: колонки и карточки', () =
           {
             product: { code: 'GP002', name: 'Готовая продукция Б', unit: 'шт' },
             plannedQuantity: { toString: () => '10' },
+            actualQuantity: { toString: () => '10' },
+            discrepancies: [],
           },
         ],
       },
