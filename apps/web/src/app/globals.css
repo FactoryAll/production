@@ -7,6 +7,9 @@
     --color-graphite-surface: #f3f6f9;
     --color-mist-metal: #cbd3dd;
     --color-alert: #ef4444;
+    /* Метки доски (ОПЭ-74): «ожидает 1С» и «проведено». Цвета из темы, не хардкод в разметке. */
+    --color-signal-rose: #f6cfdc;
+    --color-signal-mint: #cdeccd;
 
     /* Neutral scale */
     --color-neutral-50: #fafafa;

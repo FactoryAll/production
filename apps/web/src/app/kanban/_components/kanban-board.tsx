@@ -3,6 +3,17 @@ import type { KanbanCard } from '@/lib/kanban/board';
 import type { KanbanColumn } from '@/lib/kanban/stage';
 
 /**
+ * Тон метки на карточке (ОПЭ-74). Цвет — из токенов темы (`--color-signal-rose` /
+ * `--color-signal-mint`), а сам тон приходит из данных (`card.noteTone`), а не выводится
+ * из текста метки в разметке.
+ */
+const NOTE_TONE_CLASS: Record<KanbanCard['noteTone'], string> = {
+  pending: 'bg-signal-rose',
+  done: 'bg-signal-mint',
+  neutral: 'bg-neutral-200',
+};
+
+/**
  * Доска контура: колонки и карточки (T-103, постановка `docs/kanban_design.md` §13).
  *
  * Компонент чистый — получает готовые колонки и карточки, ничего не запрашивает. Так его можно
@@ -72,7 +83,9 @@ export function KanbanBoard({
                         <p className="text-steel-graphite">Оператор: {card.operatorName}</p>
                       )}
                       {card.note && (
-                        <p className="mt-1 inline-flex rounded bg-neutral-200 px-2 py-0.5 text-xs text-graphite">
+                        <p
+                          className={`mt-1 inline-flex rounded px-2 py-0.5 text-xs text-graphite ${NOTE_TONE_CLASS[card.noteTone]}`}
+                        >
                           {card.note}
                         </p>
                       )}

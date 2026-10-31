@@ -194,6 +194,92 @@ describe('доска: сборка и фильтры', () => {
   });
 });
 
+describe('доска: метка закрытия и её тон (ОПЭ-74)', () => {
+  it('«ожидает 1С» — тон pending, «проведено» — done', async () => {
+    const pending = await getKanbanBoard(fakeClient({ lines: [gpLine()] }).client, {}, {
+      now: new Date('2026-10-30T10:00:00'),
+    });
+    expect(pending.cards[0]).toMatchObject({ note: 'ожидает 1С', noteTone: 'pending' });
+
+    const { client } = fakeClient({
+      lines: [gpLine()],
+      tasks: [{ sourceId: 'po-12345678', status: 'PROCESSED' }],
+    });
+    const done = await getKanbanBoard(client, {}, { now: new Date('2026-10-30T10:00:00') });
+    expect(done.cards[0]).toMatchObject({ note: 'проведено', noteTone: 'done' });
+  });
+
+  it('у карточек вне колонки закрытия тон нейтральный', async () => {
+    const { client } = fakeClient({
+      lines: [
+        gpLine({
+          transferLines: [
+            {
+              id: 'tl-1',
+              goodsTransfer: {
+                id: 'tr-1',
+                status: 'SUBMITTED',
+                sourceWarehouseId: 'wh-prod',
+                destinationWarehouseId: 'wh-gp',
+              },
+            },
+          ],
+        }),
+      ],
+    });
+
+    const board = await getKanbanBoard(client, {}, { now: new Date('2026-10-30T10:00:00') });
+    expect(board.cards[0]).toMatchObject({ note: 'в пути', noteTone: 'neutral' });
+  });
+});
+
+describe('доска: складские роли видят перемещения (ОПЭ-74, пункт 4)', () => {
+  function transferLine(status: string) {
+    return gpLine({
+      transferLines: [
+        {
+          id: 'tl-1',
+          goodsTransfer: {
+            id: 'tr-1',
+            status,
+            sourceWarehouseId: 'wh-prod',
+            destinationWarehouseId: 'wh-gp',
+          },
+        },
+      ],
+    });
+  }
+
+  for (const role of ['KSGP', 'USGP']) {
+    it(`${role}: привязанное перемещение видно, хотя колонки ПЗ скрыты`, async () => {
+      const { client } = fakeClient({ lines: [transferLine('SUBMITTED')] });
+      const board = await getKanbanBoard(client, {}, { now: new Date('2026-10-30T10:00:00') });
+
+      const visible = filterKanbanCardsForRoles(board.cards, [role]);
+      expect(visible).toHaveLength(1);
+      expect(visible[0]).toMatchObject({ column: 'TRANSFER_SUBMITTED', transferId: 'tr-1' });
+      // Колонки ПЗ роли не видят — это и есть причина, по которой карточка обязана идти
+      // в колонки перемещений, а не в «Закрыто».
+      expect(visibleKanbanColumns([role]).map((column) => column.key)).not.toContain('CLOSED');
+    });
+  }
+
+  it('расхождение идёт в «Расхождение», после согласования — в «Принято складом»', async () => {
+    const { client } = fakeClient({ lines: [transferLine('DISCREPANCY')] });
+    const board = await getKanbanBoard(client, {}, { now: new Date('2026-10-30T10:00:00') });
+    expect(filterKanbanCardsForRoles(board.cards, ['KSGP'])[0].column).toBe('DISCREPANCY');
+
+    const { client: reconciledClient } = fakeClient({ lines: [transferLine('RECONCILED')] });
+    const reconciled = await getKanbanBoard(reconciledClient, {}, {
+      now: new Date('2026-10-30T10:00:00'),
+    });
+    expect(filterKanbanCardsForRoles(reconciled.cards, ['KSGP'])[0]).toMatchObject({
+      column: 'RECEIVED',
+      note: 'расхождение согласовано',
+    });
+  });
+});
+
 describe('доска: права ролей', () => {
   it('складские роли не видят колонок ПЗ, а НП и ОТК видят все', () => {
     expect(visibleKanbanColumns(['KSGP']).map((column) => column.key)).toEqual([

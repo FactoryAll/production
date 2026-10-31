@@ -26,9 +26,11 @@ export default async function NewTransferPage({
 
   const { warehouses, products, stockByWarehouse } = await getTransferCreateData();
 
-  // Поле «Строка ПЗ» видно только тем, кому можно читать ПЗ: у складских ролей такого права
-  // нет, и список строк ПЗ раскрыл бы данные, к которым права не выданы (T-103).
-  const canLinkOrderLine = hasPermission(access.roles, 'production_order:read');
+  // Поле «Строка ПЗ» видят ВСЕ, кто может создавать перемещение (ОПЭ-74, решение владельца):
+  // раньше его показывали только обладателям production_order:read, и у КСГП с УСГП привязка
+  // была недоступна — их перемещения не попадали на доску. Список отдаёт минимум данных
+  // (короткий id ПЗ, смена, РЦ) и не ведёт в карточку ПЗ, поэтому права на ПЗ не требуются.
+  const canLinkOrderLine = hasPermission(access.roles, 'transfer:create');
   const orderLines = canLinkOrderLine ? await getOrderLineOptions() : [];
 
   const param = (name: string): string | undefined => {
@@ -99,6 +101,8 @@ async function getOrderLineOptions() {
   return lines.map((line) => ({
     id: line.id,
     productId: line.productId,
-    label: `ПЗ ${line.order.id.slice(0, 8)} · РЦ ${line.workCenter.code} · ${line.product.code} · смена ${line.order.shift.number} от ${line.order.shift.date.toLocaleDateString('ru-RU')}`,
+    // Минимум данных для склада (ОПЭ-74): короткий id ПЗ, смена и РЦ — без номенклатуры
+    // (она уже выбрана в строке перемещения) и без ссылок в карточку ПЗ.
+    label: `ПЗ ${line.order.id.slice(0, 8)} · смена ${line.order.shift.number} от ${line.order.shift.date.toLocaleDateString('ru-RU')} · РЦ ${line.workCenter.code}`,
   }));
 }

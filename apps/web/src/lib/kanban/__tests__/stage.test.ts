@@ -23,6 +23,11 @@ describe('колонки доски', () => {
       'DISCREPANCY',
       'CANCELLED',
     ]);
+    // ОПЭ-74: однострочное ПЗ уходит сразу в «Закрыто» (авто-закрытие), поэтому колонка
+    // «Отчёт сдан» подписана как частичное закрытие смены — иначе это читалось как поломка.
+    expect(KANBAN_COLUMNS.find((column) => column.key === 'REPORTED')?.title).toBe(
+      'Отчёт сдан (когда отчиталась часть смены)',
+    );
     expect(KANBAN_COLUMNS.filter((column) => column.isOrderColumn).map((column) => column.key)).toEqual([
       'DRAFT',
       'CONFIRMED',

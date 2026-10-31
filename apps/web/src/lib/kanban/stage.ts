@@ -37,7 +37,10 @@ export const KANBAN_COLUMNS: KanbanColumn[] = [
   { key: 'DRAFT', title: 'Черновик ПЗ', isOrderColumn: true, order: 1 },
   { key: 'CONFIRMED', title: 'Подтверждено', isOrderColumn: true, order: 2 },
   { key: 'IN_PROGRESS', title: 'В работе', isOrderColumn: true, order: 3 },
-  { key: 'REPORTED', title: 'Отчёт сдан', isOrderColumn: true, order: 4 },
+  // Логика не меняется: ПЗ закрывается автоматически, когда отчиталась ПОСЛЕДНЯЯ строка,
+  // поэтому однострочное ПЗ уходит сразу в «Закрыто», а эта колонка — про часть смены
+  // (ОПЭ-74: выглядело как поломка, поэтому подпись объясняет).
+  { key: 'REPORTED', title: 'Отчёт сдан (когда отчиталась часть смены)', isOrderColumn: true, order: 4 },
   { key: 'CLOSED', title: 'Закрыто / задача 1С', isOrderColumn: true, order: 5 },
   { key: 'TRANSFER_DRAFT', title: 'Перемещение создано', isOrderColumn: false, order: 6 },
   { key: 'TRANSFER_SUBMITTED', title: 'Отправлено', isOrderColumn: false, order: 7 },

@@ -35,6 +35,11 @@ export interface KanbanCard {
   operatorName: string | null;
   column: KanbanColumnKey;
   note: string | null;
+  /**
+   * Тон метки: цвет выбирает разметка по этому полю, а не по тексту (ОПЭ-74).
+   * Значение вычисляется здесь, вместе с этапом.
+   */
+  noteTone: 'pending' | 'done' | 'neutral';
   /** Перемещение, по которому карточка стоит в колонках 6–9. */
   transferId: string | null;
   /** Чем вызвана колонка «Отменено» — от этого зависит видимость складским ролям. */
@@ -184,6 +189,12 @@ export async function getKanbanBoard(
       operatorName: line.operator?.fullName ?? null,
       column: stage.column,
       note: stage.note,
+      noteTone:
+        stage.column === 'CLOSED' && stage.note === 'проведено'
+          ? 'done'
+          : stage.column === 'CLOSED'
+            ? 'pending'
+            : 'neutral',
       transferId: stage.transferId,
       cancelledBy: stage.cancelledBy,
       // Клик ведёт на экран действия: доска ничего не меняет (решение владельца).

@@ -13,6 +13,8 @@ const config: Config = {
         graphite: 'var(--color-graphite)',
         'deep-industry-blue': 'var(--color-deep-industry-blue)',
         'signal-amber': 'var(--color-signal-amber)',
+        'signal-rose': 'var(--color-signal-rose)',
+        'signal-mint': 'var(--color-signal-mint)',
         'graphite-surface': 'var(--color-graphite-surface)',
         'mist-metal': 'var(--color-mist-metal)',
         neutral: {
