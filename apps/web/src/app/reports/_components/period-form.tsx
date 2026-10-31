@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { currentMonth, monthLabel } from '@/lib/reports/period';
+import { defaultMonthYear, monthsOfYear, yearsOf } from '@/lib/reports/months';
 import { mondayOf, isoDate, type WeekOption } from '@/lib/reports/weeks';
 
 /**
@@ -20,6 +21,7 @@ export function PeriodForm({
   action,
   period,
   months,
+  monthsAvailable,
   from,
   to,
   weeks,
@@ -29,7 +31,10 @@ export function PeriodForm({
   action: string;
   /** Режим, с которым отчёт открыт сейчас. */
   period: string;
+  /** Выбранные месяцы (для режима «Месяцы»). */
   months: string[];
+  /** Месяцы, которые есть в данных: от первого ПЗ до текущего, свежие сверху. */
+  monthsAvailable: string[];
   from: string;
   to: string;
   /** Календарные недели, в которые есть смены (свежие сверху). */
@@ -47,14 +52,19 @@ export function PeriodForm({
     return weeks.some((option) => option.value === monday) ? monday : (weeks[0]?.value ?? '');
   });
   const [shiftId, setShiftId] = useState(shifts[0]?.id ?? '');
+  // Выбор месяцев живёт в состоянии, а не в `defaultChecked`: при переключении года
+  // чекбоксы другого года исчезают с экрана, но выбранные месяцы теряться не должны
+  // (требование владельца 29.10.2026 — можно набрать месяцы разных лет).
+  const [selectedMonths, setSelectedMonths] = useState<string[]>(() =>
+    months.length > 0 ? months : [currentMonth()],
+  );
+  const [year, setYear] = useState(() => defaultMonthYear(monthsAvailable));
 
-  // Последние 14 месяцев: больше в одном отчёте всё равно не просматривают.
-  const today = new Date();
-  const monthOptions = Array.from({ length: 14 }, (_, index) => {
-    const date = new Date(today.getFullYear(), today.getMonth() - index, 1);
-    const value = currentMonth(date);
-    return { value, label: monthLabel(value) };
-  });
+  const years = yearsOf(monthsAvailable);
+  const visibleMonths = monthsOfYear(monthsAvailable, year);
+  const monthsOutsideYear = selectedMonths.filter(
+    (month) => Number(month.slice(0, 4)) !== year,
+  );
 
   const selectedWeek = weeks.find((option) => option.value === week);
   const selectedShift = shifts.find((shift) => shift.id === shiftId);
@@ -77,24 +87,64 @@ export function PeriodForm({
       </label>
 
       {mode === 'months' && (
-        <details className="text-sm" open>
-          <summary className="cursor-pointer rounded-md border border-mist-metal bg-white px-3 py-2 text-graphite">
-            Месяцы{months.length > 0 ? `: ${months.map(monthLabel).join(', ')}` : ''}
-          </summary>
-          <div className="mt-2 grid max-h-56 grid-cols-2 gap-1 overflow-y-auto rounded-md border border-mist-metal bg-white p-3">
-            {monthOptions.map((option) => (
-              <label key={option.value} className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  name="months"
-                  value={option.value}
-                  defaultChecked={months.includes(option.value)}
-                />
-                {option.label}
-              </label>
-            ))}
+        <div className="text-sm">
+          {/*
+            Год переключает только видимые месяцы. Выбранные месяцы уходят в адрес скрытыми
+            полями, поэтому набор может содержать месяцы разных лет.
+          */}
+          <div className="flex items-end gap-2">
+            <label className="flex flex-col gap-1">
+              <span className="text-steel-graphite">Год</span>
+              <select
+                aria-label="Год"
+                value={year}
+                onChange={(event) => setYear(Number(event.target.value))}
+                className="h-10 rounded-md border border-mist-metal bg-white px-3 text-base text-graphite"
+              >
+                {years.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="grid max-h-56 grid-cols-2 gap-1 overflow-y-auto rounded-md border border-mist-metal bg-white p-3">
+              {visibleMonths.length === 0 ? (
+                <p className="col-span-2 text-steel-graphite">За этот год месяцев нет.</p>
+              ) : (
+                visibleMonths.map((month) => (
+                  <label key={month} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedMonths.includes(month)}
+                      onChange={(event) =>
+                        setSelectedMonths((current) =>
+                          event.target.checked
+                            ? [...current, month].sort()
+                            : current.filter((item) => item !== month),
+                        )
+                      }
+                    />
+                    {monthLabel(month)}
+                  </label>
+                ))
+              )}
+            </div>
           </div>
-        </details>
+
+          {/* Выбранные месяцы — в адрес; чекбоксы служат только для выбора. */}
+          {selectedMonths.map((month) => (
+            <input key={month} type="hidden" name="months" value={month} />
+          ))}
+
+          <p className="mt-1 text-steel-graphite">
+            Выбрано: {selectedMonths.length > 0 ? selectedMonths.map(monthLabel).join(', ') : 'ни одного месяца'}
+            {monthsOutsideYear.length > 0
+              ? ` (из них не в этом году: ${monthsOutsideYear.map(monthLabel).join(', ')})`
+              : ''}
+          </p>
+        </div>
       )}
 
       {mode === 'day' && (

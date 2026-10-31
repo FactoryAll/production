@@ -127,12 +127,18 @@ export function parseReportPeriod(params: {
   const [rangeFrom, rangeTo] = from <= to ? [from, to] : [to, from];
 
   if (mode === 'day') {
+    // Режим называется «День», но это **диапазон дат** «с даты … по дату» (решение владельца
+    // 29.10.2026): раньше здесь стоял `endOfDay(rangeFrom)`, и вторая дата из формы молча
+    // игнорировалась — отчёт за 21–25 октября показывал только 21-е.
     return {
       mode: 'day',
       from: startOfDay(rangeFrom),
-      to: endOfDay(rangeFrom),
+      to: endOfDay(rangeTo),
       months: [],
-      label: rangeFrom.toLocaleDateString('ru-RU'),
+      label:
+        rangeFrom.getTime() === rangeTo.getTime()
+          ? rangeFrom.toLocaleDateString('ru-RU')
+          : `${rangeFrom.toLocaleDateString('ru-RU')} — ${rangeTo.toLocaleDateString('ru-RU')}`,
     };
   }
 

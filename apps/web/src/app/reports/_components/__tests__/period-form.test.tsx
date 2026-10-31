@@ -20,12 +20,15 @@ const SHIFTS = [
   { id: 'shift-1', label: 'Смена 1 от 26.10.2026', date: '2026-10-26' },
 ];
 
+const MONTHS_AVAILABLE = ['2026-10', '2026-09', '2026-08', '2025-12', '2025-11'];
+
 function renderForm(overrides: Partial<Parameters<typeof PeriodForm>[0]> = {}) {
   return render(
     <PeriodForm
       action="/reports/output"
       period="months"
       months={['2026-10']}
+      monthsAvailable={MONTHS_AVAILABLE}
       from="2026-10-01"
       to="2026-10-31"
       weeks={WEEKS}
@@ -46,6 +49,42 @@ function switchMode(mode: string) {
 describe('фильтры отчёта: поля зависят от режима', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('«Месяцы»: год по умолчанию текущий, список месяцев — из данных', () => {
+    const { container } = renderForm();
+
+    // Пятилетний разброс не нужен: показываются только месяцы, которые есть в данных.
+    const yearSelect = screen.getByLabelText('Год') as HTMLSelectElement;
+    expect([...yearSelect.options].map((option) => option.value)).toEqual(['2026', '2025']);
+    expect(Number(yearSelect.value)).toBe(new Date().getFullYear());
+
+    const visible = [...container.querySelectorAll('input[type="checkbox"]')].map(
+      (input) => (input as HTMLInputElement).nextSibling?.textContent ?? '',
+    );
+    // В текущем году в данных три месяца — ноябрь и декабрь ещё не наступили.
+    expect(visible).toHaveLength(3);
+  });
+
+  it('«Месяцы»: выбранные месяцы разных лет не теряются при смене года', () => {
+    const { container } = renderForm({ months: ['2026-10', '2025-12'] });
+
+    // В адрес уходят оба месяца, хотя на экране виден только один год.
+    const submitted = () =>
+      [...container.querySelectorAll('input[name="months"]')].map(
+        (input) => (input as HTMLInputElement).value,
+      );
+    expect(submitted().sort()).toEqual(['2025-12', '2026-10']);
+
+    fireEvent.change(screen.getByLabelText('Год'), { target: { value: '2025' } });
+    expect(submitted().sort()).toEqual(['2025-12', '2026-10']);
+
+    // И обратно: выбор, сделанный в другом году, остался отмеченным.
+    fireEvent.change(screen.getByLabelText('Год'), { target: { value: '2026' } });
+    const october = [...container.querySelectorAll('input[type="checkbox"]')].find(
+      (input) => (input as HTMLInputElement).nextSibling?.textContent === 'октябрь 2026',
+    ) as HTMLInputElement | undefined;
+    expect(october?.checked).toBe(true);
   });
 
   it('«Месяцы» — только месяцы: без дат, недель и смен', () => {

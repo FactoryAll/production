@@ -8,6 +8,7 @@ import {
   toDateInputValue,
 } from '@/lib/reports/period';
 import { buildWeekOptions } from '@/lib/reports/weeks';
+import { getAvailableReportMonths } from '@/lib/reports/months';
 import { getOutputReport } from '@/lib/reports/output-report';
 import { PeriodForm } from '../_components/period-form';
 
@@ -28,13 +29,15 @@ export default async function OutputReportPage({
 
   const period = parseReportPeriodFromSearchParams(searchParams);
 
-  const [report, shifts] = await Promise.all([
+  const [report, shifts, monthsAvailable] = await Promise.all([
     getOutputReport(prisma, period),
     prisma.shift.findMany({
       orderBy: { date: 'desc' },
       take: 30,
       select: { id: true, number: true, date: true },
     }),
+    // Месяцы для фильтра — от первого ПЗ в базе до текущего (решение владельца 29.10.2026).
+    getAvailableReportMonths(prisma),
   ]);
 
   const shiftsForForm = shifts.map((shift) => ({
@@ -68,6 +71,7 @@ export default async function OutputReportPage({
         action="/reports/output"
         period={period.mode}
         months={period.months}
+        monthsAvailable={monthsAvailable}
         from={toDateInputValue(period.from)}
         to={toDateInputValue(period.to)}
         shifts={shiftsForForm}

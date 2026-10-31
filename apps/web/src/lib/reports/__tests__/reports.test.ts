@@ -26,11 +26,32 @@ describe('период отчёта', () => {
     expect(period.months).toEqual(['2026-09', '2026-11']);
   });
 
-  it('день — ровно одни сутки', () => {
+  // Решение владельца 29.10.2026: «День» — это диапазон «с даты … по дату».
+  // До правки вторая дата из формы игнорировалась: отчёт за 20–25 октября показывал 20-е.
+  it('день — весь диапазон дат, а не первые сутки', () => {
     const period = parseReportPeriod({ period: 'day', from: '2026-10-20', to: '2026-10-25' });
+
     // Сравниваем по местной дате: toISOString() в Москве даёт предыдущий день.
     expect(toDateInputValue(period.from)).toBe('2026-10-20');
+    expect(toDateInputValue(period.to)).toBe('2026-10-25');
+    // Начало — первые сутки, конец — последняя миллисекунда последних суток.
+    expect([period.from.getHours(), period.from.getMinutes(), period.from.getSeconds()]).toEqual([0, 0, 0]);
+    expect([period.to.getHours(), period.to.getMinutes(), period.to.getSeconds()]).toEqual([23, 59, 59]);
+    expect(period.label).toBe('20.10.2026 — 25.10.2026');
+  });
+
+  it('день с одной датой — ровно эти сутки', () => {
+    const period = parseReportPeriod({ period: 'day', from: '2026-10-20', to: '2026-10-20' });
+    expect(toDateInputValue(period.from)).toBe('2026-10-20');
     expect(toDateInputValue(period.to)).toBe('2026-10-20');
+    expect(period.label).toBe('20.10.2026');
+  });
+
+  it('день без дат — сегодняшние сутки', () => {
+    const now = new Date('2026-10-26T12:00:00');
+    const period = parseReportPeriod({ period: 'day', now });
+    expect(toDateInputValue(period.from)).toBe('2026-10-26');
+    expect(toDateInputValue(period.to)).toBe('2026-10-26');
   });
 
   it('неделя — семь дней от выбранной даты', () => {
