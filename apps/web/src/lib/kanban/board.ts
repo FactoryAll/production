@@ -59,6 +59,14 @@ export interface KanbanBoard {
   cards: KanbanCard[];
   /** Смена, за которую построена доска; null — смен нет вовсе. */
   shift: { id: string; label: string } | null;
+  /**
+   * Сколько ДРУГИХ смен имеют привязанные перемещения.
+   *
+   * Доска — срез по выбранной смене, поэтому перемещение, привязанное к строке другой смены,
+   * в текущем срезе не появится. Это правило, а не ловушка: экран подсказывает, что данные
+   * есть и где их искать (ОПЭ-74, дефект 1 — сценарий владельца упал именно на этом).
+   */
+  otherShiftsWithTransfers: number;
 }
 
 interface LineRow {
@@ -107,7 +115,7 @@ export async function getKanbanBoard(
     : resolveCurrentShift(shifts, options.now ?? new Date());
 
   if (!shift) {
-    return { cards: [], shift: null };
+    return { cards: [], shift: null, otherShiftsWithTransfers: 0 };
   }
 
   const lines = (await client.productionOrderLine.findMany({
@@ -207,7 +215,39 @@ export async function getKanbanBoard(
     });
   }
 
-  return { cards, shift: { id: shift.id, label: shiftLabelOf(shift) } };
+  const hasTransferCards = cards.some((card) => isTransferColumn(card.column));
+  const otherShiftsWithTransfers = hasTransferCards
+    ? 0
+    : await countOtherShiftsWithTransfers(client, shift.id);
+
+  return {
+    cards,
+    shift: { id: shift.id, label: shiftLabelOf(shift) },
+    otherShiftsWithTransfers,
+  };
+}
+
+/**
+ * Сколько других смен содержат строки с привязанными перемещениями.
+ *
+ * Нужно только для подсказки: доска — срез по выбранной смене, и перемещение из другой смены
+ * в него не попадает по определению. Считаем отдельным запросом и только когда срез пуст
+ * по перемещениям, чтобы не платить за это на каждом открытии.
+ */
+async function countOtherShiftsWithTransfers(
+  client: Pick<PrismaClient, 'productionOrderLine'>,
+  currentShiftId: string,
+): Promise<number> {
+  const rows = (await (client as Pick<PrismaClient, 'productionOrderLine'>).productionOrderLine.findMany({
+    where: {
+      transferLines: { some: {} },
+      order: { shiftId: { not: currentShiftId }, status: { not: 'CANCELLED' } },
+    },
+    select: { order: { select: { shiftId: true } } },
+    take: 500,
+  })) as Array<{ order: { shiftId: string } }>;
+
+  return new Set(rows.map((row) => row.order.shiftId)).size;
 }
 
 /**

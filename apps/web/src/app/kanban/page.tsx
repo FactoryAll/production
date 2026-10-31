@@ -166,6 +166,18 @@ export default async function KanbanPage({
         </button>
       </form>
 
+      {board.otherShiftsWithTransfers > 0 && (
+        <p
+          role="note"
+          className="rounded-md border border-signal-amber/40 bg-signal-amber/10 p-3 text-sm text-graphite"
+        >
+          За выбранную смену привязанных перемещений нет, но они есть за{' '}
+          {board.otherShiftsWithTransfers} другую(-их) смену(ы) — выберите смену в фильтре
+          «Смена». Доска показывает только одну смену, поэтому карточки другой смены сюда
+          не попадают.
+        </p>
+      )}
+
       {!board.shift ? (
         <p className="rounded-md border border-mist-metal bg-graphite-surface p-4 text-sm text-steel-graphite">
           В базе нет смен — доске нечего показывать.

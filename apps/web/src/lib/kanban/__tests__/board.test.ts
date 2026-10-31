@@ -42,7 +42,28 @@ function fakeClient(input: {
   lines?: unknown[];
   tasks?: unknown[];
 }) {
-  const findLines = vi.fn().mockResolvedValue(input.lines ?? []);
+  // Мок честно применяет условия выборки: иначе тест «срез по смене» ничего не доказывает —
+  // он проходил бы и при отсутствии фильтра в запросе.
+  const findLines = vi.fn(async (args: unknown) => {
+    const where = (args as { where?: Record<string, unknown> } | undefined)?.where ?? {};
+    const order = (where.order ?? {}) as { shiftId?: string | { not?: string } };
+    const needsTransfers = Boolean((where.transferLines as { some?: unknown } | undefined)?.some);
+
+    return (input.lines ?? []).filter((line) => {
+      const typed = line as { order: { shiftId: string }; transferLines?: unknown[] };
+      const shiftId = order.shiftId;
+      if (typeof shiftId === 'string' && typed.order.shiftId !== shiftId) {
+        return false;
+      }
+      if (shiftId && typeof shiftId === 'object' && shiftId.not && typed.order.shiftId === shiftId.not) {
+        return false;
+      }
+      if (needsTransfers && (typed.transferLines ?? []).length === 0) {
+        return false;
+      }
+      return true;
+    });
+  });
   const client = {
     shift: { findMany: vi.fn().mockResolvedValue(input.shifts ?? [DAY_SHIFT]) },
     productionOrderLine: { findMany: findLines },
@@ -191,6 +212,79 @@ describe('доска: сборка и фильтры', () => {
     const board = await getKanbanBoard(client, {}, { now: new Date('2026-10-30T10:00:00') });
 
     expect(board.cards[0]).toMatchObject({ column: 'CLOSED', note: 'проведено' });
+  });
+});
+
+describe('доска: срез по выбранной смене — видимое правило (ОПЭ-74, дефект 1)', () => {
+  const SECOND_SHIFT = {
+    id: 'shift-2',
+    number: 2,
+    date: new Date('2026-10-31T00:00:00'),
+    start: '08:00',
+    end: '20:00',
+  };
+
+  function lineWithTransfer(shiftId: string) {
+    return gpLine({
+      order: { id: 'po-12345678', status: 'COMPLETED', shiftId },
+      transferLines: [
+        {
+          id: 'tl-1',
+          goodsTransfer: {
+            id: 'tr-1',
+            status: 'SUBMITTED',
+            sourceWarehouseId: 'wh-prod',
+            destinationWarehouseId: 'wh-gp',
+          },
+        },
+      ],
+    });
+  }
+
+  it('перемещение строки другой смены в смену A не попадает, но видно про другие смены', async () => {
+    const { client } = fakeClient({
+      shifts: [DAY_SHIFT, SECOND_SHIFT],
+      lines: [lineWithTransfer('shift-2')],
+    });
+
+    const board = await getKanbanBoard(client, { shiftId: 'shift-1' }, {
+      now: new Date('2026-10-30T10:00:00'),
+    });
+
+    // Срез по смене: карточек нет вовсе — это правило, а не дефект.
+    expect(board.cards).toHaveLength(0);
+    // И экран знает, что данные есть в другой смене: «есть за N других смен».
+    expect(board.otherShiftsWithTransfers).toBe(1);
+  });
+
+  it('в своей смене B перемещение появляется, и подсказка не нужна', async () => {
+    const { client } = fakeClient({
+      shifts: [DAY_SHIFT, SECOND_SHIFT],
+      lines: [lineWithTransfer('shift-2')],
+    });
+
+    const board = await getKanbanBoard(client, { shiftId: 'shift-2' }, {
+      now: new Date('2026-10-30T10:00:00'),
+    });
+
+    expect(board.cards).toHaveLength(1);
+    expect(board.cards[0]).toMatchObject({ column: 'TRANSFER_SUBMITTED', transferId: 'tr-1' });
+    expect(board.otherShiftsWithTransfers).toBe(0);
+  });
+
+  it('когда в срезе есть перемещения, лишний запрос не делается', async () => {
+    const { client, findLines } = fakeClient({
+      shifts: [DAY_SHIFT],
+      lines: [lineWithTransfer('shift-1')],
+    });
+
+    const board = await getKanbanBoard(client, { shiftId: 'shift-1' }, {
+      now: new Date('2026-10-30T10:00:00'),
+    });
+
+    expect(board.otherShiftsWithTransfers).toBe(0);
+    // Один запрос строк доски; второй (для подсказки) не понадобился.
+    expect(findLines).toHaveBeenCalledTimes(1);
   });
 });
 

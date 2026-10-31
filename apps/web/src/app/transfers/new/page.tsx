@@ -26,17 +26,23 @@ export default async function NewTransferPage({
 
   const { warehouses, products, stockByWarehouse } = await getTransferCreateData();
 
+  const param = (name: string): string | undefined => {
+    const value = searchParams[name];
+    return typeof value === 'string' && value.trim() !== '' ? value : undefined;
+  };
+
+
   // Поле «Строка ПЗ» видят ВСЕ, кто может создавать перемещение (ОПЭ-74, решение владельца):
   // раньше его показывали только обладателям production_order:read, и у КСГП с УСГП привязка
   // была недоступна — их перемещения не попадали на доску. Список отдаёт минимум данных
   // (короткий id ПЗ, смена, РЦ) и не ведёт в карточку ПЗ, поэтому права на ПЗ не требуются.
   const canLinkOrderLine = hasPermission(access.roles, 'transfer:create');
-  const orderLines = canLinkOrderLine ? await getOrderLineOptions() : [];
-
-  const param = (name: string): string | undefined => {
-    const value = searchParams[name];
-    return typeof value === 'string' && value.trim() !== '' ? value : undefined;
-  };
+  // Список строк ПЗ строится по выбранной номенклатуре (ОПЭ-74, дефект 2): раньше отдавались
+  // ВСЕ ГП-строки, и пользователю предлагались строки чужой номенклатуры, которые сервер
+  // отклонял уже на сохранении. Фильтр нужен и на клиенте (при смене продукта), поэтому
+  // строки передаются с productId, а серверный запрос сужается тем productId, что пришёл
+  // в адресе (путь «создать перемещение из строки ПЗ»).
+  const orderLines = canLinkOrderLine ? await getOrderLineOptions(param('productId')) : [];
 
   const productionOrderLineId = param('productionOrderLineId');
   const productId = param('productId');
@@ -81,10 +87,10 @@ export default async function NewTransferPage({
  * Это подсказка для ручного пути, а не справочник, поэтому список ограничен двумястами
  * строками. Основной путь — кнопка «Создать перемещение» в карточке ПЗ, где строка известна.
  */
-async function getOrderLineOptions() {
+async function getOrderLineOptions(productId?: string) {
   const lines = await prisma.productionOrderLine.findMany({
     where: {
-      product: { category: 'GP' },
+      product: productId ? { id: productId, category: 'GP' } : { category: 'GP' },
       order: { status: { not: 'CANCELLED' } },
     },
     orderBy: [{ order: { shift: { date: 'desc' } } }, { createdAt: 'asc' }],

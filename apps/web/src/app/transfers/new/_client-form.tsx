@@ -258,7 +258,11 @@ export default function TransferForm({
                     <SearchSelect
                       id={line.id + '_product'}
                       value={line.productId}
-                      onChange={(value) => updateLine(line.id, { productId: value })}
+                      onChange={(value) =>
+                        // Смена продукта сбрасывает привязку к строке ПЗ: старая строка
+                        // относится к другой номенклатуре, и сервер её отклонит (ОПЭ-74).
+                        updateLine(line.id, { productId: value, productionOrderLineId: '' })
+                      }
                       options={productOptions}
                       placeholder={
                         sourceWarehouseId === ''
@@ -312,12 +316,20 @@ export default function TransferForm({
                             updateLine(line.id, { productionOrderLineId: e.target.value })
                           }
                           options={[
-                            { value: '', label: 'Без привязки — ручное перемещение' },
-                            ...orderLines
-                              // В списке — строки той же номенклатуры: сервер отклонит
-                              // несовпадение, и предлагать его значит вести к ошибке.
-                              .filter((option) => !line.productId || option.productId === line.productId)
-                              .map((option) => ({ value: option.id, label: option.label })),
+                            {
+                              value: '',
+                              label: line.productId
+                                ? 'Без привязки — ручное перемещение'
+                                : 'Сначала выберите продукт',
+                            },
+                            // Строго по выбранной номенклатуре (ОПЭ-74, дефект 2): пока продукт
+                            // не выбран, строк ПЗ не предлагаем вовсе — иначе пользователю
+                            // показывались строки чужой номенклатуры, которые сервер отклонит.
+                            ...(line.productId
+                              ? orderLines
+                                  .filter((option) => option.productId === line.productId)
+                                  .map((option) => ({ value: option.id, label: option.label }))
+                              : []),
                           ]}
                         />
                       </div>

@@ -85,7 +85,9 @@ describe('Поле «Строка ПЗ» для складских ролей (�
   it('в списке — минимум данных: ПЗ, смена, РЦ', async () => {
     mockAccess(['KSGP']);
 
-    render((await NewTransferPage({ searchParams: {} })) as never);
+    // Продукт приходит из карточки ПЗ (путь «создать перемещение из строки ПЗ»):
+    // список строк ПЗ строится по нему.
+    render((await NewTransferPage({ searchParams: { productId: 'gp-1' } })) as never);
 
     const select = screen.getByLabelText('Строка ПЗ (необязательно)') as HTMLSelectElement;
     expect(select.textContent).toContain('ПЗ po-12345');
@@ -95,15 +97,19 @@ describe('Поле «Строка ПЗ» для складских ролей (�
     expect(select.textContent).not.toContain('GP002');
   });
 
-  it('строки ПЗ запрашиваются только у ГП-номенклатуры неотменённых ПЗ', async () => {
+  it('строки ПЗ запрашиваются по выбранной номенклатуре и без отменённых ПЗ', async () => {
     mockAccess(['KSGP']);
 
-    await NewTransferPage({ searchParams: {} });
+    await NewTransferPage({ searchParams: { productId: 'gp-1' } });
 
     expect(prisma.productionOrderLine.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { product: { category: 'GP' }, order: { status: { not: 'CANCELLED' } } },
+        where: {
+          product: { id: 'gp-1', category: 'GP' },
+          order: { status: { not: 'CANCELLED' } },
+        },
       }),
     );
   });
+
 });

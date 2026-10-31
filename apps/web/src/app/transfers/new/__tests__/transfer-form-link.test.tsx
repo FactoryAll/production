@@ -1,9 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { Prisma } from '@prisma/client';
-
-const Decimal = Prisma.Decimal;
-
+import { render, screen, fireEvent } from '@testing-library/react';
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
 }));
@@ -51,7 +47,8 @@ const PRODUCT = {
   updatedAt: new Date(),
 };
 
-const STOCK = new Map([['wh-prod|gp-1', new Decimal(100)]]);
+// Форма остатков по складам — как её отдаёт buildStockByWarehouse: Record<склад, Record<продукт, число>>.
+const STOCK = { 'wh-prod': { 'gp-1': 100, 'other-1': 50 } };
 
 function renderForm(overrides: Record<string, unknown> = {}) {
   return render(
@@ -84,16 +81,49 @@ describe('Создание перемещения из строки ПЗ (T-103)
     expect((quantityInputs[0] as HTMLInputElement).value).toBe('45');
   });
 
-  it('поле «Строка ПЗ» видно обладателю production_order:read, и в списке — строки той же номенклатуры', () => {
+  it('поле «Строка ПЗ» в списке показывает только строки выбранной номенклатуры (ОПЭ-74)', () => {
     renderForm({
       initialLines: [{ productId: 'gp-1', plannedQuantity: '45', productionOrderLineId: 'line-1' }],
     });
 
     const orderLineSelect = screen.getByLabelText('Строка ПЗ (необязательно)') as HTMLSelectElement;
     expect(orderLineSelect.value).toBe('line-1');
-    // Чужая номенклатура в списке не предлагается: сервер её всё равно отклонит.
     expect(orderLineSelect.textContent).toContain('GP002');
+    // Чужая номенклатура в списке не предлагается: сервер её всё равно отклонит.
     expect(orderLineSelect.textContent).not.toContain('GP003');
+  });
+
+  it('без выбранного продукта строк ПЗ не предлагаем (ОПЭ-74, дефект 2)', () => {
+    // Раньше здесь показывались ВСЕ ГП-строки — пользователь выбирал чужую номенклатуру,
+    // и сервер отклонял перемещение уже на сохранении.
+    renderForm();
+
+    const orderLineSelect = screen.getByLabelText('Строка ПЗ (необязательно)') as HTMLSelectElement;
+    expect(orderLineSelect.textContent).toContain('Сначала выберите продукт');
+    expect(orderLineSelect.textContent).not.toContain('GP002');
+    expect(orderLineSelect.textContent).not.toContain('GP003');
+  });
+
+  it('смена продукта сбрасывает привязку к строке ПЗ', () => {
+    renderForm({
+      initialLines: [{ productId: 'gp-1', plannedQuantity: '45', productionOrderLineId: 'line-1' }],
+      // Второй продукт нужен, чтобы выбрать его в SearchSelect.
+      products: [PRODUCT, { ...PRODUCT, id: 'other-1', code: 'GP003', name: 'Другая продукция' }] as never,
+      initialSourceWarehouseId: PRODUCTION.id,
+      initialDestinationWarehouseId: FINISHED_GOODS.id,
+    });
+
+    const product = screen.getByLabelText('Продукт') as HTMLInputElement;
+    fireEvent.focus(product);
+    // Оставляем запрос пустым — список открывается со всеми доступными позициями склада.
+    const options = screen.getAllByRole('option');
+    const other = options.find((option) => option.textContent?.includes('GP003'));
+    expect(other).toBeDefined();
+    fireEvent.mouseDown(other!);
+
+    // Привязка сброшена — старая строка относится к другой номенклатуре.
+    const orderLineSelect = screen.getByLabelText('Строка ПЗ (необязательно)') as HTMLSelectElement;
+    expect(orderLineSelect.value).toBe('');
   });
 
   it('без права на чтение ПЗ поля привязки нет', () => {
@@ -103,7 +133,14 @@ describe('Создание перемещения из строки ПЗ (T-103)
   });
 
   it('в ручном режиме поле привязки пустое — «без привязки»', () => {
-    renderForm();
+    renderForm({
+      products: [
+        PRODUCT,
+        { ...PRODUCT, id: 'other-1', code: 'GP003', name: 'Другая продукция' },
+      ] as never,
+      initialSourceWarehouseId: PRODUCTION.id,
+      initialLines: [{ productId: 'gp-1', plannedQuantity: '10', productionOrderLineId: '' }],
+    });
 
     const orderLineSelect = screen.getByLabelText('Строка ПЗ (необязательно)') as HTMLSelectElement;
     expect(orderLineSelect.value).toBe('');

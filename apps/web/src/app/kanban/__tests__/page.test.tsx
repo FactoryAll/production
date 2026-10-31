@@ -7,10 +7,29 @@ const lineFindMany = vi.fn();
 const shiftFindMany = vi.fn();
 const taskFindMany = vi.fn();
 
+/**
+ * Строки отдаём с честным фильтром по смене: иначе тест «срез по смене» ничего бы не проверял —
+ * без фильтра доска увидела бы строку другой смены в моке.
+ */
+async function filteredLines(args: unknown) {
+  const where = (args as { where?: Record<string, unknown> } | undefined)?.where ?? {};
+  const order = (where.order ?? {}) as { shiftId?: string | { not?: string } };
+  const needsTransfers = Boolean((where.transferLines as { some?: unknown } | undefined)?.some);
+  const rows = (await lineFindMany(args)) as Array<{ order: { shiftId: string }; transferLines?: unknown[] }>;
+
+  return rows.filter((row) => {
+    const shiftId = order.shiftId;
+    if (typeof shiftId === 'string' && row.order.shiftId !== shiftId) return false;
+    if (shiftId && typeof shiftId === 'object' && shiftId.not && row.order.shiftId === shiftId.not) return false;
+    if (needsTransfers && (row.transferLines ?? []).length === 0) return false;
+    return true;
+  });
+}
+
 vi.mock('@prodtrack/db', () => ({
   prisma: {
     shift: { findMany: (...args: unknown[]) => shiftFindMany(...args) },
-    productionOrderLine: { findMany: (...args: unknown[]) => lineFindMany(...args) },
+    productionOrderLine: { findMany: (args: unknown) => filteredLines(args) },
     taskForOneC: { findMany: (...args: unknown[]) => taskFindMany(...args) },
     workCenter: { findMany: vi.fn().mockResolvedValue([]) },
     product: { findMany: vi.fn().mockResolvedValue([]) },
@@ -194,6 +213,43 @@ describe('Экран «Канбан»: колонки и карточки', () =
     expect(screen.queryByRole('region', { name: 'Закрыто / задача 1С' })).toBeNull();
     expect(screen.getByRole('region', { name: 'Перемещение создано' })).toBeTruthy();
     expect(screen.getByRole('region', { name: 'Отменено' })).toBeTruthy();
+  });
+
+  // ОПЭ-74, дефект 1: доска — срез по выбранной смене, и перемещение другой смены сюда
+  // не попадает. Подсказка объясняет, что данные есть, а не создаёт вид потери.
+  it('подсказывает про другие смены, если в выбранной смене перемещений нет', async () => {
+    mockAccess(['NP']);
+    // Строка за другую смену: доска её не покажет, но подсказка должна появиться.
+    lineFindMany.mockResolvedValue([
+      gpLine({
+        order: { id: 'po-12345678', status: 'COMPLETED', shiftId: 'shift-2' },
+        transferLines: [
+          {
+            id: 'tl-1',
+            goodsTransfer: {
+              id: 'tr-1',
+              status: 'SUBMITTED',
+              sourceWarehouseId: 'wh-prod',
+              destinationWarehouseId: 'wh-gp',
+            },
+          },
+        ],
+      }),
+    ]);
+
+    render((await KanbanPage({ searchParams: {} })) as never);
+
+    expect(screen.getByRole('note')).toBeTruthy();
+    expect(screen.getByText(/есть за 1 другую\(-их\) смену\(ы\)/)).toBeTruthy();
+    expect(screen.getByText(/Доска показывает только одну смену/)).toBeTruthy();
+  });
+
+  it('без перемещений в других сменах подсказки нет', async () => {
+    mockAccess(['NP']);
+
+    render((await KanbanPage({ searchParams: {} })) as never);
+
+    expect(screen.queryByRole('note')).toBeNull();
   });
 
   it('заголовок страницы показывает смену', async () => {
