@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
+  BOARD_LINE_LIMIT,
+  BOARD_TRANSFER_LIMIT,
   filterKanbanCardsForRoles,
   getKanbanBoard,
   visibleKanbanColumns,
@@ -55,7 +57,11 @@ function fakeClient(input: {
     taskForOneC: { findMany: vi.fn().mockResolvedValue(input.tasks ?? []) },
     goodsTransfer: { findMany: vi.fn().mockResolvedValue(input.transfers ?? []) },
   };
-  return { client: client as unknown as Parameters<typeof getKanbanBoard>[0], findLines };
+  return {
+    client: client as unknown as Parameters<typeof getKanbanBoard>[0],
+    findLines,
+    goodsTransferFindMany: client.goodsTransfer.findMany,
+  };
 }
 
 const NOW = new Date('2026-10-30T10:00:00');
@@ -517,6 +523,82 @@ describe('опции фильтров — из карточек доски (за
       warehouses: [],
       missingSelection: { product: false, workCenter: false, warehouse: false },
     });
+  });
+});
+
+describe('доска: пределы выборки — окно смены, а не количество (замечание главной линии)', () => {
+  it('перемещение, созданное давно, но отправленное в эту смену, попадает на доску', async () => {
+    const { client, goodsTransferFindMany } = fakeClient({
+      transfers: [
+        transfer({
+          status: 'SUBMITTED',
+          // Создано три дня назад, отправлено в окно смены.
+          createdAt: new Date('2026-10-27T09:00:00'),
+          updatedAt: new Date('2026-10-30T11:00:00'),
+          submittedAt: new Date('2026-10-30T11:00:00'),
+        }),
+      ],
+    });
+
+    const board = await getKanbanBoard(client, {}, { now: NOW });
+
+    expect(board.cards.filter((card) => card.kind === 'transfer')).toHaveLength(1);
+    // Выборку режет ОКНО смены, а не `take` по количеству: старое перемещение не отсекается.
+    const where = (goodsTransferFindMany.mock.calls[0][0] as { where: Record<string, unknown> }).where;
+    expect(where).toMatchObject({
+      createdAt: { lte: expect.any(Date) },
+      updatedAt: { gte: expect.any(Date) },
+    });
+  });
+
+  it('перемещение, все даты которого вне окна, на доску не попадает', async () => {
+    const { client } = fakeClient({
+      transfers: [
+        transfer({
+          status: 'RECEIVED',
+          createdAt: new Date('2026-10-20T09:00:00'),
+          updatedAt: new Date('2026-10-21T09:00:00'),
+          submittedAt: new Date('2026-10-21T09:00:00'),
+        }),
+      ],
+    });
+
+    const board = await getKanbanBoard(client, {}, { now: NOW });
+    expect(board.cards.filter((card) => card.kind === 'transfer')).toHaveLength(0);
+  });
+
+  it('упёрлись в предел строк — доска об этом сообщает, а не молчит', async () => {
+    const manyLines = Array.from({ length: BOARD_LINE_LIMIT + 1 }, (_, index) =>
+      gpLine({ id: `line-${index}` }),
+    );
+    const { client } = fakeClient({ lines: manyLines });
+
+    const board = await getKanbanBoard(client, {}, { now: NOW });
+
+    expect(board.truncated.lines).toBe(true);
+    // Обрезаем ровно до предела — карточки не «прыгают» по количеству.
+    expect(board.cards.filter((card) => card.kind === 'line')).toHaveLength(BOARD_LINE_LIMIT);
+  });
+
+  it('упёрлись в предел перемещений — тоже сообщаем', async () => {
+    const manyTransfers = Array.from({ length: BOARD_TRANSFER_LIMIT + 1 }, (_, index) =>
+      transfer({ id: `tr-${index}` }),
+    );
+    const { client } = fakeClient({ transfers: manyTransfers });
+
+    const board = await getKanbanBoard(client, {}, { now: NOW });
+
+    expect(board.truncated.transfers).toBe(true);
+    expect(board.cards.filter((card) => card.kind === 'transfer')).toHaveLength(
+      BOARD_TRANSFER_LIMIT,
+    );
+  });
+
+  it('обычная смена — обрезания нет', async () => {
+    const { client } = fakeClient({ lines: [gpLine()], transfers: [transfer()] });
+    const board = await getKanbanBoard(client, {}, { now: NOW });
+
+    expect(board.truncated).toEqual({ lines: false, transfers: false });
   });
 });
 

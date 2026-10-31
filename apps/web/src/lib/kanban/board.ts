@@ -105,6 +105,17 @@ export interface KanbanTransferCard {
 
 export type KanbanCard = KanbanLineCard | KanbanTransferCard;
 
+/**
+ * Пределы выборки доски.
+ *
+ * Срез по смене ограничен по природе, но предел нужен явный: иначе большая смена
+ * (много ПЗ × много строк) молча сделает доску тяжёлой. Берём с запасом и **сообщаем**
+ * об обрезании — молчаливое обрезание это тот же класс, что молчаливая подмена фильтра
+ * (замечание главной линии 01.11.2026).
+ */
+export const BOARD_LINE_LIMIT = 2000;
+export const BOARD_TRANSFER_LIMIT = 1000;
+
 export interface KanbanBoardFilter {
   shiftId?: string;
   workCenterId?: string;
@@ -131,6 +142,8 @@ export interface KanbanBoard {
    * одну номенклатуру, пользователь увидел бы в списке только её и не смог бы выбрать другую.
    */
   options: KanbanFilterOptions;
+  /** Упёрлись ли в предел выборки: экран обязан сказать об этом, а не молчать. */
+  truncated: { lines: boolean; transfers: boolean };
 }
 
 export interface KanbanFilterOption {
@@ -202,13 +215,19 @@ export async function getKanbanBoard(
         warehouses: [],
         missingSelection: { product: false, workCenter: false, warehouse: false },
       },
+      truncated: { lines: false, transfers: false },
     };
   }
+
+  const window = shiftWindow(shift);
 
   const lines = (await client.productionOrderLine.findMany({
     // Только смена: фильтры применяются ниже, в памяти (см. `applyBoardFilter`). Если резать
     // выборку в запросе, из неё уже не построить список опций «при всех фильтрах, кроме своего».
     where: { order: { shiftId: shift.id } },
+    // Предел с запасом: смена — срез по природе, но не бесконечный. Признак обрезания
+    // показывается на экране подсказкой, а не молчит.
+    take: BOARD_LINE_LIMIT + 1,
     include: {
       order: { select: { id: true, status: true, shiftId: true } },
       workCenter: { select: { code: true, name: true } },
@@ -218,7 +237,10 @@ export async function getKanbanBoard(
     },
   })) as LineRow[];
 
-  const orderIds = [...new Set(lines.map((line) => line.order.id))];
+  const linesTruncated = lines.length > BOARD_LINE_LIMIT;
+  const visibleLines = linesTruncated ? lines.slice(0, BOARD_LINE_LIMIT) : lines;
+
+  const orderIds = [...new Set(visibleLines.map((line) => line.order.id))];
   const tasks =
     orderIds.length > 0
       ? ((await client.taskForOneC.findMany({
@@ -230,7 +252,7 @@ export async function getKanbanBoard(
 
   const cards: KanbanCard[] = [];
 
-  for (const line of lines) {
+  for (const line of visibleLines) {
     const stage = resolveKanbanStage({
       orderStatus: line.order.status,
       lineStatus: line.status,
@@ -267,11 +289,21 @@ export async function getKanbanBoard(
   }
 
   // Колонки 6–9: самостоятельные перемещения, отбор по дате документа в окне смены.
-  const window = shiftWindow(shift);
+  //
+  // Выборку режем **окном смены**, а не количеством: `take: 500` терял самые старые
+  // перемещения, и карточка за нужную смену молча исчезала с доски (найдено главной линией).
+  // Условие — надмножество по любому из наших правил даты (создано / отправлено / принято):
+  //   createdAt <= конец окна  — документ уже существовал к концу смены;
+  //   updatedAt >= начало окна — последнее изменение не раньше её начала.
+  // Точный отбор по дате события остаётся в памяти (`resolveTransferColumn`).
   const allTransfers = (await client.goodsTransfer.findMany({
-    where: { status: { in: ['DRAFT', 'SUBMITTED', 'RECEIVED', 'RECONCILED', 'DISCREPANCY', 'CANCELLED'] } },
+    where: {
+      status: { in: ['DRAFT', 'SUBMITTED', 'RECEIVED', 'RECONCILED', 'DISCREPANCY', 'CANCELLED'] },
+      ...(window ? { createdAt: { lte: window.to }, updatedAt: { gte: window.from } } : {}),
+    },
     orderBy: { createdAt: 'desc' },
-    take: 500,
+    // Предел — только страховка от невероятного объёма, и он тоже сообщается на экране.
+    take: BOARD_TRANSFER_LIMIT + 1,
     select: {
       id: true,
       status: true,
@@ -306,9 +338,14 @@ export async function getKanbanBoard(
     }
   >;
 
+  const transfersTruncated = allTransfers.length > BOARD_TRANSFER_LIMIT;
+  const visibleTransfers = transfersTruncated
+    ? allTransfers.slice(0, BOARD_TRANSFER_LIMIT)
+    : allTransfers;
+
   const transferCards: KanbanTransferCard[] = [];
 
-  for (const transfer of allTransfers) {
+  for (const transfer of visibleTransfers) {
     // Фильтр по складу действует только на перемещения — строки РЦ склада не имеют.
     if (
       filter.warehouseId &&
@@ -375,13 +412,14 @@ export async function getKanbanBoard(
   );
   const otherShiftsWithTransfers = hasTransferCards
     ? 0
-    : countOtherShiftsWithTransfers(allTransfers, shifts, shift.id);
+    : countOtherShiftsWithTransfers(visibleTransfers, shifts, shift.id);
 
   return {
     cards: applyBoardFilter(allCards, filter),
     shift: { id: shift.id, label: shiftLabelOf(shift) },
     otherShiftsWithTransfers,
     options: buildFilterOptions(allCards, filter),
+    truncated: { lines: linesTruncated, transfers: transfersTruncated },
   };
 }
 

@@ -41,6 +41,7 @@ vi.mock('@prodtrack/db', () => ({
   },
 }));
 
+import { BOARD_LINE_LIMIT } from '@/lib/kanban/board';
 import { checkPageAccess } from '@/lib/auth/page-guard';
 import { prisma } from '@prodtrack/db';
 import { AccessDenied } from '@/components/access-denied';
@@ -416,6 +417,32 @@ describe('Экран «Канбан»: колонки и карточки', () =
 
     const missing = [...select.options].find((option) => option.value === 'gp-404');
     expect(missing?.textContent).toContain('на доске нет');
+  });
+
+  // Замечание главной линии: молчаливое обрезание — тот же класс, что молчаливая подмена.
+  it('упёрлись в предел выборки — на доске есть предупреждение', async () => {
+    mockAccess(['NP']);
+    lineFindMany.mockResolvedValue(
+      Array.from({ length: BOARD_LINE_LIMIT + 1 }, (_, index) => gpLine({ id: `line-${index}` })),
+    );
+
+    render((await KanbanPage({ searchParams: { shiftId: 'shift-1' } })) as never);
+
+    const note = screen
+      .getAllByRole('note')
+      .find((element) => element.textContent?.includes('Показаны не все данные'));
+    expect(note).toBeTruthy();
+    expect(note?.textContent).toContain('строки ПЗ');
+  });
+
+  it('без обрезания предупреждения нет', async () => {
+    mockAccess(['NP']);
+    lineFindMany.mockResolvedValue([gpLine()]);
+
+    render((await KanbanPage({ searchParams: { shiftId: 'shift-1' } })) as never);
+
+    const notes = screen.queryAllByRole('note');
+    expect(notes.every((element) => !element.textContent?.includes('Показаны не все'))).toBe(true);
   });
 
   it('заголовок страницы показывает смену', async () => {

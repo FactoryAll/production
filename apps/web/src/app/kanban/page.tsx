@@ -181,6 +181,18 @@ export default async function KanbanPage({
         </button>
       </form>
 
+      {(board.truncated.lines || board.truncated.transfers) && (
+        <p
+          role="note"
+          className="rounded-md border border-signal-amber/40 bg-signal-amber/10 p-3 text-sm text-graphite"
+        >
+          Показаны не все данные за смену: выборка упёрлась в предел
+          {board.truncated.lines ? ' (строки ПЗ)' : ''}
+          {board.truncated.transfers ? ' (перемещения)' : ''}. Списки фильтров построены по
+          показанным карточкам — сузьте фильтры или выберите нужный РЦ.
+        </p>
+      )}
+
       {(filterOptions.missingSelection.product ||
         filterOptions.missingSelection.workCenter ||
         filterOptions.missingSelection.warehouse) && (
