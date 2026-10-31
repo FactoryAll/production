@@ -1,5 +1,10 @@
 import Link from 'next/link';
-import type { KanbanCard, KanbanLineCard, KanbanTransferCard } from '@/lib/kanban/board';
+import type {
+  KanbanCard,
+  KanbanLineCard,
+  KanbanTransferCard,
+  NoteTone,
+} from '@/lib/kanban/board';
 import type { KanbanColumn } from '@/lib/kanban/stage';
 
 /**
@@ -12,12 +17,14 @@ import type { KanbanColumn } from '@/lib/kanban/stage';
  *
  * Доска **ничего не меняет**: карточка — ссылка на экран действия.
  *
- * Тон метки (ОПЭ-74) приходит из данных (`card.noteTone`), а цвет берётся из токенов темы:
- * `--color-signal-rose` для «ожидает 1С», `--color-signal-mint` для «проведено».
+ * Тон плашки приходит из данных (`card.noteTone`), а цвет берётся из токенов темы:
+ * «ожидает 1С» и «расхождение» — розовый, «проведено» и «расхождение согласовано» — салатовый,
+ * «в пути» — светло-песочный (решение владельца 31.10.2026).
  */
-const NOTE_TONE_CLASS: Record<KanbanCard['noteTone'], string> = {
-  pending: 'bg-signal-rose',
-  done: 'bg-signal-mint',
+const NOTE_TONE_CLASS: Record<NoteTone, string> = {
+  rose: 'bg-signal-rose',
+  mint: 'bg-signal-mint',
+  sand: 'bg-signal-sand',
   neutral: 'bg-neutral-200',
 };
 

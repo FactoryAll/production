@@ -6,7 +6,7 @@ import { checkPageAccess } from '@/lib/auth/page-guard';
 import {
   filterKanbanCardsForRoles,
   getKanbanBoard,
-  visibleKanbanColumns,
+  visibleKanbanColumns
 } from '@/lib/kanban/board';
 import { boardViewHref, listViewHref } from '@/lib/kanban/view-links';
 import { hasPermission } from '@prodtrack/contracts';
@@ -14,6 +14,7 @@ import { prisma } from '@prodtrack/db';
 import { toDateInputValue } from '@/lib/reports/period';
 
 import { KanbanBoard } from './_components/kanban-board';
+import { AutoRefresh, RefreshButton } from './_components/auto-refresh';
 
 /**
  * Доска производственного контура (T-103, решение владельца 29.10.2026).
@@ -23,7 +24,7 @@ import { KanbanBoard } from './_components/kanban-board';
  * `production_order:read`. Доска ничего не меняет — карточка ведёт на экран действия.
  */
 export default async function KanbanPage({
-  searchParams,
+  searchParams
 }: {
   searchParams: Record<string, string | string[] | undefined>;
 }) {
@@ -48,7 +49,7 @@ export default async function KanbanPage({
     shiftId: param('shiftId'),
     workCenterId: param('workCenterId'),
     productId: param('productId'),
-    warehouseId: param('warehouseId'),
+    warehouseId: param('warehouseId')
   };
 
   const [board, shifts, workCenters, products, warehouses] = await Promise.all([
@@ -56,11 +57,23 @@ export default async function KanbanPage({
     prisma.shift.findMany({
       orderBy: [{ date: 'desc' }, { number: 'desc' }],
       take: 30,
-      select: { id: true, number: true, date: true },
+      select: { id: true, number: true, date: true }
     }),
-    prisma.workCenter.findMany({ where: { active: true }, orderBy: { code: 'asc' }, select: { id: true, code: true, name: true } }),
-    prisma.product.findMany({ where: { active: true }, orderBy: { code: 'asc' }, select: { id: true, code: true, name: true } }),
-    prisma.warehouse.findMany({ where: { active: true }, orderBy: { name: 'asc' }, select: { id: true, name: true } }),
+    prisma.workCenter.findMany({
+      where: { active: true },
+      orderBy: { code: 'asc' },
+      select: { id: true, code: true, name: true }
+    }),
+    prisma.product.findMany({
+      where: { active: true },
+      orderBy: { code: 'asc' },
+      select: { id: true, code: true, name: true }
+    }),
+    prisma.warehouse.findMany({
+      where: { active: true },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true }
+    })
   ]);
 
   const columns = visibleKanbanColumns(roles);
@@ -69,27 +82,30 @@ export default async function KanbanPage({
 
   // Пустые состояния — тремя текстами: «смен нет», «строк за смену нет» и «перемещений нет»
   // для складской роли. Иначе пустая доска читается как поломка, а не как пустая смена.
-  const transferColumnsEmpty =
-    !canSeeOrderColumns && cards.length === 0;
+  const transferColumnsEmpty = !canSeeOrderColumns && cards.length === 0;
   return (
     <main className="space-y-4 p-6">
+      <AutoRefresh />
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-graphite">Канбан производственного контура</h1>
-          {board.shift && (
-            <p className="text-sm text-steel-graphite">Смена: {board.shift.label}</p>
-          )}
+          {board.shift && <p className="text-sm text-steel-graphite">Смена: {board.shift.label}</p>}
         </div>
-        <ViewSwitch
-          current="board"
-          listHref={canSeeOrderColumns ? listViewHref({ shiftId: board.shift?.id }) : null}
-          boardHref={boardViewHref({
-            shiftId: board.shift?.id,
-            workCenterId: filter.workCenterId,
-            productId: filter.productId,
-            warehouseId: filter.warehouseId,
-          })}
-        />
+        <div className="flex items-center gap-3">
+          {/* Обновление без F5 (решение владельца 31.10.2026): кнопка рядом с переключателем вида. */}
+          <RefreshButton />
+          <ViewSwitch
+            current="board"
+            listHref={canSeeOrderColumns ? listViewHref({ shiftId: board.shift?.id }) : null}
+            boardHref={boardViewHref({
+              shiftId: board.shift?.id,
+              workCenterId: filter.workCenterId,
+              productId: filter.productId,
+              warehouseId: filter.warehouseId
+            })}
+          />
+        </div>
       </div>
 
       <form method="get" action="/kanban" className="flex flex-wrap items-end gap-3">
@@ -171,10 +187,9 @@ export default async function KanbanPage({
           role="note"
           className="rounded-md border border-signal-amber/40 bg-signal-amber/10 p-3 text-sm text-graphite"
         >
-          За выбранную смену перемещений нет, но они есть за{' '}
-          {board.otherShiftsWithTransfers} другую(-их) смену(ы) — выберите смену в фильтре
-          «Смена». Доска показывает только одну смену: перемещение относится к смене по дате
-          документа.
+          За выбранную смену перемещений нет, но они есть за {board.otherShiftsWithTransfers}{' '}
+          другую(-их) смену(ы) — выберите смену в фильтре «Смена». Доска показывает только одну
+          смену: перемещение относится к смене по дате документа.
         </p>
       )}
 

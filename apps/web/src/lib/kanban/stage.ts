@@ -44,8 +44,11 @@ export const KANBAN_COLUMNS: KanbanColumn[] = [
   { key: 'CLOSED', title: 'Закрыто / задача 1С', isOrderColumn: true, order: 5 },
   { key: 'TRANSFER_DRAFT', title: 'Перемещение создано', isOrderColumn: false, order: 6 },
   { key: 'TRANSFER_SUBMITTED', title: 'Отправлено', isOrderColumn: false, order: 7 },
-  { key: 'RECEIVED', title: 'Принято складом', isOrderColumn: false, order: 8 },
-  { key: 'DISCREPANCY', title: 'Расхождение', isOrderColumn: false, order: 9 },
+  // Расхождение стоит МЕЖДУ отправкой и приёмкой (решение владельца 31.10.2026): это этап
+  // движения, а не его исход. Порядковые числа идут по новому порядку — на них опирается
+  // правило «самая продвинутая колонка», и разъехавшиеся числа поставили бы карточку не туда.
+  { key: 'DISCREPANCY', title: 'Расхождение', isOrderColumn: false, order: 8 },
+  { key: 'RECEIVED', title: 'Принято складом', isOrderColumn: false, order: 9 },
   { key: 'CANCELLED', title: 'Отменено', isOrderColumn: false, order: 10 },
 ];
 

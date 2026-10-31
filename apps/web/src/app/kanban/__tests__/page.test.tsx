@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 
+// Доска содержит клиентское автообновление — ему нужен роутер.
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
 vi.mock('@/lib/auth/page-guard', () => ({ checkPageAccess: vi.fn() }));
 
 const lineFindMany = vi.fn();
@@ -193,6 +195,57 @@ describe('Экран «Канбан»: колонки и карточки', () =
     expect(within(card).getByText(/10 шт/)).toBeTruthy();
     expect(within(card).getByText(/Производственный склад → Склад ГП/)).toBeTruthy();
     expect(screen.getByText('в пути')).toBeTruthy();
+  });
+
+  // Пункт 3 задания: гость видит доску на просмотр, но ничего не может изменить.
+  it('гость видит доску, но не видит ссылок и кнопок действий', async () => {
+    mockAccess(['GUEST']);
+    lineFindMany.mockResolvedValue([gpLine()]);
+
+    render((await KanbanPage({ searchParams: {} })) as never);
+
+    // Доска отрисована — просмотр разрешён.
+    expect(screen.getByRole('region', { name: 'Закрыто / задача 1С' })).toBeTruthy();
+
+    // Ни одной кнопки действия и ни одной ссылки на экран действия.
+    const actionLinks = screen
+      .queryAllByRole('link')
+      .map((link) => link.getAttribute('href') ?? '')
+      .filter((href) => /\/(transfers\/new|shift-execution|production-orders\/new)/.test(href));
+    expect(actionLinks).toEqual([]);
+
+    const actionButtons = screen
+      .queryAllByRole('button')
+      .map((button) => button.textContent ?? '')
+      .filter((label) => /Создать|Отправить|Принять|Подтвердить|Отчитаться|Сохранить/.test(label));
+    // «Обновить» — не действие с данными: это перечитывание экрана.
+    expect(actionButtons).toEqual([]);
+  });
+
+  it('плашки карточек окрашены токенами темы', async () => {
+    mockAccess(['NP']);
+    transferFindMany.mockResolvedValue([
+      {
+        id: 'tr-1',
+        status: 'SUBMITTED',
+        createdAt: new Date('2026-10-30T09:00:00'),
+        updatedAt: new Date('2026-10-30T12:00:00'),
+        submittedAt: new Date('2026-10-30T12:00:00'),
+        sourceWarehouse: { id: 'wh-prod', name: 'Производственный склад' },
+        destinationWarehouse: { id: 'wh-gp', name: 'Склад ГП' },
+        lines: [
+          {
+            product: { code: 'GP002', name: 'Готовая продукция Б', unit: 'шт' },
+            plannedQuantity: { toString: () => '10' },
+          },
+        ],
+      },
+    ]);
+
+    render((await KanbanPage({ searchParams: {} })) as never);
+
+    const note = screen.getByText('в пути');
+    expect(note.className).toContain('bg-signal-sand');
   });
 
   it('складской роли колонки ПЗ не рендерятся, а «Отменено» — есть', async () => {

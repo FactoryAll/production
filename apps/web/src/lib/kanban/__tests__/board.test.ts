@@ -103,7 +103,7 @@ describe('доска: строки РЦ (колонки 1–5)', () => {
       kind: 'line',
       column: 'CLOSED',
       note: 'ожидает 1С',
-      noteTone: 'pending',
+      noteTone: 'rose',
       href: '/production-orders/po-12345678#line-line-1',
     });
   });
@@ -167,6 +167,8 @@ describe('доска: перемещения (колонки 6–9)', () => {
     expect(board.cards.find((item) => item.kind === 'transfer')).toMatchObject({
       column: 'TRANSFER_SUBMITTED',
       note: 'в пути',
+      // Тон — из данных, а не из текста пометки: «в пути» — светло-песочный.
+      noteTone: 'sand',
     });
   });
 
@@ -187,6 +189,7 @@ describe('доска: перемещения (колонки 6–9)', () => {
     expect(reconciledBoard.cards.find((item) => item.kind === 'transfer')).toMatchObject({
       column: 'RECEIVED',
       note: 'расхождение согласовано',
+      noteTone: 'mint',
     });
   });
 
@@ -199,6 +202,7 @@ describe('доска: перемещения (колонки 6–9)', () => {
     expect(board.cards.find((item) => item.kind === 'transfer')).toMatchObject({
       column: 'DISCREPANCY',
       note: 'расхождение',
+      noteTone: 'rose',
     });
   });
 
@@ -299,11 +303,12 @@ describe('доска: перемещения (колонки 6–9)', () => {
 
 describe('доска: права ролей', () => {
   it('складские роли не видят колонок ПЗ, но видят перемещения', async () => {
+    // Расхождение стоит между отправкой и приёмкой (решение владельца 31.10.2026).
     expect(visibleKanbanColumns(['KSGP']).map((column) => column.key)).toEqual([
       'TRANSFER_DRAFT',
       'TRANSFER_SUBMITTED',
-      'RECEIVED',
       'DISCREPANCY',
+      'RECEIVED',
       'CANCELLED',
     ]);
 

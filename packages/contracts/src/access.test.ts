@@ -48,7 +48,14 @@ describe('access matrix', () => {
       expect(hasPermission([role], 'kanban:read')).toBe(true);
     }
     expect(hasPermission([RoleCode.OPR], 'kanban:read')).toBe(false);
-    expect(hasPermission([RoleCode.GUEST], 'kanban:read')).toBe(false);
+    // Гость видит доску контура на просмотр (решение владельца 31.10.2026),
+    // но ни одного права на изменение у него нет.
+    expect(hasPermission([RoleCode.GUEST], 'kanban:read')).toBe(true);
+    expect(hasPermission([RoleCode.GUEST], 'transfer:create')).toBe(false);
+    expect(hasPermission([RoleCode.GUEST], 'transfer:submit')).toBe(false);
+    expect(hasPermission([RoleCode.GUEST], 'transfer:receive')).toBe(false);
+    expect(hasPermission([RoleCode.GUEST], 'production_order:report')).toBe(false);
+    expect(hasPermission([RoleCode.GUEST], 'production_order:confirm')).toBe(false);
     // Право объявлено в общем списке: иначе администратор не получил бы его из ALL_PERMISSIONS.
     expect(ALL_PERMISSIONS).toContain('kanban:read');
   });
@@ -141,7 +148,13 @@ describe('getAttributeRole', () => {
 
   it('гость не получает ни одного права на изменение', () => {
     const readOnly = ROLE_PERMISSIONS.GUEST;
-    expect(readOnly).toEqual(['production_order:read', 'stock:read', 'transfer:read', 'dashboard:read']);
+    expect(readOnly).toEqual([
+      'production_order:read',
+      'stock:read',
+      'transfer:read',
+      'dashboard:read',
+      'kanban:read',
+    ]);
     // Ни одного права, которое открывает действие: создание, правка, подтверждение,
     // приёмка, корректировка, согласование, обработка в 1С.
     const actionPermissions = readOnly.filter((permission) => !permission.endsWith(':read'));

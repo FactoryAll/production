@@ -47,6 +47,13 @@ export function getNsiNavItems(userRoles: string[]): NavItem[] {
 export function getNavItems(userRoles: string[]): NavItem[] {
   const items: NavItem[] = [{ label: 'Дашборд', href: '/dashboard' }];
 
+  // Доска контура (T-103): отдельное право, потому что у КСГП и УСГП нет production_order:read —
+  // для них это единственный вход в контур. Стоит сразу за «Дашбордом» (решение владельца
+  // 31.10.2026): доска — это обзор всего контура, а ПЗ — уже конкретный документ.
+  if (hasPermission(userRoles, 'kanban:read')) {
+    items.push({ label: 'Канбан', href: '/kanban' });
+  }
+
   // Центр уведомлений M09: каждый пользователь видит только свои, отдельного права
   // в матрице доступа нет (M09 §3). Но если роль не адресат ни одного события
   // (гостевая — решение владельца 25.10.2026), пункт и колокольчик ей не нужны.
@@ -56,12 +63,6 @@ export function getNavItems(userRoles: string[]): NavItem[] {
 
   if (hasPermission(userRoles, 'production_order:read')) {
     items.push({ label: 'ПЗ', href: '/production-orders' });
-  }
-
-  // Доска контура (T-103): отдельное право, потому что у КСГП и УСГП нет production_order:read —
-  // для них это единственный вход в контур.
-  if (hasPermission(userRoles, 'kanban:read')) {
-    items.push({ label: 'Канбан', href: '/kanban' });
   }
 
   if (hasPermission(userRoles, 'production_order:accept')) {

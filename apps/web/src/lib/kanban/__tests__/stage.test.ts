@@ -19,8 +19,8 @@ describe('колонки доски', () => {
       'CLOSED',
       'TRANSFER_DRAFT',
       'TRANSFER_SUBMITTED',
-      'RECEIVED',
       'DISCREPANCY',
+      'RECEIVED',
       'CANCELLED',
     ]);
     // ОПЭ-74: однострочное ПЗ уходит сразу в «Закрыто» (авто-закрытие), поэтому колонка

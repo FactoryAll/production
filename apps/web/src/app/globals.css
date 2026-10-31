@@ -10,6 +10,8 @@
     /* Метки доски (ОПЭ-74): «ожидает 1С» и «проведено». Цвета из темы, не хардкод в разметке. */
     --color-signal-rose: #f6cfdc;
     --color-signal-mint: #cdeccd;
+    /* «в пути» — светло-песочный (решение владельца 31.10.2026). */
+    --color-signal-sand: #f3e3c3;
 
     /* Neutral scale */
     --color-neutral-50: #fafafa;

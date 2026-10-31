@@ -23,6 +23,14 @@ import {
  * фильтры и то, что видно роли по правам. Один запрос строк + один запрос задач 1С.
  */
 
+/**
+ * Тон плашки — **цвет**, а не смысл (решение владельца 31.10.2026): «ожидает 1С»
+ * и «расхождение» — розовый, «проведено» и «расхождение согласовано» — салатовый,
+ * «в пути» — светло-песочный. Значение приходит из данных вместе с пометкой,
+ * разметка по нему только выбирает класс из токенов темы.
+ */
+export type NoteTone = 'rose' | 'mint' | 'sand' | 'neutral';
+
 export interface KanbanLineCard {
   kind: 'line';
   lineId: string;
@@ -43,10 +51,10 @@ export interface KanbanLineCard {
   column: KanbanColumnKey;
   note: string | null;
   /**
-   * Тон метки: цвет выбирает разметка по этому полю, а не по тексту (ОПЭ-74).
+   * Тон плашки: цвет выбирает разметка по этому полю, а не по тексту (ОПЭ-74).
    * Значение вычисляется здесь, вместе с этапом.
    */
-  noteTone: 'pending' | 'done' | 'neutral';
+  noteTone: NoteTone;
   /** Чем вызвана колонка «Отменено» — от этого зависит видимость складским ролям. */
   cancelledBy: 'order' | null;
   /** Куда ведёт клик: экран действия, а не изменение статуса (решение владельца). */
@@ -64,7 +72,7 @@ export interface KanbanTransferCard {
   transferId: string;
   column: KanbanColumnKey;
   note: string | null;
-  noteTone: 'pending' | 'done' | 'neutral';
+  noteTone: NoteTone;
   cancelledBy: 'transfer' | null;
   /** Номенклатура перемещения. */
   productCode: string;
@@ -193,12 +201,7 @@ export async function getKanbanBoard(
       operatorName: line.operator?.fullName ?? null,
       column: stage.column,
       note: stage.note,
-      noteTone:
-        stage.column === 'CLOSED' && stage.note === 'проведено'
-          ? 'done'
-          : stage.column === 'CLOSED'
-            ? 'pending'
-            : 'neutral',
+      noteTone: lineNoteTone(stage.column, stage.note),
       cancelledBy: stage.cancelledBy === 'order' ? 'order' : null,
       // Клик ведёт на экран действия: доска ничего не меняет (решение владельца).
       href:
@@ -261,7 +264,7 @@ export async function getKanbanBoard(
       transferId: transfer.id,
       column,
       note: transferNote(transfer),
-      noteTone: 'neutral',
+      noteTone: transferNoteTone(transfer.status),
       cancelledBy: column === 'CANCELLED' ? 'transfer' : null,
       productCode: first?.product.code ?? '—',
       productName: first?.product.name ?? 'Номенклатура не указана',
@@ -287,6 +290,28 @@ export async function getKanbanBoard(
     shift: { id: shift.id, label: shiftLabelOf(shift) },
     otherShiftsWithTransfers,
   };
+}
+
+/** Тон плашки строки: «проведено» — салатовый, «ожидает 1С» — розовый, иначе нейтральный. */
+export function lineNoteTone(column: string, note: string | null): NoteTone {
+  if (column !== 'CLOSED') {
+    return 'neutral';
+  }
+  return note === 'проведено' ? 'mint' : 'rose';
+}
+
+/** Тон плашки перемещения по статусу — из данных, а не из текста пометки. */
+export function transferNoteTone(status: string): NoteTone {
+  if (status === 'SUBMITTED') {
+    return 'sand';
+  }
+  if (status === 'DISCREPANCY') {
+    return 'rose';
+  }
+  if (status === 'RECONCILED') {
+    return 'mint';
+  }
+  return 'neutral';
 }
 
 function roundQuantity(value: number): number {

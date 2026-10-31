@@ -200,7 +200,13 @@ export const ROLE_PERMISSION_MAP: Record<RoleCode, string[]> = {
    * ни создания, ни подтверждения, ни приёмки, ни корректировки.
    * `dashboard:read` — потому что дашборд является точкой входа после входа в систему.
    */
-  GUEST: ['production_order:read', 'stock:read', 'transfer:read', 'dashboard:read'],
+  GUEST: [
+    'production_order:read',
+    'stock:read',
+    'transfer:read',
+    'dashboard:read',
+    'kanban:read',
+  ],
   /** ОТК (решение владельца 26.10.2026): гостевой просмотр + отчёты и доска, без прав на изменение. */
   OTK: [
     'production_order:read',

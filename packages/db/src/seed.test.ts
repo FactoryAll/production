@@ -231,11 +231,17 @@ describe('сид и контракты: матрица прав', () => {
   });
 
   // T-103: доска контура — отдельное право; складские роли получают его, ОПР и гость — нет.
-  it('kanban:read есть у шести ролей и нет у ОПР и гостя', () => {
-    for (const role of ['NP', 'ADM', 'S1C', 'OTK', 'KSGP', 'USGP']) {
+  // Гость получил доску на просмотр 31.10.2026 (решение владельца); право на изменение
+  // у него по-прежнему не появляется — это проверяется отдельно.
+  it('kanban:read есть у семи ролей и нет у ОПР', () => {
+    for (const role of ['NP', 'ADM', 'S1C', 'OTK', 'KSGP', 'USGP', 'GUEST']) {
       expect(ROLE_PERMISSION_MAP[role as keyof typeof ROLE_PERMISSION_MAP]).toContain('kanban:read');
     }
     expect(ROLE_PERMISSION_MAP.OPR).not.toContain('kanban:read');
-    expect(ROLE_PERMISSION_MAP.GUEST).not.toContain('kanban:read');
+    // Право только на просмотр: ни одного права на действие у гостя быть не должно.
+    const guestActions = (ROLE_PERMISSION_MAP.GUEST as string[]).filter(
+      (permission) => !permission.endsWith(':read'),
+    );
+    expect(guestActions).toEqual([]);
   });
 });

@@ -43,9 +43,10 @@ describe('nav-items', () => {
   });
 
   // T-103: доска — отдельное право, ОПР и гость в первую версию не пускаются.
-  it('доски контура нет у ОПР и гостя', () => {
+  // Гость получил доску на просмотр 31.10.2026 (решение владельца); у ОПР права нет.
+  it('доски контура нет у ОПР, но есть у гостя и ОТК', () => {
     expect(hrefsFor(['OPR'])).not.toContain('/kanban');
-    expect(hrefsFor(['GUEST'])).not.toContain('/kanban');
+    expect(hrefsFor(['GUEST'])).toContain('/kanban');
     expect(hrefsFor(['OTK'])).toContain('/kanban');
     expect(hrefsFor(['S1C'])).toContain('/kanban');
     expect(hrefsFor(['USGP'])).toContain('/kanban');
@@ -90,10 +91,10 @@ describe('nav-items', () => {
   it('builds the NP menu in a stable order', () => {
     expect(hrefsFor(['NP'])).toEqual([
       '/dashboard',
+      // Доска контура (T-103): сразу за «Дашбордом» (решение владельца 31.10.2026).
+      '/kanban',
       '/notifications',
       '/production-orders',
-      // Доска контура (T-103): сразу после «ПЗ», своё право kanban:read.
-      '/kanban',
       '/stock',
       '/transfers',
       // Отчёты — по праву reports:read (решение владельца 26.10.2026).
@@ -106,9 +107,10 @@ describe('nav-items', () => {
   it('builds the KSGP menu without pages the role cannot open', () => {
     expect(hrefsFor(['KSGP'])).toEqual([
       '/dashboard',
-      '/notifications',
-      // Доски контура у него есть право kanban:read, а ПЗ он открыть не может (T-103).
+      // Доска стоит сразу за «Дашбордом» (решение владельца 31.10.2026);
+      // ПЗ складская роль открыть не может (T-103).
       '/kanban',
+      '/notifications',
       '/stock',
       '/transfers',
     ]);
@@ -128,8 +130,9 @@ describe('nav-items', () => {
     // его центр уведомлений всегда пуст (решение владельца 25.10.2026, ОПЭ-54).
     expect(hrefsFor(['ADM'])).toEqual([
       '/dashboard',
-      '/production-orders',
+      // Доска сразу за «Дашбордом» (решение владельца 31.10.2026).
       '/kanban',
+      '/production-orders',
       '/shift-execution',
       '/stock',
       '/transfers',

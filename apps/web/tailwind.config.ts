@@ -15,6 +15,7 @@ const config: Config = {
         'signal-amber': 'var(--color-signal-amber)',
         'signal-rose': 'var(--color-signal-rose)',
         'signal-mint': 'var(--color-signal-mint)',
+        'signal-sand': 'var(--color-signal-sand)',
         'graphite-surface': 'var(--color-graphite-surface)',
         'mist-metal': 'var(--color-mist-metal)',
         neutral: {
