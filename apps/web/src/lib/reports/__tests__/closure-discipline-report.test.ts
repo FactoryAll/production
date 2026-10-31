@@ -42,15 +42,24 @@ function order(overrides: Record<string, unknown> = {}) {
  * Без этого проверка «правило одно» ничего не значит: мок, возвращающий всё подряд, отдал бы
  * одинаковый набор и при разных порогах. Здесь фильтруются и статус, и дата смены.
  */
-function fakeClient(orders: Array<Record<string, any>>) {
-  const findMany = vi.fn(async (args: any) => {
+interface QueryArgs {
+  where?: {
+    status?: { notIn?: string[] };
+    shift?: { date?: { lte?: Date; gte?: Date } };
+  };
+}
+
+function fakeClient(orders: Array<Record<string, unknown>>) {
+  const findMany = vi.fn(async (args: QueryArgs) => {
     const notIn: string[] = args?.where?.status?.notIn ?? [];
     const bound = args?.where?.shift?.date?.lte ?? args?.where?.shift?.date?.gte;
+    type OrderLike = { status: string; shift: { date: Date } };
     return orders.filter((order) => {
-      if (notIn.includes(order.status)) {
+      const typed = order as OrderLike;
+      if (notIn.includes(typed.status)) {
         return false;
       }
-      if (bound && order.shift.date.getTime() > bound.getTime()) {
+      if (bound && typed.shift.date.getTime() > bound.getTime()) {
         return false;
       }
       return true;
