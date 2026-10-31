@@ -42,6 +42,7 @@ vi.mock('@prodtrack/db', () => ({
 }));
 
 import { checkPageAccess } from '@/lib/auth/page-guard';
+import { prisma } from '@prodtrack/db';
 import { AccessDenied } from '@/components/access-denied';
 import KanbanPage from '../page';
 
@@ -63,11 +64,13 @@ const SHIFT = {
 function gpLine(overrides: Record<string, unknown> = {}) {
   return {
     id: 'line-1',
+    productId: 'gp-2',
+    workCenterId: 'wc-03',
     plannedQuantity: { toString: () => '40' },
     status: 'REPORTED',
     operator: { fullName: 'Иванов И.И.' },
     workCenter: { code: '03', name: 'Тубировка крем' },
-    product: { code: 'GP002', name: 'Готовая продукция Б', unit: 'шт' },
+    product: { id: 'gp-2', code: 'GP002', name: 'Готовая продукция Б', unit: 'шт' },
     facts: [{ factCategory: 'GP', quantity: { toString: () => '45' } }],
     order: { id: 'po-12345678', status: 'COMPLETED', shiftId: SHIFT.id },
     transferLines: [],
@@ -361,6 +364,58 @@ describe('Экран «Канбан»: колонки и карточки', () =
     render((await KanbanPage({ searchParams: { shiftId: 'shift-1' } })) as never);
 
     expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  // Замечание владельца 01.11.2026: списки фильтров — из карточек доски, а не из каталога.
+  it('список номенклатуры строится из карточек доски', async () => {
+    mockAccess(['NP']);
+    lineFindMany.mockResolvedValue([gpLine()]);
+    transferFindMany.mockResolvedValue([
+      {
+        id: 'tr-1',
+        status: 'DRAFT',
+        createdAt: new Date('2026-10-30T09:00:00'),
+        updatedAt: new Date('2026-10-30T09:00:00'),
+        submittedAt: null,
+        sourceWarehouse: { id: 'wh-prod', name: 'Производственный склад' },
+        destinationWarehouse: { id: 'wh-gp', name: 'Склад ГП' },
+        lines: [
+          {
+            product: { id: 'gp-9', code: 'GP009', name: 'Продукт Я', unit: 'шт' },
+            plannedQuantity: { toString: () => '5' },
+            actualQuantity: null,
+            discrepancies: [],
+          },
+        ],
+      },
+    ]);
+    render((await KanbanPage({ searchParams: { shiftId: 'shift-1' } })) as never);
+
+    const select = screen.getByLabelText('Номенклатура') as HTMLSelectElement;
+    const values = [...select.options].map((option) => option.value);
+    // Только то, что есть на доске: gp-2 из строки ПЗ и gp-9 из перемещения.
+    expect(values).toEqual(['', 'gp-2', 'gp-9']);
+  });
+
+  it('каталог товаров для фильтра не запрашивается', async () => {
+    mockAccess(['NP']);
+    await KanbanPage({ searchParams: { shiftId: 'shift-1' } });
+
+    expect(prisma.product.findMany).not.toHaveBeenCalled();
+    expect(prisma.workCenter.findMany).not.toHaveBeenCalled();
+    expect(prisma.warehouse.findMany).not.toHaveBeenCalled();
+  });
+
+  it('выбранное значение, которого нет на доске, остаётся в списке и помечается', async () => {
+    mockAccess(['NP']);
+    render((await KanbanPage({ searchParams: { shiftId: 'shift-1', productId: 'gp-404' } })) as never);
+
+    const select = screen.getByLabelText('Номенклатура') as HTMLSelectElement;
+    expect(select.value).toBe('gp-404');
+    expect(screen.getByRole('status').textContent).toContain('Выбранного значения на доске');
+
+    const missing = [...select.options].find((option) => option.value === 'gp-404');
+    expect(missing?.textContent).toContain('на доске нет');
   });
 
   it('заголовок страницы показывает смену', async () => {

@@ -52,29 +52,17 @@ export default async function KanbanPage({
     warehouseId: param('warehouseId')
   };
 
-  const [board, shifts, workCenters, products, warehouses] = await Promise.all([
+  // Списки фильтров берутся ИЗ ДОСКИ, а не из каталога (замечание владельца 01.11.2026):
+  // показываем только то, что реально есть в карточках за выбранную смену.
+  const [board, shifts] = await Promise.all([
     getKanbanBoard(prisma, filter),
     prisma.shift.findMany({
       orderBy: [{ date: 'desc' }, { number: 'desc' }],
       take: 30,
       select: { id: true, number: true, date: true }
-    }),
-    prisma.workCenter.findMany({
-      where: { active: true },
-      orderBy: { code: 'asc' },
-      select: { id: true, code: true, name: true }
-    }),
-    prisma.product.findMany({
-      where: { active: true },
-      orderBy: { code: 'asc' },
-      select: { id: true, code: true, name: true }
-    }),
-    prisma.warehouse.findMany({
-      where: { active: true },
-      orderBy: { name: 'asc' },
-      select: { id: true, name: true }
     })
   ]);
+  const { options: filterOptions } = board;
 
   const columns = visibleKanbanColumns(roles);
   const cards = filterKanbanCardsForRoles(board.cards, roles);
@@ -133,9 +121,14 @@ export default async function KanbanPage({
             className="h-10 max-w-[18rem] rounded-md border border-mist-metal bg-white px-3 text-base text-graphite"
           >
             <option value="">Все РЦ</option>
-            {workCenters.map((workCenter) => (
+            {/* Выбранное значение, которого на доске больше нет, остаётся в списке:
+                молчаливая подмена фильтра — то же, что ложь в интерфейсе. */}
+            {filter.workCenterId && filterOptions.missingSelection.workCenter && (
+              <option value={filter.workCenterId}>Выбранный РЦ — на доске нет</option>
+            )}
+            {filterOptions.workCenters.map((workCenter) => (
               <option key={workCenter.id} value={workCenter.id}>
-                {workCenter.code} — {workCenter.name}
+                {workCenter.label}
               </option>
             ))}
           </select>
@@ -149,9 +142,12 @@ export default async function KanbanPage({
             className="h-10 max-w-[18rem] rounded-md border border-mist-metal bg-white px-3 text-base text-graphite"
           >
             <option value="">Вся номенклатура</option>
-            {products.map((product) => (
+            {filter.productId && filterOptions.missingSelection.product && (
+              <option value={filter.productId}>Выбранная номенклатура — на доске нет</option>
+            )}
+            {filterOptions.products.map((product) => (
               <option key={product.id} value={product.id}>
-                {product.code} — {product.name}
+                {product.label}
               </option>
             ))}
           </select>
@@ -166,9 +162,12 @@ export default async function KanbanPage({
             className="h-10 max-w-[18rem] rounded-md border border-mist-metal bg-white px-3 text-base text-graphite"
           >
             <option value="">Все склады</option>
-            {warehouses.map((warehouse) => (
+            {filter.warehouseId && filterOptions.missingSelection.warehouse && (
+              <option value={filter.warehouseId}>Выбранный склад — на доске нет</option>
+            )}
+            {filterOptions.warehouses.map((warehouse) => (
               <option key={warehouse.id} value={warehouse.id}>
-                {warehouse.name}
+                {warehouse.label}
               </option>
             ))}
           </select>
@@ -181,6 +180,18 @@ export default async function KanbanPage({
           Показать
         </button>
       </form>
+
+      {(filterOptions.missingSelection.product ||
+        filterOptions.missingSelection.workCenter ||
+        filterOptions.missingSelection.warehouse) && (
+        <p
+          role="status"
+          className="rounded-md border border-signal-amber/40 bg-signal-amber/10 p-3 text-sm text-graphite"
+        >
+          Выбранного значения на доске за эту смену нет — фильтр оставлен как есть, чтобы
+          не подменять его молча. Снимите его или выберите другую смену.
+        </p>
+      )}
 
       {board.otherShiftsWithTransfers > 0 && (
         <p

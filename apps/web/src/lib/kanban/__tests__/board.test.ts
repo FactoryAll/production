@@ -63,11 +63,13 @@ const NOW = new Date('2026-10-30T10:00:00');
 function gpLine(overrides: Record<string, unknown> = {}) {
   return {
     id: 'line-1',
+    productId: 'gp-2',
+    workCenterId: 'wc-03',
     plannedQuantity: { toString: () => '40' },
     status: 'REPORTED',
     operator: { fullName: 'Иванов И.И.' },
     workCenter: { code: '03', name: 'Тубировка крем' },
-    product: { code: 'GP002', name: 'Готовая продукция Б', unit: 'шт' },
+    product: { id: 'gp-2', code: 'GP002', name: 'Готовая продукция Б', unit: 'шт' },
     facts: [{ factCategory: 'GP', quantity: { toString: () => '45' } }],
     order: { id: 'po-12345678', status: 'COMPLETED', shiftId: DAY_SHIFT.id },
     ...overrides,
@@ -85,7 +87,7 @@ function transfer(overrides: Record<string, unknown> = {}) {
     destinationWarehouse: { id: 'wh-gp', name: 'Склад ГП' },
     lines: [
       {
-        product: { code: 'GP002', name: 'Готовая продукция Б', unit: 'шт' },
+        product: { id: 'gp-2', code: 'GP002', name: 'Готовая продукция Б', unit: 'шт' },
         plannedQuantity: { toString: () => '10' },
         actualQuantity: null,
         discrepancies: [],
@@ -409,6 +411,111 @@ describe('доска: количество на карточке перемещ�
     expect(submitted.cards.find((item) => item.kind === 'transfer')).toMatchObject({
       quantity: 40,
       difference: null,
+    });
+  });
+});
+
+describe('опции фильтров — из карточек доски (замечание владельца 01.11.2026)', () => {
+  it('в списке номенклатуры только то, что есть в карточках за смену', async () => {
+    const { client } = fakeClient({
+      lines: [
+        gpLine({ id: 'line-1', productId: 'gp-1', product: { code: 'GP001', name: 'Продукт А', unit: 'шт' } }),
+        gpLine({ id: 'line-2', productId: 'gp-2', product: { code: 'GP002', name: 'Продукт Б', unit: 'шт' } }),
+      ],
+    });
+
+    const board = await getKanbanBoard(client, {}, { now: NOW });
+
+    expect(board.options.products.map((option) => option.label)).toEqual([
+      'GP001 — Продукт А',
+      'GP002 — Продукт Б',
+    ]);
+  });
+
+  it('номенклатура из перемещений тоже попадает в список', async () => {
+    const { client } = fakeClient({
+      transfers: [
+        transfer({
+          lines: [
+            {
+              product: { id: 'gp-9', code: 'GP009', name: 'Продукт Я', unit: 'шт' },
+              plannedQuantity: { toString: () => '5' },
+              actualQuantity: null,
+              discrepancies: [],
+            },
+          ],
+        }),
+      ],
+    });
+
+    const board = await getKanbanBoard(client, {}, { now: NOW });
+    expect(board.options.products).toEqual([{ id: 'gp-9', label: 'GP009 — Продукт Я' }]);
+  });
+
+  // Главная тонкость: свой фильтр из расчёта своего списка исключается.
+  it('при выбранной номенклатуре список не схлопывается до одной позиции', async () => {
+    const { client } = fakeClient({
+      lines: [
+        gpLine({ id: 'line-1', productId: 'gp-1', product: { code: 'GP001', name: 'Продукт А', unit: 'шт' } }),
+        gpLine({ id: 'line-2', productId: 'gp-2', product: { code: 'GP002', name: 'Продукт Б', unit: 'шт' } }),
+      ],
+    });
+
+    const board = await getKanbanBoard(client, { productId: 'gp-1' }, { now: NOW });
+
+    // На доске — одна позиция…
+    expect(board.cards).toHaveLength(1);
+    // …а в списке остаются обе: иначе сменить фильтр было бы нельзя.
+    expect(board.options.products.map((option) => option.id)).toEqual(['gp-1', 'gp-2']);
+  });
+
+  it('фильтр по РЦ не схлопывает свой список, но сужает список номенклатуры', async () => {
+    const { client } = fakeClient({
+      lines: [
+        gpLine({ id: 'line-1', workCenterId: 'wc-1', workCenter: { code: '01', name: 'РЦ-1' }, productId: 'gp-1', product: { code: 'GP001', name: 'А', unit: 'шт' } }),
+        gpLine({ id: 'line-2', workCenterId: 'wc-2', workCenter: { code: '02', name: 'РЦ-2' }, productId: 'gp-2', product: { code: 'GP002', name: 'Б', unit: 'шт' } }),
+      ],
+    });
+
+    const board = await getKanbanBoard(client, { workCenterId: 'wc-1' }, { now: NOW });
+
+    expect(board.options.workCenters.map((option) => option.id)).toEqual(['wc-1', 'wc-2']);
+    expect(board.options.products.map((option) => option.id)).toEqual(['gp-1']);
+  });
+
+  it('склад в списке — только из карточек перемещений', async () => {
+    const { client } = fakeClient({
+      lines: [gpLine()],
+      transfers: [transfer()],
+    });
+
+    const board = await getKanbanBoard(client, {}, { now: NOW });
+    expect(board.options.warehouses.map((option) => option.label).sort()).toEqual([
+      'Производственный склад',
+      'Склад ГП',
+    ]);
+  });
+
+  it('выбранное значение, которого на доске нет, помечается, а не подменяется', async () => {
+    const { client } = fakeClient({ lines: [gpLine({ productId: 'gp-1' })] });
+
+    const board = await getKanbanBoard(client, { productId: 'gp-404' }, { now: NOW });
+
+    expect(board.cards).toHaveLength(0);
+    expect(board.options.missingSelection.product).toBe(true);
+    // Значение остаётся в списке — экран покажет его как выбранное.
+    expect(board.options.products.map((option) => option.id)).toEqual(['gp-1']);
+  });
+
+  it('пустая доска — пустые списки и никаких ложных пометок', async () => {
+    const { client } = fakeClient({ lines: [], transfers: [] });
+    const board = await getKanbanBoard(client, {}, { now: NOW });
+
+    expect(board.options).toEqual({
+      products: [],
+      workCenters: [],
+      warehouses: [],
+      missingSelection: { product: false, workCenter: false, warehouse: false },
     });
   });
 });

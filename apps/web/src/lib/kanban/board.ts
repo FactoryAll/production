@@ -41,6 +41,10 @@ export interface KanbanLineCard {
   shiftLabel: string;
   workCenterCode: string;
   workCenterName: string;
+  /** Идентификатор номенклатуры строки — по нему фильтр и список опций. */
+  productId: string;
+  /** Идентификатор РЦ строки — по нему фильтр и список опций. */
+  workCenterId: string;
   productCode: string;
   productName: string;
   productUnit: string;
@@ -74,10 +78,14 @@ export interface KanbanTransferCard {
   note: string | null;
   noteTone: NoteTone;
   cancelledBy: 'transfer' | null;
-  /** Номенклатура перемещения. */
+  /** Номенклатура перемещения (показываем первую строку). */
   productCode: string;
   productName: string;
   productUnit: string;
+  /** Все номенклатуры документа: по ним работает фильтр и список опций. */
+  productIds: string[];
+  sourceWarehouseId: string;
+  destinationWarehouseId: string;
   /**
    * Количество на карточке: **принятое**, если приёмка была (`RECEIVED`, `RECONCILED`,
    * `DISCREPANCY`), иначе плановое (ОПЭ-75). Раньше здесь всегда был план — после согласования
@@ -116,10 +124,39 @@ export interface KanbanBoard {
    * есть и где их искать (ОПЭ-74, дефект 1 — сценарий владельца упал именно на этом).
    */
   otherShiftsWithTransfers: number;
+  /**
+   * Опции фильтров — **из карточек доски**, а не из каталога (замечание владельца 01.11.2026).
+   *
+   * Каждый список считается при всех применённых фильтрах, **кроме своего**: иначе, выбрав
+   * одну номенклатуру, пользователь увидел бы в списке только её и не смог бы выбрать другую.
+   */
+  options: KanbanFilterOptions;
+}
+
+export interface KanbanFilterOption {
+  id: string;
+  label: string;
+}
+
+export interface KanbanFilterOptions {
+  products: KanbanFilterOption[];
+  workCenters: KanbanFilterOption[];
+  warehouses: KanbanFilterOption[];
+  /**
+   * Выбранные значения, которых на доске больше нет. Экран не подменяет фильтр молча:
+   * он оставляет значение в списке и подсказывает, что его нет (иначе это ложь в интерфейсе).
+   */
+  missingSelection: {
+    product: boolean;
+    workCenter: boolean;
+    warehouse: boolean;
+  };
 }
 
 interface LineRow {
   id: string;
+  productId: string;
+  workCenterId: string;
   plannedQuantity: { toString(): string };
   status: string;
   operator: { fullName: string } | null;
@@ -155,15 +192,23 @@ export async function getKanbanBoard(
     : resolveCurrentShift(shifts, options.now ?? new Date());
 
   if (!shift) {
-    return { cards: [], shift: null, otherShiftsWithTransfers: 0 };
+    return {
+      cards: [],
+      shift: null,
+      otherShiftsWithTransfers: 0,
+      options: {
+        products: [],
+        workCenters: [],
+        warehouses: [],
+        missingSelection: { product: false, workCenter: false, warehouse: false },
+      },
+    };
   }
 
   const lines = (await client.productionOrderLine.findMany({
-    where: {
-      order: { shiftId: shift.id },
-      ...(filter.workCenterId ? { workCenterId: filter.workCenterId } : {}),
-      ...(filter.productId ? { productId: filter.productId } : {}),
-    },
+    // Только смена: фильтры применяются ниже, в памяти (см. `applyBoardFilter`). Если резать
+    // выборку в запросе, из неё уже не построить список опций «при всех фильтрах, кроме своего».
+    where: { order: { shiftId: shift.id } },
     include: {
       order: { select: { id: true, status: true, shiftId: true } },
       workCenter: { select: { code: true, name: true } },
@@ -199,6 +244,8 @@ export async function getKanbanBoard(
       orderLabel: `ПЗ ${line.order.id.slice(0, 8)}`,
       shiftId: shift.id,
       shiftLabel: shiftLabelOf(shift),
+      productId: line.productId,
+      workCenterId: line.workCenterId,
       workCenterCode: line.workCenter.code,
       workCenterName: line.workCenter.name,
       productCode: line.product.code,
@@ -235,7 +282,7 @@ export async function getKanbanBoard(
       destinationWarehouse: { select: { id: true, name: true } },
       lines: {
         select: {
-          product: { select: { code: true, name: true, unit: true } },
+          product: { select: { id: true, code: true, name: true, unit: true } },
           plannedQuantity: true,
           actualQuantity: true,
           discrepancies: { select: { actualQuantity: true, difference: true } },
@@ -248,7 +295,7 @@ export async function getKanbanBoard(
       sourceWarehouse: { id: string; name: string };
       destinationWarehouse: { id: string; name: string };
       lines: Array<{
-        product: { code: string; name: string; unit: string };
+        product: { id: string; code: string; name: string; unit: string };
         plannedQuantity: { toString(): string };
         actualQuantity: { toString(): string } | null;
         discrepancies: Array<{
@@ -304,6 +351,10 @@ export async function getKanbanBoard(
       productCode: first?.product.code ?? '—',
       productName: first?.product.name ?? 'Номенклатура не указана',
       productUnit: first?.product.unit ?? '',
+      // Фильтр по номенклатуре смотрит ВСЕ строки документа, а на карточке видна первая.
+      productIds: [...new Set(transfer.lines.map((line) => line.product.id))],
+      sourceWarehouseId: transfer.sourceWarehouse.id,
+      destinationWarehouseId: transfer.destinationWarehouse.id,
       quantity: roundQuantity(quantity),
       plannedQuantity: roundQuantity(plannedQuantity),
       difference,
@@ -317,15 +368,118 @@ export async function getKanbanBoard(
 
   transferCards.sort((a, b) => b.eventDate.getTime() - a.eventDate.getTime());
 
-  const hasTransferCards = transferCards.length > 0;
+  const allCards: KanbanCard[] = [...cards, ...transferCards];
+
+  const hasTransferCards = transferCards.some((card) =>
+    applyBoardFilter([card], filter).length > 0,
+  );
   const otherShiftsWithTransfers = hasTransferCards
     ? 0
     : countOtherShiftsWithTransfers(allTransfers, shifts, shift.id);
 
   return {
-    cards: [...cards, ...transferCards],
+    cards: applyBoardFilter(allCards, filter),
     shift: { id: shift.id, label: shiftLabelOf(shift) },
     otherShiftsWithTransfers,
+    options: buildFilterOptions(allCards, filter),
+  };
+}
+
+/** Карточка подходит под фильтр по одному измерению. */
+function matchesDimension(card: KanbanCard, dimension: 'workCenterId' | 'productId' | 'warehouseId', value: string | undefined): boolean {
+  if (!value) {
+    return true;
+  }
+  if (dimension === 'productId') {
+    return card.kind === 'line' ? card.productId === value : card.productIds.includes(value);
+  }
+  if (dimension === 'workCenterId') {
+    // У перемещения своего РЦ нет — фильтр по РЦ его не касается (карточку не скрываем).
+    return card.kind === 'line' ? card.workCenterId === value : true;
+  }
+  // Склад относится только к перемещениям: строку РЦ фильтр по складу не скрывает
+  // (решение владельца 30.10.2026 — склад фильтрует только колонки перемещений).
+  return card.kind === 'transfer'
+    ? card.sourceWarehouseId === value || card.destinationWarehouseId === value
+    : true;
+}
+
+/** Фильтрация доски: раньше резалась в запросе, теперь в памяти — из тех же карточек. */
+export function applyBoardFilter(cards: KanbanCard[], filter: KanbanBoardFilter): KanbanCard[] {
+  return cards.filter(
+    (card) =>
+      matchesDimension(card, 'workCenterId', filter.workCenterId) &&
+      matchesDimension(card, 'productId', filter.productId) &&
+      matchesDimension(card, 'warehouseId', filter.warehouseId),
+  );
+}
+
+/**
+ * Списки опций фильтров — из карточек доски, каждое при всех фильтрах, **кроме своего**
+ * (замечание владельца 01.11.2026). Иначе выбранная номенклатура осталась бы единственной
+ * опцией в своём же списке, и сменить её было бы нельзя.
+ */
+export function buildFilterOptions(
+  cards: KanbanCard[],
+  filter: KanbanBoardFilter,
+): KanbanFilterOptions {
+  const withoutProduct = cards.filter(
+    (card) =>
+      matchesDimension(card, 'workCenterId', filter.workCenterId) &&
+      matchesDimension(card, 'warehouseId', filter.warehouseId),
+  );
+  const withoutWorkCenter = cards.filter(
+    (card) =>
+      matchesDimension(card, 'productId', filter.productId) &&
+      matchesDimension(card, 'warehouseId', filter.warehouseId),
+  );
+  const withoutWarehouse = cards.filter(
+    (card) =>
+      matchesDimension(card, 'workCenterId', filter.workCenterId) &&
+      matchesDimension(card, 'productId', filter.productId),
+  );
+
+  const products = new Map<string, string>();
+  const workCenters = new Map<string, string>();
+  const warehouses = new Map<string, string>();
+
+  for (const card of withoutProduct) {
+    if (card.kind === 'line') {
+      products.set(card.productId, `${card.productCode} — ${card.productName}`);
+    } else {
+      for (const id of card.productIds) {
+        products.set(id, card.productName ? `${card.productCode} — ${card.productName}` : id);
+      }
+    }
+  }
+
+  for (const card of withoutWorkCenter) {
+    if (card.kind === 'line') {
+      workCenters.set(card.workCenterId, `${card.workCenterCode} — ${card.workCenterName}`);
+    }
+  }
+
+  for (const card of withoutWarehouse) {
+    if (card.kind === 'transfer') {
+      warehouses.set(card.sourceWarehouseId, card.sourceWarehouseName);
+      warehouses.set(card.destinationWarehouseId, card.destinationWarehouseName);
+    }
+  }
+
+  const sorted = (map: Map<string, string>): KanbanFilterOption[] =>
+    [...map.entries()]
+      .map(([id, label]) => ({ id, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+
+  return {
+    products: sorted(products),
+    workCenters: sorted(workCenters),
+    warehouses: sorted(warehouses),
+    missingSelection: {
+      product: Boolean(filter.productId) && !products.has(filter.productId!),
+      workCenter: Boolean(filter.workCenterId) && !workCenters.has(filter.workCenterId!),
+      warehouse: Boolean(filter.warehouseId) && !warehouses.has(filter.warehouseId!),
+    },
   };
 }
 
