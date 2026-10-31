@@ -104,6 +104,46 @@ describe('брак и простои: простои по строке один 
     expect(report.totals.stopsMinutes).toBe(30);
   });
 
+  // Предупреждение главной линии: на проде могут найтись старые строки, где основной факт пуст,
+  // а второй несёт минуты. Показывать ноль значило бы «потерять» простой — берём из неосновного
+  // и помечаем счётчиком.
+  it('старые строки, где основной факт без простоя, не теряют минуты', async () => {
+    const { client } = fakeClient([
+      fact({ category: 'GP', productCategory: 'GP', quantity: 10 }),
+      fact({ category: 'PF', productCategory: 'GP', quantity: 4, stopsCount: 1, stopsMinutes: 25 }),
+    ]);
+
+    const report = await getDefectStopsReport(client, PERIOD);
+
+    expect(report.totals.stopsMinutes).toBe(25);
+    expect(report.totals.linesWithSecondaryStops).toBe(1);
+    expect(report.totals.linesWithStops).toBe(1);
+  });
+
+  it('два неосновных факта с минутами не складываются: это дубли одного события', async () => {
+    const { client } = fakeClient([
+      fact({ category: 'MASS', productCategory: 'GP', quantity: 10 }),
+      fact({ category: 'GP', productCategory: 'GP', stopsMinutes: 30 }),
+      fact({ category: 'PF', productCategory: 'GP', stopsMinutes: 30 }),
+    ]);
+
+    const report = await getDefectStopsReport(client, PERIOD);
+    // Основной для строки — ГП (категория продукции), он несёт 30; PF-дубль не удваивает.
+    expect(report.totals.stopsMinutes).toBe(30);
+    expect(report.totals.linesWithSecondaryStops).toBe(0);
+  });
+
+  it('когда основной факт с простоем — неосновные не участвуют', async () => {
+    const { client } = fakeClient([
+      fact({ category: 'GP', productCategory: 'GP', stopsCount: 2, stopsMinutes: 30 }),
+      fact({ category: 'PF', productCategory: 'GP', stopsMinutes: 45 }),
+    ]);
+
+    const report = await getDefectStopsReport(client, PERIOD);
+    expect(report.totals.stopsMinutes).toBe(30);
+    expect(report.totals.linesWithSecondaryStops).toBe(0);
+  });
+
   it('часы простоя — минуты / 60 с одним знаком', () => {
     expect(stopsHoursFromMinutes(30)).toBe(0.5);
     expect(stopsHoursFromMinutes(270)).toBe(4.5);

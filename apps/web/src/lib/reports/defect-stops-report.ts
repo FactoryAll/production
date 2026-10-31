@@ -71,6 +71,12 @@ export interface DefectStopsReport {
     stopsMinutes: number;
     stopsHours: number;
     linesWithStops: number;
+    /**
+     * Строки, где простой пришлось взять из **неосновного** факта: в основных он пуст,
+     * а в остальных минуты есть (следы старых данных до ОПЭ-73). Показываем счётчиком,
+     * чтобы это не читалось как потеря данных.
+     */
+    linesWithSecondaryStops: number;
   };
 }
 
@@ -177,13 +183,26 @@ export async function getDefectStopsReport(
   let totalStopsCount = 0;
   let totalStopsMinutes = 0;
   const linesWithStops = new Set<string>();
+  let linesWithSecondaryStops = 0;
 
   for (const [lineId, lineFacts] of byLine) {
     const first = lineFacts[0];
     const primary = pickPrimaryFact(lineFacts, first.line.product.category);
-    // Простои — только с основного факта строки.
-    const stopsCount = primary?.stopsCount ?? 0;
-    const stopsMinutes = primary?.stopsDurationMinutes ?? 0;
+    // Простои — с основного факта строки. Если там пусто, а в других фактах минуты есть
+    // (следы данных до ОПЭ-73), берём из них: значения там — дубли одного события, поэтому
+    // максимум, а не сумма. Такие строки считаем отдельно и показываем счётчиком, иначе
+    // простой выглядел бы потерянным.
+    const primaryMinutes = primary?.stopsDurationMinutes ?? 0;
+    const primaryCount = primary?.stopsCount ?? 0;
+    const secondary = lineFacts.filter((item) => item !== primary);
+    const secondaryMinutes = secondary.reduce(
+      (max, item) => Math.max(max, item.stopsDurationMinutes),
+      0,
+    );
+    const secondaryCount = secondary.reduce((max, item) => Math.max(max, item.stopsCount), 0);
+    const fromSecondary = primaryMinutes === 0 && secondaryMinutes > 0;
+    const stopsCount = primaryMinutes === 0 && fromSecondary ? secondaryCount : primaryCount;
+    const stopsMinutes = fromSecondary ? secondaryMinutes : primaryMinutes;
 
     const workCenterKey = first.line.workCenter.code;
     const workCenterRow =
@@ -225,6 +244,10 @@ export async function getDefectStopsReport(
         }
         reasons.set(key, reasonRow);
       }
+    }
+
+    if (fromSecondary) {
+      linesWithSecondaryStops += 1;
     }
 
     if (stopsCount > 0 || stopsMinutes > 0) {
@@ -290,6 +313,7 @@ export async function getDefectStopsReport(
       stopsMinutes: totalStopsMinutes,
       stopsHours: stopsHoursFromMinutes(totalStopsMinutes),
       linesWithStops: linesWithStops.size,
+      linesWithSecondaryStops,
     },
   };
 }

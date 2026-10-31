@@ -91,6 +91,20 @@ export async function GET(request: Request) {
         report.totals.stopsHours,
         report.totals.linesWithStops,
       ],
+      [
+        'Справка',
+        'строк с простоем в неосновном факте (до ОПЭ-73)',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        report.totals.linesWithSecondaryStops,
+      ],
     ],
   );
 

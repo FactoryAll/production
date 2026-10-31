@@ -64,6 +64,7 @@ const REPORT = {
     stopsMinutes: 95,
     stopsHours: 1.6,
     linesWithStops: 1,
+    linesWithSecondaryStops: 0,
   },
 };
 
@@ -144,13 +145,43 @@ describe('Экран «Брак и простои»', () => {
     expect(href).toContain('view=reason');
   });
 
+  // Ожидаемый случай старых данных: основной факт пуст, минуты в неосновном. Пометка нужна,
+  // чтобы это не читалось как потеря данных.
+  it('показывает пометку про строки, где простой взят из неосновного факта', async () => {
+    mockAccess();
+    (getDefectStopsReport as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...REPORT,
+      totals: { ...REPORT.totals, linesWithSecondaryStops: 3 },
+    });
+
+    render((await DefectStopsPage({ searchParams: {} })) as never);
+
+    expect(screen.getByText(/У 3 строк\(-и\) простой записан в неосновной факт/)).toBeTruthy();
+  });
+
+  it('без таких строк пометки нет', async () => {
+    mockAccess();
+
+    render((await DefectStopsPage({ searchParams: {} })) as never);
+
+    expect(screen.queryByText(/неосновной факт/)).toBeNull();
+  });
+
   it('пустой период — понятные тексты в каждом разрезе', async () => {
     mockAccess();
     (getDefectStopsReport as ReturnType<typeof vi.fn>).mockResolvedValue({
       workCenters: [],
       reasons: [],
       operatorStops: [],
-      totals: { output: { mass: 0, gp: 0, pf: 0 }, defect: { mass: 0, gp: 0, pf: 0 }, stopsCount: 0, stopsMinutes: 0, stopsHours: 0, linesWithStops: 0 },
+      totals: {
+        output: { mass: 0, gp: 0, pf: 0 },
+        defect: { mass: 0, gp: 0, pf: 0 },
+        stopsCount: 0,
+        stopsMinutes: 0,
+        stopsHours: 0,
+        linesWithStops: 0,
+        linesWithSecondaryStops: 0,
+      },
     });
 
     render((await DefectStopsPage({ searchParams: {} })) as never);
