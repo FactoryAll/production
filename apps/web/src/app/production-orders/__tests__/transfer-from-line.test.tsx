@@ -55,11 +55,7 @@ function pfFact(quantity: number) {
   return { ...gpFact(quantity), id: `fact-pf-${quantity}`, factCategory: 'PF' };
 }
 
-function makeOrder(overrides: {
-  category?: 'MASS' | 'GP';
-  facts?: unknown[];
-  transferLines?: Array<{ id: string; goodsTransferId: string; goodsTransfer: { status: string } }>;
-} = {}) {
+function makeOrder(overrides: { category?: 'MASS' | 'GP'; facts?: unknown[] } = {}) {
   const category = overrides.category ?? 'GP';
   return {
     id: 'po-1',
@@ -103,7 +99,6 @@ function makeOrder(overrides: {
         operator: null,
         facts: overrides.facts ?? [gpFact(45)],
         workerAssignments: [],
-        transferLines: overrides.transferLines ?? [],
       },
     ],
   } as never;
@@ -130,7 +125,7 @@ function renderCard(overrides: {
 }
 
 describe('Перемещение из строки ПЗ: кнопка и предупреждение (T-103)', () => {
-  it('у ГП-строки есть кнопка, и в ссылке — факт ГП, строка ПЗ и склады', () => {
+  it('у ГП-строки есть кнопка, и в ссылке — факт ГП и склады (без привязки к строке ПЗ)', () => {
     renderCard({ order: makeOrder({ facts: [gpFact(45), pfFact(10)] }) });
 
     const link = screen.getByRole('link', { name: /Создать перемещение/ });
@@ -141,7 +136,8 @@ describe('Перемещение из строки ПЗ: кнопка и пре�
     // Количество — ФАКТ ГП (45), а не план (40) и не сумма с ПФ (55).
     expect(params.get('quantity')).toBe('45');
     expect(params.get('productId')).toBe('gp-1');
-    expect(params.get('productionOrderLineId')).toBe('line-1');
+    // Привязки к строке ПЗ больше нет (решение владельца 31.10.2026).
+    expect(params.get('productionOrderLineId')).toBeNull();
     expect(params.get('sourceWarehouseId')).toBe(PRODUCTION_WAREHOUSE);
     expect(params.get('destinationWarehouseId')).toBe(FINISHED_GOODS_WAREHOUSE);
   });
@@ -165,23 +161,5 @@ describe('Перемещение из строки ПЗ: кнопка и пре�
     renderCard({ userRoles: ['OTK'] });
 
     expect(screen.queryByRole('link', { name: /Создать перемещение/ })).toBeNull();
-  });
-
-  it('уже созданное перемещение показывается ссылкой, но кнопка остаётся', () => {
-    renderCard({
-      order: makeOrder({
-        transferLines: [
-          { id: 'tl-1', goodsTransferId: 'abcdef12-3456-7890-abcd-ef1234567890', goodsTransfer: { status: 'SUBMITTED' } },
-        ],
-      }),
-    });
-
-    expect(screen.getByText(/Уже создано перемещение/)).toBeTruthy();
-    // Ссылка ведёт на перемещение и подписана статусом — «отправлено».
-    const transferLink = screen.getByRole('link', { name: /abcdef12/ });
-    expect(transferLink.getAttribute('href')).toBe('/transfers/abcdef12-3456-7890-abcd-ef1234567890');
-    expect(screen.getByText(/отправлено/)).toBeTruthy();
-    // Не блокируем: второе перемещение бывает законным (возврат на доработку).
-    expect(screen.getByRole('link', { name: /Создать перемещение/ })).toBeTruthy();
   });
 });

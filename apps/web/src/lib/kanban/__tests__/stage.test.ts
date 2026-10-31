@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveKanbanStage, KANBAN_COLUMNS, isTransferColumn } from '../stage';
+import { resolveKanbanStage, KANBAN_COLUMNS } from '../stage';
 
 /**
  * Этап карточки доски контура (T-103, постановка §3–§4).
@@ -36,9 +36,6 @@ describe('колонки доски', () => {
       'CLOSED',
     ]);
     // «Отменено» — не колонка перемещений: туда попадают и отменённые ПЗ.
-    expect(isTransferColumn('CANCELLED')).toBe(false);
-    expect(isTransferColumn('TRANSFER_DRAFT')).toBe(true);
-    expect(isTransferColumn('CLOSED')).toBe(false);
   });
 });
 
@@ -93,7 +90,6 @@ describe('отмены', () => {
     const stage = resolveKanbanStage({
       orderStatus: 'CANCELLED',
       lineStatus: 'REPORTED',
-      transfers: [{ id: 'tr-1', status: 'RECEIVED' }],
     });
 
     expect(stage).toMatchObject({
@@ -102,125 +98,5 @@ describe('отмены', () => {
       note: 'ПЗ отменено',
       transferId: null,
     });
-  });
-
-  // Требование главной линии: отменённое перемещение.
-  it('единственное отменённое перемещение — «Отменено» с причиной «перемещение»', () => {
-    const stage = resolveKanbanStage({
-      orderStatus: 'COMPLETED',
-      lineStatus: 'REPORTED',
-      transfers: [{ id: 'tr-1', status: 'CANCELLED' }],
-    });
-
-    expect(stage).toMatchObject({
-      column: 'CANCELLED',
-      cancelledBy: 'transfer',
-      note: 'перемещение отменено',
-      transferId: 'tr-1',
-    });
-  });
-
-  it('отменённое перемещение не утаскивает карточку, если есть действующее', () => {
-    // Возврат на доработку: первое перемещение отменили, второе приняли.
-    const stage = resolveKanbanStage({
-      orderStatus: 'COMPLETED',
-      lineStatus: 'REPORTED',
-      transfers: [
-        { id: 'tr-1', status: 'CANCELLED' },
-        { id: 'tr-2', status: 'RECEIVED' },
-      ],
-    });
-
-    expect(stage.column).toBe('RECEIVED');
-    expect(stage.transferId).toBe('tr-2');
-  });
-});
-
-describe('этап по перемещениям', () => {
-  it('черновик перемещения — «Перемещение создано»', () => {
-    expect(
-      resolveKanbanStage({
-        orderStatus: 'COMPLETED',
-        lineStatus: 'REPORTED',
-        transfers: [{ id: 'tr-1', status: 'DRAFT' }],
-      }),
-    ).toMatchObject({ column: 'TRANSFER_DRAFT', transferId: 'tr-1' });
-  });
-
-  it('отправленное — «Отправлено» с подписью «в пути»', () => {
-    expect(
-      resolveKanbanStage({
-        orderStatus: 'COMPLETED',
-        lineStatus: 'REPORTED',
-        transfers: [{ id: 'tr-1', status: 'SUBMITTED' }],
-      }),
-    ).toMatchObject({ column: 'TRANSFER_SUBMITTED', note: 'в пути' });
-  });
-
-  it('принятое — «Принято складом», согласованное подписано', () => {
-    expect(
-      resolveKanbanStage({
-        orderStatus: 'COMPLETED',
-        lineStatus: 'REPORTED',
-        transfers: [{ id: 'tr-1', status: 'RECEIVED' }],
-      }),
-    ).toMatchObject({ column: 'RECEIVED', note: null });
-
-    expect(
-      resolveKanbanStage({
-        orderStatus: 'COMPLETED',
-        lineStatus: 'REPORTED',
-        transfers: [{ id: 'tr-1', status: 'RECONCILED' }],
-      }),
-    ).toMatchObject({ column: 'RECEIVED', note: 'расхождение согласовано' });
-  });
-
-  // Требование главной линии: привязанное перемещение в статусе DISCREPANCY.
-  it('перемещение с расхождением — отдельная колонка «Расхождение», а не «Принято»', () => {
-    const stage = resolveKanbanStage({
-      orderStatus: 'COMPLETED',
-      lineStatus: 'REPORTED',
-      transfers: [{ id: 'tr-1', status: 'DISCREPANCY' }],
-    });
-
-    expect(stage.column).toBe('DISCREPANCY');
-    expect(stage.transferId).toBe('tr-1');
-  });
-
-  it('из нескольких перемещений карточка идёт по самому продвинутому', () => {
-    const stage = resolveKanbanStage({
-      orderStatus: 'COMPLETED',
-      lineStatus: 'REPORTED',
-      transfers: [
-        { id: 'tr-1', status: 'RECEIVED' },
-        { id: 'tr-2', status: 'DRAFT' },
-        { id: 'tr-3', status: 'SUBMITTED' },
-      ],
-    });
-
-    expect(stage.column).toBe('RECEIVED');
-    expect(stage.transferId).toBe('tr-1');
-  });
-
-  it('неизвестный статус перемещения не ломает этап', () => {
-    const stage = resolveKanbanStage({
-      orderStatus: 'COMPLETED',
-      lineStatus: 'REPORTED',
-      transfers: [{ id: 'tr-1', status: 'SOMETHING_NEW' }],
-    });
-
-    expect(stage.column).toBe('CLOSED');
-  });
-
-  it('перемещение продвигает карточку дальше закрытого ПЗ', () => {
-    const withoutTransfer = resolveKanbanStage({ orderStatus: 'COMPLETED', lineStatus: 'REPORTED' });
-    const withTransfer = resolveKanbanStage({
-      orderStatus: 'COMPLETED',
-      lineStatus: 'REPORTED',
-      transfers: [{ id: 'tr-1', status: 'DRAFT' }],
-    });
-
-    expect(withoutTransfer.column).toBe('CLOSED');
-    expect(withTransfer.column).toBe('TRANSFER_DRAFT');
   });
 });

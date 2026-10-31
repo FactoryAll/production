@@ -6,6 +6,7 @@ vi.mock('@/lib/auth/page-guard', () => ({ checkPageAccess: vi.fn() }));
 const lineFindMany = vi.fn();
 const shiftFindMany = vi.fn();
 const taskFindMany = vi.fn();
+const transferFindMany = vi.fn();
 
 /**
  * Строки отдаём с честным фильтром по смене: иначе тест «срез по смене» ничего бы не проверял —
@@ -31,6 +32,7 @@ vi.mock('@prodtrack/db', () => ({
     shift: { findMany: (...args: unknown[]) => shiftFindMany(...args) },
     productionOrderLine: { findMany: (args: unknown) => filteredLines(args) },
     taskForOneC: { findMany: (...args: unknown[]) => taskFindMany(...args) },
+    goodsTransfer: { findMany: (...args: unknown[]) => transferFindMany(...args) },
     workCenter: { findMany: vi.fn().mockResolvedValue([]) },
     product: { findMany: vi.fn().mockResolvedValue([]) },
     warehouse: { findMany: vi.fn().mockResolvedValue([]) },
@@ -84,6 +86,7 @@ beforeEach(() => {
   shiftFindMany.mockResolvedValue([SHIFT]);
   lineFindMany.mockResolvedValue([]);
   taskFindMany.mockResolvedValue([]);
+  transferFindMany.mockResolvedValue([]);
 });
 
 describe('Экран «Канбан»: доступ', () => {
@@ -162,28 +165,33 @@ describe('Экран «Канбан»: колонки и карточки', () =
     expect(within(card).getByText(/Оператор: Иванов И.И./)).toBeTruthy();
   });
 
-  it('карточка на этапе перемещения ведёт в перемещение', async () => {
+  it('карточка перемещения самостоятельная: номенклатура, количество, склады, ссылка', async () => {
     mockAccess(['KSGP']);
-    lineFindMany.mockResolvedValue([
-      gpLine({
-        transferLines: [
+    transferFindMany.mockResolvedValue([
+      {
+        id: 'tr-1',
+        status: 'SUBMITTED',
+        createdAt: new Date('2026-10-30T09:00:00'),
+        updatedAt: new Date('2026-10-30T12:00:00'),
+        submittedAt: new Date('2026-10-30T12:00:00'),
+        sourceWarehouse: { id: 'wh-prod', name: 'Производственный склад' },
+        destinationWarehouse: { id: 'wh-gp', name: 'Склад ГП' },
+        lines: [
           {
-            id: 'tl-1',
-            goodsTransfer: {
-              id: 'tr-1',
-              status: 'SUBMITTED',
-              sourceWarehouseId: 'wh-prod',
-              destinationWarehouseId: 'wh-gp',
-            },
+            product: { code: 'GP002', name: 'Готовая продукция Б', unit: 'шт' },
+            plannedQuantity: { toString: () => '10' },
           },
         ],
-      }),
+      },
     ]);
 
     render((await KanbanPage({ searchParams: {} })) as never);
 
-    const card = screen.getByRole('link', { name: /ПЗ po-12345/ });
+    const card = screen.getByRole('link', { name: /Перемещение/ });
     expect(card.getAttribute('href')).toBe('/transfers/tr-1');
+    expect(within(card).getByText(/GP002 — Готовая продукция Б/)).toBeTruthy();
+    expect(within(card).getByText(/10 шт/)).toBeTruthy();
+    expect(within(card).getByText(/Производственный склад → Склад ГП/)).toBeTruthy();
     expect(screen.getByText('в пути')).toBeTruthy();
   });
 
@@ -191,20 +199,22 @@ describe('Экран «Канбан»: колонки и карточки', () =
     mockAccess(['KSGP']);
     // Карточка должна быть видна складской роли, иначе страница покажет пустое состояние
     // вместо колонок: у КСГП строки ПЗ скрыты, остаются перемещения.
-    lineFindMany.mockResolvedValue([
-      gpLine({
-        transferLines: [
+    transferFindMany.mockResolvedValue([
+      {
+        id: 'tr-1',
+        status: 'RECEIVED',
+        createdAt: new Date('2026-10-30T09:00:00'),
+        updatedAt: new Date('2026-10-30T15:00:00'),
+        submittedAt: new Date('2026-10-30T12:00:00'),
+        sourceWarehouse: { id: 'wh-prod', name: 'Производственный склад' },
+        destinationWarehouse: { id: 'wh-gp', name: 'Склад ГП' },
+        lines: [
           {
-            id: 'tl-1',
-            goodsTransfer: {
-              id: 'tr-1',
-              status: 'RECEIVED',
-              sourceWarehouseId: 'wh-prod',
-              destinationWarehouseId: 'wh-gp',
-            },
+            product: { code: 'GP002', name: 'Готовая продукция Б', unit: 'шт' },
+            plannedQuantity: { toString: () => '10' },
           },
         ],
-      }),
+      },
     ]);
 
     render((await KanbanPage({ searchParams: {} })) as never);
@@ -219,25 +229,31 @@ describe('Экран «Канбан»: колонки и карточки', () =
   // не попадает. Подсказка объясняет, что данные есть, а не создаёт вид потери.
   it('подсказывает про другие смены, если в выбранной смене перемещений нет', async () => {
     mockAccess(['NP']);
-    // Строка за другую смену: доска её не покажет, но подсказка должна появиться.
-    lineFindMany.mockResolvedValue([
-      gpLine({
-        order: { id: 'po-12345678', status: 'COMPLETED', shiftId: 'shift-2' },
-        transferLines: [
+    // Перемещение за другую смену: доска его не покажет, но подсказка должна появиться.
+    shiftFindMany.mockResolvedValue([
+      SHIFT,
+      { id: 'shift-2', number: 2, date: new Date('2026-10-31T00:00:00'), start: '08:00', end: '20:00' },
+    ]);
+    transferFindMany.mockResolvedValue([
+      {
+        id: 'tr-1',
+        status: 'DRAFT',
+        createdAt: new Date('2026-10-31T09:00:00'),
+        updatedAt: new Date('2026-10-31T09:00:00'),
+        submittedAt: null,
+        sourceWarehouse: { id: 'wh-prod', name: 'Производственный склад' },
+        destinationWarehouse: { id: 'wh-gp', name: 'Склад ГП' },
+        lines: [
           {
-            id: 'tl-1',
-            goodsTransfer: {
-              id: 'tr-1',
-              status: 'SUBMITTED',
-              sourceWarehouseId: 'wh-prod',
-              destinationWarehouseId: 'wh-gp',
-            },
+            product: { code: 'GP002', name: 'Готовая продукция Б', unit: 'шт' },
+            plannedQuantity: { toString: () => '10' },
           },
         ],
-      }),
+      },
     ]);
 
-    render((await KanbanPage({ searchParams: {} })) as never);
+    // Смена задана явно: «текущая смена» в тесте зависела бы от календарной даты прогона.
+    render((await KanbanPage({ searchParams: { shiftId: 'shift-1' } })) as never);
 
     expect(screen.getByRole('note')).toBeTruthy();
     expect(screen.getByText(/есть за 1 другую\(-их\) смену\(ы\)/)).toBeTruthy();
@@ -247,7 +263,7 @@ describe('Экран «Канбан»: колонки и карточки', () =
   it('без перемещений в других сменах подсказки нет', async () => {
     mockAccess(['NP']);
 
-    render((await KanbanPage({ searchParams: {} })) as never);
+    render((await KanbanPage({ searchParams: { shiftId: 'shift-1' } })) as never);
 
     expect(screen.queryByRole('note')).toBeNull();
   });

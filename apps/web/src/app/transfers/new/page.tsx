@@ -2,8 +2,6 @@ export const dynamic = 'force-dynamic';
 
 import { AccessDenied } from '@/components/access-denied';
 import { checkPageAccess } from '@/lib/auth/page-guard';
-import { hasPermission } from '@prodtrack/contracts';
-import { prisma } from '@prodtrack/db';
 
 import { getTransferCreateData } from '../queries';
 import TransferForm from './_client-form';
@@ -32,19 +30,6 @@ export default async function NewTransferPage({
   };
 
 
-  // Поле «Строка ПЗ» видят ВСЕ, кто может создавать перемещение (ОПЭ-74, решение владельца):
-  // раньше его показывали только обладателям production_order:read, и у КСГП с УСГП привязка
-  // была недоступна — их перемещения не попадали на доску. Список отдаёт минимум данных
-  // (короткий id ПЗ, смена, РЦ) и не ведёт в карточку ПЗ, поэтому права на ПЗ не требуются.
-  const canLinkOrderLine = hasPermission(access.roles, 'transfer:create');
-  // Список строк ПЗ строится по выбранной номенклатуре (ОПЭ-74, дефект 2): раньше отдавались
-  // ВСЕ ГП-строки, и пользователю предлагались строки чужой номенклатуры, которые сервер
-  // отклонял уже на сохранении. Фильтр нужен и на клиенте (при смене продукта), поэтому
-  // строки передаются с productId, а серверный запрос сужается тем productId, что пришёл
-  // в адресе (путь «создать перемещение из строки ПЗ»).
-  const orderLines = canLinkOrderLine ? await getOrderLineOptions(param('productId')) : [];
-
-  const productionOrderLineId = param('productionOrderLineId');
   const productId = param('productId');
   const quantity = param('quantity');
 
@@ -58,8 +43,6 @@ export default async function NewTransferPage({
       warehouses={warehouses}
       products={products}
       stockByWarehouse={stockByWarehouse}
-      canLinkOrderLine={canLinkOrderLine}
-      orderLines={orderLines}
       initialSourceWarehouseId={
         param('sourceWarehouseId') ?? (productId ? (productionWarehouse?.id ?? '') : '')
       }
@@ -67,48 +50,8 @@ export default async function NewTransferPage({
         param('destinationWarehouseId') ?? (productId ? (finishedGoodsWarehouse?.id ?? '') : '')
       }
       initialLines={
-        productId
-          ? [
-              {
-                productId,
-                plannedQuantity: quantity ?? '',
-                productionOrderLineId: productionOrderLineId ?? '',
-              },
-            ]
-          : undefined
+        productId ? [{ productId, plannedQuantity: quantity ?? '' }] : undefined
       }
     />
   );
-}
-
-/**
- * Строки ПЗ для поля «Строка ПЗ»: ГП-строки неотменённых ПЗ, свежие смены сверху.
- *
- * Это подсказка для ручного пути, а не справочник, поэтому список ограничен двумястами
- * строками. Основной путь — кнопка «Создать перемещение» в карточке ПЗ, где строка известна.
- */
-async function getOrderLineOptions(productId?: string) {
-  const lines = await prisma.productionOrderLine.findMany({
-    where: {
-      product: productId ? { id: productId, category: 'GP' } : { category: 'GP' },
-      order: { status: { not: 'CANCELLED' } },
-    },
-    orderBy: [{ order: { shift: { date: 'desc' } } }, { createdAt: 'asc' }],
-    take: 200,
-    select: {
-      id: true,
-      productId: true,
-      product: { select: { code: true, name: true } },
-      workCenter: { select: { code: true } },
-      order: { select: { id: true, shift: { select: { number: true, date: true } } } },
-    },
-  });
-
-  return lines.map((line) => ({
-    id: line.id,
-    productId: line.productId,
-    // Минимум данных для склада (ОПЭ-74): короткий id ПЗ, смена и РЦ — без номенклатуры
-    // (она уже выбрана в строке перемещения) и без ссылок в карточку ПЗ.
-    label: `ПЗ ${line.order.id.slice(0, 8)} · смена ${line.order.shift.number} от ${line.order.shift.date.toLocaleDateString('ru-RU')} · РЦ ${line.workCenter.code}`,
-  }));
 }

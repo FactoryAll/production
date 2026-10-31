@@ -161,13 +161,11 @@ function buildMockPrisma(overrides: {
   lines?: Array<TransferLine & { product: Product }>;
   warehouses?: Warehouse[];
   products?: Product[];
-  orderLines?: Array<{ id: string; productId: string; order: { status: string } }>;
 } = {}) {
   const transfer = overrides.transfer ?? buildMockTransfer();
   const lines = overrides.lines ?? [buildMockLine()];
   const warehouses = overrides.warehouses ?? [productionWarehouse, finishedGoodsWarehouse];
   const products = overrides.products ?? [gpProduct1, gpProduct2, massProduct];
-  const orderLines = overrides.orderLines;
 
   const transferWithLines = {
     ...transfer,
@@ -183,11 +181,7 @@ function buildMockPrisma(overrides: {
     product: {
       findMany: vi.fn().mockResolvedValue(products),
     },
-    // Строки ПЗ для привязки (T-103): по умолчанию их нет, тест подкладывает свои.
-    productionOrderLine: {
-      findMany: vi.fn().mockResolvedValue(orderLines ?? []),
-    },
-    goodsTransfer: {
+      goodsTransfer: {
       create: vi.fn().mockImplementation((args: { data?: { lines?: { create?: unknown[] } } }) => {
         const createdLines = (args.data?.lines?.create ?? []).map((_: unknown, index: number) => ({
           id: `tl-${index + 1}`,
@@ -346,105 +340,6 @@ function buildMockDeps(overrides: Parameters<typeof buildMockPrisma>[0] = {}) {
     syncOneCTask: vi.fn().mockResolvedValue('created'),
   };
 }
-
-describe('createGoodsTransfer: привязка к строке ПЗ (T-103)', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('пишет productionOrderLineId в строку перемещения', async () => {
-    const { deps, create } = buildTxDeps({
-      orderLines: [{ id: 'line-1', productId: gpProduct1.id, order: { status: 'COMPLETED' } }],
-    });
-
-    await createGoodsTransfer(
-      {
-        sourceWarehouseId: productionWarehouse.id,
-        destinationWarehouseId: finishedGoodsWarehouse.id,
-        lines: [
-          { productId: gpProduct1.id, plannedQuantity: 10, productionOrderLineId: 'line-1' },
-        ],
-      },
-      deps,
-    );
-
-    const createArgs = create.mock.calls[0][0] as {
-      data: { lines: { create: { productionOrderLineId: string | null }[] } };
-    };
-    expect(createArgs.data.lines.create[0].productionOrderLineId).toBe('line-1');
-
-    // Привязка видна и в аудите: по ней восстанавливают, откуда пришло перемещение.
-    const auditValue = JSON.parse(deps.writeAudit.mock.calls[0][1].newValue as string);
-    expect(auditValue.lines[0].productionOrderLineId).toBe('line-1');
-  });
-
-  it('ручное перемещение остаётся без привязки', async () => {
-    const { deps, create } = buildTxDeps();
-
-    await createGoodsTransfer(
-      {
-        sourceWarehouseId: productionWarehouse.id,
-        destinationWarehouseId: finishedGoodsWarehouse.id,
-        lines: [{ productId: gpProduct1.id, plannedQuantity: 10 }],
-      },
-      deps,
-    );
-
-    const createArgs = create.mock.calls[0][0] as {
-      data: { lines: { create: { productionOrderLineId: string | null }[] } };
-    };
-    expect(createArgs.data.lines.create[0].productionOrderLineId).toBeNull();
-  });
-
-  it('не даёт привязать перемещение к строке с другой номенклатурой', async () => {
-    const deps = buildMockDeps({
-      orderLines: [{ id: 'line-1', productId: gpProduct2.id, order: { status: 'COMPLETED' } }],
-    });
-
-    await expect(
-      createGoodsTransfer(
-        {
-          sourceWarehouseId: productionWarehouse.id,
-          destinationWarehouseId: finishedGoodsWarehouse.id,
-          lines: [
-            { productId: gpProduct1.id, plannedQuantity: 10, productionOrderLineId: 'line-1' },
-          ],
-        },
-        deps,
-      ),
-    ).rejects.toThrow('не совпадает с номенклатурой строки ПЗ');
-  });
-
-  it('не даёт привязать к несуществующей строке и к отменённому ПЗ', async () => {
-    const missing = buildMockDeps();
-    await expect(
-      createGoodsTransfer(
-        {
-          sourceWarehouseId: productionWarehouse.id,
-          destinationWarehouseId: finishedGoodsWarehouse.id,
-          lines: [{ productId: gpProduct1.id, plannedQuantity: 10, productionOrderLineId: 'nope' }],
-        },
-        missing,
-      ),
-    ).rejects.toThrow('Строка ПЗ не найдена');
-
-    const cancelled = buildMockDeps({
-      orderLines: [{ id: 'line-1', productId: gpProduct1.id, order: { status: 'CANCELLED' } }],
-    });
-    await expect(
-      createGoodsTransfer(
-        {
-          sourceWarehouseId: productionWarehouse.id,
-          destinationWarehouseId: finishedGoodsWarehouse.id,
-          lines: [
-            { productId: gpProduct1.id, plannedQuantity: 10, productionOrderLineId: 'line-1' },
-          ],
-        },
-        cancelled,
-      ),
-    ).rejects.toThrow('ПЗ отменено');
-  });
-});
 
 describe('createGoodsTransfer', () => {
   beforeEach(() => {

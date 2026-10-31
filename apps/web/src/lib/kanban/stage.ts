@@ -53,23 +53,11 @@ export const KANBAN_COLUMN_BY_KEY: Record<KanbanColumnKey, KanbanColumn> = Objec
   KANBAN_COLUMNS.map((column) => [column.key, column]),
 ) as Record<KanbanColumnKey, KanbanColumn>;
 
-/** Статусы перемещения в терминах колонок. `null` — статус вне контура. */
-const TRANSFER_COLUMN: Record<string, KanbanColumnKey | null> = {
-  DRAFT: 'TRANSFER_DRAFT',
-  SUBMITTED: 'TRANSFER_SUBMITTED',
-  RECEIVED: 'RECEIVED',
-  RECONCILED: 'RECEIVED',
-  DISCREPANCY: 'DISCREPANCY',
-  CANCELLED: 'CANCELLED',
-};
-
 export interface KanbanStageInput {
   orderStatus: string;
   lineStatus: string;
   /** Статус задачи 1С по ПЗ (`PENDING`, `PROCESSED`, `CANCELLED`); нет задачи — undefined. */
   oneCTaskStatus?: string | null;
-  /** Привязанные к строке перемещения. */
-  transfers?: Array<{ id: string; status: string }>;
 }
 
 export interface KanbanStage {
@@ -105,86 +93,21 @@ function orderStage(orderStatus: string, lineStatus: string): KanbanColumnKey {
 }
 
 /**
- * Перемещения строки в терминах этапа.
+ * Этап строки ПЗ: только этапы 1–5.
  *
- * Правило: берём **самое продвинутое неотменённое** перемещение. Отменённое перемещение
- * не должно утаскивать карточку в «Отменено», если рядом есть действующее: у строки бывает
- * несколько перемещений (возврат на доработку, повторный выпуск), и «одно отменили» не значит
- * «всё отменили». В «Отменено» карточка попадает, только если отменены все её перемещения.
- */
-function transferStage(transfers: Array<{ id: string; status: string }>): KanbanStage | null {
-  const mapped = transfers
-    .map((transfer) => ({ transfer, column: TRANSFER_COLUMN[transfer.status] ?? null }))
-    .filter((item): item is { transfer: { id: string; status: string }; column: KanbanColumnKey } =>
-      item.column !== null,
-    );
-
-  if (mapped.length === 0) {
-    return null;
-  }
-
-  const active = mapped.filter((item) => item.column !== 'CANCELLED');
-  const pool = active.length > 0 ? active : mapped;
-  const furthest = pool.reduce((best, item) =>
-    KANBAN_COLUMN_BY_KEY[item.column].order > KANBAN_COLUMN_BY_KEY[best.column].order ? item : best,
-  );
-
-  return {
-    column: furthest.column,
-    note: null,
-    transferId: furthest.transfer.id,
-    cancelledBy: furthest.column === 'CANCELLED' ? 'transfer' : null,
-  };
-}
-
-/**
- * Этап карточки: самая продвинутая колонка из всего, что известно о строке.
- *
- * Порядок вычисления явный, потому что от него зависит картинка:
- *   1. отменённое ПЗ — «Отменено» (терминально, дальше не смотрим);
- *   2. перемещения строки — их этап (6–9 или 10, если отменены все);
- *   3. иначе ПЗ и строка — этапы 1–5;
- *   4. итог — максимальный из (2) и (3) по порядку этапов.
+ * Перемещения сюда больше не входят (решение владельца 31.10.2026): колонки 6–9 показывают
+ * самостоятельные карточки перемещений, у которых своя дата и свой статус. Строка ПЗ
+ * завершает контур на «Закрыто / задача 1С».
  */
 export function resolveKanbanStage(input: KanbanStageInput): KanbanStage {
-  const base = orderStage(input.orderStatus, input.lineStatus);
+  const column = orderStage(input.orderStatus, input.lineStatus);
 
-  if (base === 'CANCELLED') {
+  if (column === 'CANCELLED') {
     return { column: 'CANCELLED', note: 'ПЗ отменено', transferId: null, cancelledBy: 'order' };
   }
 
-  const byTransfer = transferStage(input.transfers ?? []);
-  const baseOrder = KANBAN_COLUMN_BY_KEY[base].order;
-  const transferOrder = byTransfer ? KANBAN_COLUMN_BY_KEY[byTransfer.column].order : 0;
+  const note = column === 'CLOSED' ? (input.oneCTaskStatus === 'PROCESSED' ? 'проведено' : 'ожидает 1С') : null;
 
-  const column = transferOrder > baseOrder ? byTransfer!.column : base;
-
-  // Подпись «ожидает 1С / проведено» — только у закрытого ПЗ без перемещений:
-  // как только продукция поехала, важнее складской этап.
-  let note: string | null = null;
-  if (column === 'CLOSED') {
-    note = input.oneCTaskStatus === 'PROCESSED' ? 'проведено' : 'ожидает 1С';
-  }
-  if (column === 'TRANSFER_SUBMITTED') {
-    note = 'в пути';
-  }
-  if (column === 'RECEIVED') {
-    const statuses = (input.transfers ?? []).map((transfer) => transfer.status);
-    note = statuses.includes('RECONCILED') ? 'расхождение согласовано' : null;
-  }
-  if (column === 'CANCELLED') {
-    note = 'перемещение отменено';
-  }
-
-  return {
-    column,
-    note,
-    transferId: column === base ? null : (byTransfer?.transferId ?? null),
-    cancelledBy: column === 'CANCELLED' ? 'transfer' : null,
-  };
+  return { column, note, transferId: null, cancelledBy: null };
 }
 
-/** Карточка попадает в колонки перемещений — тогда на неё действует фильтр по складу. */
-export function isTransferColumn(column: KanbanColumnKey): boolean {
-  return !KANBAN_COLUMN_BY_KEY[column].isOrderColumn && column !== 'CANCELLED';
-}

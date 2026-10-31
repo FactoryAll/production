@@ -4,11 +4,17 @@ import { resolveCurrentShift, shiftWindowBounds, type ShiftWindow } from './curr
 import {
   KANBAN_COLUMNS,
   KANBAN_COLUMN_BY_KEY,
-  isTransferColumn,
   resolveKanbanStage,
   type KanbanColumn,
   type KanbanColumnKey,
 } from './stage';
+import {
+  resolveTransferColumn,
+  shiftWindow,
+  transferEventDate,
+  transferNote,
+  type TransferDates,
+} from './transfer-stage';
 
 /**
  * Данные доски контура (T-103, постановка `docs/kanban_design.md` §13.4).
@@ -17,7 +23,8 @@ import {
  * фильтры и то, что видно роли по правам. Один запрос строк + один запрос задач 1С.
  */
 
-export interface KanbanCard {
+export interface KanbanLineCard {
+  kind: 'line';
   lineId: string;
   orderId: string;
   /** Короткий идентификатор ПЗ для подписи карточки. */
@@ -40,13 +47,39 @@ export interface KanbanCard {
    * Значение вычисляется здесь, вместе с этапом.
    */
   noteTone: 'pending' | 'done' | 'neutral';
-  /** Перемещение, по которому карточка стоит в колонках 6–9. */
-  transferId: string | null;
   /** Чем вызвана колонка «Отменено» — от этого зависит видимость складским ролям. */
-  cancelledBy: 'order' | 'transfer' | null;
+  cancelledBy: 'order' | null;
   /** Куда ведёт клик: экран действия, а не изменение статуса (решение владельца). */
   href: string;
 }
+
+/**
+ * Самостоятельная карточка перемещения (решение владельца 31.10.2026).
+ *
+ * Колонки 6–9 больше не строятся из строк ПЗ: привязки к строке нет, отбор — по дате документа
+ * в окне выбранной смены. Поэтому у карточки своя дата, свои склады и своя номенклатура.
+ */
+export interface KanbanTransferCard {
+  kind: 'transfer';
+  transferId: string;
+  column: KanbanColumnKey;
+  note: string | null;
+  noteTone: 'pending' | 'done' | 'neutral';
+  cancelledBy: 'transfer' | null;
+  /** Номенклатура перемещения. */
+  productCode: string;
+  productName: string;
+  productUnit: string;
+  /** Количество строк перемещения (сумма). */
+  quantity: number;
+  sourceWarehouseName: string;
+  destinationWarehouseName: string;
+  /** Дата, по которой перемещение попало в смену. */
+  eventDate: Date;
+  href: string;
+}
+
+export type KanbanCard = KanbanLineCard | KanbanTransferCard;
 
 export interface KanbanBoardFilter {
   shiftId?: string;
@@ -78,15 +111,6 @@ interface LineRow {
   product: { code: string; name: string; unit: string };
   facts: Array<{ factCategory: string; quantity: { toString(): string } }>;
   order: { id: string; status: string; shiftId: string };
-  transferLines: Array<{
-    id: string;
-    goodsTransfer: {
-      id: string;
-      status: string;
-      sourceWarehouseId: string;
-      destinationWarehouseId: string;
-    };
-  }>;
 }
 
 function toNumber(value: { toString(): string }): number {
@@ -102,7 +126,7 @@ function shiftLabelOf(shift: ShiftWindow): string {
  * с учётом перехода через полночь, а не «дата = сегодня».
  */
 export async function getKanbanBoard(
-  client: Pick<PrismaClient, 'shift' | 'productionOrderLine' | 'taskForOneC'>,
+  client: Pick<PrismaClient, 'shift' | 'productionOrderLine' | 'taskForOneC' | 'goodsTransfer'>,
   filter: KanbanBoardFilter,
   options: { now?: Date } = {},
 ): Promise<KanbanBoard> {
@@ -130,19 +154,6 @@ export async function getKanbanBoard(
       product: { select: { code: true, name: true, unit: true } },
       operator: { select: { fullName: true } },
       facts: { select: { factCategory: true, quantity: true } },
-      transferLines: {
-        select: {
-          id: true,
-          goodsTransfer: {
-            select: {
-              id: true,
-              status: true,
-              sourceWarehouseId: true,
-              destinationWarehouseId: true,
-            },
-          },
-        },
-      },
     },
   })) as LineRow[];
 
@@ -159,29 +170,14 @@ export async function getKanbanBoard(
   const cards: KanbanCard[] = [];
 
   for (const line of lines) {
-    const transfers = line.transferLines.map((transferLine) => transferLine.goodsTransfer);
     const stage = resolveKanbanStage({
       orderStatus: line.order.status,
       lineStatus: line.status,
       oneCTaskStatus: taskStatusByOrder.get(line.order.id) ?? null,
-      transfers,
     });
 
-    // Фильтр по складу действует только на колонки перемещений: у строки РЦ своего склада нет,
-    // поэтому карточки в колонках ПЗ он не скрывает (решение владельца 30.10.2026).
-    if (filter.warehouseId && isTransferColumn(stage.column)) {
-      const involvesWarehouse = transfers.some(
-        (transfer) =>
-          transfer.status !== 'CANCELLED' &&
-          (transfer.sourceWarehouseId === filter.warehouseId ||
-            transfer.destinationWarehouseId === filter.warehouseId),
-      );
-      if (!involvesWarehouse) {
-        continue;
-      }
-    }
-
     cards.push({
+      kind: 'line',
       lineId: line.id,
       orderId: line.order.id,
       orderLabel: `ПЗ ${line.order.id.slice(0, 8)}`,
@@ -203,51 +199,128 @@ export async function getKanbanBoard(
           : stage.column === 'CLOSED'
             ? 'pending'
             : 'neutral',
-      transferId: stage.transferId,
-      cancelledBy: stage.cancelledBy,
+      cancelledBy: stage.cancelledBy === 'order' ? 'order' : null,
       // Клик ведёт на экран действия: доска ничего не меняет (решение владельца).
       href:
-        stage.column === 'CANCELLED' && stage.cancelledBy === 'order'
+        stage.column === 'CANCELLED'
           ? `/production-orders/${line.order.id}`
-          : stage.transferId
-            ? `/transfers/${stage.transferId}`
-            : `/production-orders/${line.order.id}#line-${line.id}`,
+          : `/production-orders/${line.order.id}#line-${line.id}`,
     });
   }
 
-  const hasTransferCards = cards.some((card) => isTransferColumn(card.column));
+  // Колонки 6–9: самостоятельные перемещения, отбор по дате документа в окне смены.
+  const window = shiftWindow(shift);
+  const allTransfers = (await client.goodsTransfer.findMany({
+    where: { status: { in: ['DRAFT', 'SUBMITTED', 'RECEIVED', 'RECONCILED', 'DISCREPANCY', 'CANCELLED'] } },
+    orderBy: { createdAt: 'desc' },
+    take: 500,
+    select: {
+      id: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
+      submittedAt: true,
+      sourceWarehouse: { select: { id: true, name: true } },
+      destinationWarehouse: { select: { id: true, name: true } },
+      lines: { select: { product: { select: { code: true, name: true, unit: true } }, plannedQuantity: true } },
+    },
+  })) as Array<
+    TransferDates & {
+      id: string;
+      sourceWarehouse: { id: string; name: string };
+      destinationWarehouse: { id: string; name: string };
+      lines: Array<{
+        product: { code: string; name: string; unit: string };
+        plannedQuantity: { toString(): string };
+      }>;
+    }
+  >;
+
+  const transferCards: KanbanTransferCard[] = [];
+
+  for (const transfer of allTransfers) {
+    // Фильтр по складу действует только на перемещения — строки РЦ склада не имеют.
+    if (
+      filter.warehouseId &&
+      transfer.sourceWarehouse.id !== filter.warehouseId &&
+      transfer.destinationWarehouse.id !== filter.warehouseId
+    ) {
+      continue;
+    }
+
+    const column = window ? resolveTransferColumn(transfer, window) : null;
+    if (!column) {
+      continue;
+    }
+
+    const quantity = transfer.lines.reduce((sum, line) => sum + toNumber(line.plannedQuantity), 0);
+    const first = transfer.lines[0];
+
+    transferCards.push({
+      kind: 'transfer',
+      transferId: transfer.id,
+      column,
+      note: transferNote(transfer),
+      noteTone: 'neutral',
+      cancelledBy: column === 'CANCELLED' ? 'transfer' : null,
+      productCode: first?.product.code ?? '—',
+      productName: first?.product.name ?? 'Номенклатура не указана',
+      productUnit: first?.product.unit ?? '',
+      quantity: roundQuantity(quantity),
+      sourceWarehouseName: transfer.sourceWarehouse.name,
+      destinationWarehouseName: transfer.destinationWarehouse.name,
+      eventDate: transferEventDate(transfer),
+      // Клик ведёт на экран перемещения: доска ничего не меняет.
+      href: `/transfers/${transfer.id}`,
+    });
+  }
+
+  transferCards.sort((a, b) => b.eventDate.getTime() - a.eventDate.getTime());
+
+  const hasTransferCards = transferCards.length > 0;
   const otherShiftsWithTransfers = hasTransferCards
     ? 0
-    : await countOtherShiftsWithTransfers(client, shift.id);
+    : countOtherShiftsWithTransfers(allTransfers, shifts, shift.id);
 
   return {
-    cards,
+    cards: [...cards, ...transferCards],
     shift: { id: shift.id, label: shiftLabelOf(shift) },
     otherShiftsWithTransfers,
   };
 }
 
-/**
- * Сколько других смен содержат строки с привязанными перемещениями.
- *
- * Нужно только для подсказки: доска — срез по выбранной смене, и перемещение из другой смены
- * в него не попадает по определению. Считаем отдельным запросом и только когда срез пуст
- * по перемещениям, чтобы не платить за это на каждом открытии.
- */
-async function countOtherShiftsWithTransfers(
-  client: Pick<PrismaClient, 'productionOrderLine'>,
-  currentShiftId: string,
-): Promise<number> {
-  const rows = (await (client as Pick<PrismaClient, 'productionOrderLine'>).productionOrderLine.findMany({
-    where: {
-      transferLines: { some: {} },
-      order: { shiftId: { not: currentShiftId }, status: { not: 'CANCELLED' } },
-    },
-    select: { order: { select: { shiftId: true } } },
-    take: 500,
-  })) as Array<{ order: { shiftId: string } }>;
+function roundQuantity(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
 
-  return new Set(rows.map((row) => row.order.shiftId)).size;
+/**
+ * Сколько ДРУГИХ смен содержат перемещения по дате документа.
+ *
+ * Считается по самим перемещениям (привязки к строке ПЗ больше нет): для каждого перемещения
+ * берём его дату и ищем смену, в чьё окно она попадает. Нужно только для подсказки, поэтому
+ * вызывается лишь когда в выбранной смене перемещений нет.
+ */
+function countOtherShiftsWithTransfers(
+  transfers: TransferDates[],
+  shifts: ShiftWindow[],
+  currentShiftId: string,
+): number {
+  const windows = shifts
+    .filter((item) => item.id !== currentShiftId)
+    .map((item) => ({ id: item.id, window: shiftWindow(item) }))
+    .filter((item): item is { id: string; window: { from: Date; to: Date } } => item.window !== null);
+
+  const found = new Set<string>();
+  for (const transfer of transfers) {
+    const date = transferEventDate(transfer);
+    for (const item of windows) {
+      if (date >= item.window.from && date <= item.window.to) {
+        found.add(item.id);
+        break;
+      }
+    }
+  }
+  return found.size;
 }
 
 /**
@@ -274,10 +347,13 @@ export function filterKanbanCardsForRoles(cards: KanbanCard[], roles: string[]):
   const canSeeOrderData = hasPermission(roles, 'production_order:read');
 
   return cards.filter((card) => {
+    // Карточки перемещений видны всем, у кого есть доска: их колонки (6–9 и «Отменено»
+    // для перемещений) есть и у складских ролей.
     if (!columns.has(card.column)) {
       return false;
     }
-    if (!canSeeOrderData && card.cancelledBy === 'order') {
+    // Отменённое ПЗ — данные ПЗ, складским ролям не показывается.
+    if (!canSeeOrderData && card.kind === 'line' && card.cancelledBy === 'order') {
       return false;
     }
     return true;

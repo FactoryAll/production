@@ -1,11 +1,19 @@
 import Link from 'next/link';
-import type { KanbanCard } from '@/lib/kanban/board';
+import type { KanbanCard, KanbanLineCard, KanbanTransferCard } from '@/lib/kanban/board';
 import type { KanbanColumn } from '@/lib/kanban/stage';
 
 /**
- * Тон метки на карточке (ОПЭ-74). Цвет — из токенов темы (`--color-signal-rose` /
- * `--color-signal-mint`), а сам тон приходит из данных (`card.noteTone`), а не выводится
- * из текста метки в разметке.
+ * Доска контура: колонки и карточки (T-103, постановка `docs/kanban_design.md` §13).
+ *
+ * Два вида карточек:
+ *   — **строка РЦ** (колонки 1–5): что производит цех и где стоит документ;
+ *   — **перемещение** (колонки 6–9): самостоятельная карточка склада, отбор по дате документа
+ *     в окне выбранной смены (решение владельца 31.10.2026 — привязки к строке ПЗ больше нет).
+ *
+ * Доска **ничего не меняет**: карточка — ссылка на экран действия.
+ *
+ * Тон метки (ОПЭ-74) приходит из данных (`card.noteTone`), а цвет берётся из токенов темы:
+ * `--color-signal-rose` для «ожидает 1С», `--color-signal-mint` для «проведено».
  */
 const NOTE_TONE_CLASS: Record<KanbanCard['noteTone'], string> = {
   pending: 'bg-signal-rose',
@@ -13,15 +21,53 @@ const NOTE_TONE_CLASS: Record<KanbanCard['noteTone'], string> = {
   neutral: 'bg-neutral-200',
 };
 
-/**
- * Доска контура: колонки и карточки (T-103, постановка `docs/kanban_design.md` §13).
- *
- * Компонент чистый — получает готовые колонки и карточки, ничего не запрашивает. Так его можно
- * проверить без базы, а сборку данных оставить `lib/kanban/board.ts`.
- *
- * Доска **ничего не меняет**: карточка — ссылка на экран действия, перетаскивания нет
- * (решение владельца: за этапами стоят действия с правами и подтверждениями).
- */
+function cardKey(card: KanbanCard): string {
+  return card.kind === 'line' ? `line-${card.lineId}` : `transfer-${card.transferId}`;
+}
+
+function LineCard({ card }: { card: KanbanLineCard }) {
+  return (
+    <>
+      <p className="font-medium text-graphite">
+        {card.orderLabel}
+        <span className="font-normal text-steel-graphite"> · {card.shiftLabel}</span>
+      </p>
+      <p className="text-graphite">
+        РЦ {card.workCenterCode} — {card.workCenterName}
+      </p>
+      <p className="text-steel-graphite">
+        {card.productCode} — {card.productName}
+      </p>
+      <p className="text-steel-graphite">
+        План {card.plan} {card.productUnit}
+        {card.fact > 0 ? ` · факт ${card.fact} ${card.productUnit}` : ''}
+      </p>
+      {card.operatorName && <p className="text-steel-graphite">Оператор: {card.operatorName}</p>}
+    </>
+  );
+}
+
+function TransferCardBody({ card }: { card: KanbanTransferCard }) {
+  const date = card.eventDate.toLocaleDateString('ru-RU');
+  return (
+    <>
+      <p className="font-medium text-graphite">
+        Перемещение
+        <span className="font-normal text-steel-graphite"> · {date}</span>
+      </p>
+      <p className="text-steel-graphite">
+        {card.productCode} — {card.productName}
+      </p>
+      <p className="text-steel-graphite">
+        {card.quantity} {card.productUnit}
+      </p>
+      <p className="text-steel-graphite">
+        {card.sourceWarehouseName} → {card.destinationWarehouseName}
+      </p>
+    </>
+  );
+}
+
 export function KanbanBoard({
   columns,
   cards,
@@ -60,27 +106,15 @@ export function KanbanBoard({
             ) : (
               <ul className="space-y-2">
                 {columnCards.map((card) => (
-                  <li key={card.lineId}>
+                  <li key={cardKey(card)}>
                     <Link
                       href={card.href}
                       className="block rounded-md border border-mist-metal bg-white p-2 text-sm hover:bg-neutral-100"
                     >
-                      <p className="font-medium text-graphite">
-                        {card.orderLabel}
-                        <span className="font-normal text-steel-graphite"> · {card.shiftLabel}</span>
-                      </p>
-                      <p className="text-graphite">
-                        РЦ {card.workCenterCode} — {card.workCenterName}
-                      </p>
-                      <p className="text-steel-graphite">
-                        {card.productCode} — {card.productName}
-                      </p>
-                      <p className="text-steel-graphite">
-                        План {card.plan} {card.productUnit}
-                        {card.fact > 0 ? ` · факт ${card.fact} ${card.productUnit}` : ''}
-                      </p>
-                      {card.operatorName && (
-                        <p className="text-steel-graphite">Оператор: {card.operatorName}</p>
+                      {card.kind === 'line' ? (
+                        <LineCard card={card} />
+                      ) : (
+                        <TransferCardBody card={card} />
                       )}
                       {card.note && (
                         <p

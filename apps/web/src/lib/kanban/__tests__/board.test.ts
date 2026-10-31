@@ -7,11 +7,11 @@ import {
 } from '../board';
 
 /**
- * Данные доски контура (T-103, этап 3).
+ * Данные доски контура (T-103).
  *
- * Здесь проверяется то, что нельзя проверить в чистой функции этапа: запросы, фильтры
- * и права ролей. Крайние случаи этапа (отмены, DISCREPANCY, разные строки одного ПЗ)
- * покрыты в `stage.test.ts` — там же, где сама логика.
+ * Модель после решения владельца 31.10.2026: колонки 1–5 — строки РЦ (этап по ПЗ и строке),
+ * колонки 6–9 — **самостоятельные** карточки перемещений, отбор по дате документа в окне
+ * выбранной смены. Привязки перемещения к строке ПЗ нет.
  */
 
 const DAY_SHIFT = {
@@ -21,6 +21,44 @@ const DAY_SHIFT = {
   start: '08:00',
   end: '20:00',
 };
+
+const SECOND_SHIFT = {
+  id: 'shift-2',
+  number: 2,
+  date: new Date('2026-10-31T00:00:00'),
+  start: '08:00',
+  end: '20:00',
+};
+
+/**
+ * Мок честно применяет условия выборки: иначе тесты про срез по смене проходили бы
+ * и без фильтра в запросе. Перемещения фильтруем по дате окна так же, как настоящий код.
+ */
+function fakeClient(input: {
+  shifts?: unknown[];
+  lines?: unknown[];
+  tasks?: unknown[];
+  transfers?: unknown[];
+}) {
+  const findLines = vi.fn(async (args: unknown) => {
+    const where = (args as { where?: Record<string, unknown> } | undefined)?.where ?? {};
+    const order = (where.order ?? {}) as { shiftId?: string };
+    return (input.lines ?? []).filter((line) => {
+      const typed = line as { order: { shiftId: string } };
+      return !order.shiftId || typed.order.shiftId === order.shiftId;
+    });
+  });
+
+  const client = {
+    shift: { findMany: vi.fn().mockResolvedValue(input.shifts ?? [DAY_SHIFT]) },
+    productionOrderLine: { findMany: findLines },
+    taskForOneC: { findMany: vi.fn().mockResolvedValue(input.tasks ?? []) },
+    goodsTransfer: { findMany: vi.fn().mockResolvedValue(input.transfers ?? []) },
+  };
+  return { client: client as unknown as Parameters<typeof getKanbanBoard>[0], findLines };
+}
+
+const NOW = new Date('2026-10-30T10:00:00');
 
 function gpLine(overrides: Record<string, unknown> = {}) {
   return {
@@ -32,350 +70,235 @@ function gpLine(overrides: Record<string, unknown> = {}) {
     product: { code: 'GP002', name: 'Готовая продукция Б', unit: 'шт' },
     facts: [{ factCategory: 'GP', quantity: { toString: () => '45' } }],
     order: { id: 'po-12345678', status: 'COMPLETED', shiftId: DAY_SHIFT.id },
-    transferLines: [],
     ...overrides,
   };
 }
 
-function fakeClient(input: {
-  shifts?: unknown[];
-  lines?: unknown[];
-  tasks?: unknown[];
-}) {
-  // Мок честно применяет условия выборки: иначе тест «срез по смене» ничего не доказывает —
-  // он проходил бы и при отсутствии фильтра в запросе.
-  const findLines = vi.fn(async (args: unknown) => {
-    const where = (args as { where?: Record<string, unknown> } | undefined)?.where ?? {};
-    const order = (where.order ?? {}) as { shiftId?: string | { not?: string } };
-    const needsTransfers = Boolean((where.transferLines as { some?: unknown } | undefined)?.some);
-
-    return (input.lines ?? []).filter((line) => {
-      const typed = line as { order: { shiftId: string }; transferLines?: unknown[] };
-      const shiftId = order.shiftId;
-      if (typeof shiftId === 'string' && typed.order.shiftId !== shiftId) {
-        return false;
-      }
-      if (shiftId && typeof shiftId === 'object' && shiftId.not && typed.order.shiftId === shiftId.not) {
-        return false;
-      }
-      if (needsTransfers && (typed.transferLines ?? []).length === 0) {
-        return false;
-      }
-      return true;
-    });
-  });
-  const client = {
-    shift: { findMany: vi.fn().mockResolvedValue(input.shifts ?? [DAY_SHIFT]) },
-    productionOrderLine: { findMany: findLines },
-    taskForOneC: { findMany: vi.fn().mockResolvedValue(input.tasks ?? []) },
+function transfer(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'tr-1',
+    status: 'DRAFT',
+    createdAt: new Date('2026-10-30T09:00:00'),
+    updatedAt: new Date('2026-10-30T09:00:00'),
+    submittedAt: null,
+    sourceWarehouse: { id: 'wh-prod', name: 'Производственный склад' },
+    destinationWarehouse: { id: 'wh-gp', name: 'Склад ГП' },
+    lines: [
+      {
+        product: { code: 'GP002', name: 'Готовая продукция Б', unit: 'шт' },
+        plannedQuantity: { toString: () => '10' },
+      },
+    ],
+    ...overrides,
   };
-  // Приведение нужно только тесту: настоящий клиент Prisma здесь не поднимаем.
-  return { client: client as unknown as Parameters<typeof getKanbanBoard>[0], findLines };
 }
 
-describe('доска: сборка и фильтры', () => {
-  it('строит карточку строки: подписи, план/факт, этап и ссылка', async () => {
+describe('доска: строки РЦ (колонки 1–5)', () => {
+  it('строка закрытого ПЗ попадает в «Закрыто» с подписью про 1С', async () => {
     const { client } = fakeClient({ lines: [gpLine()] });
-    const board = await getKanbanBoard(client, {}, { now: new Date('2026-10-30T10:00:00') });
+    const board = await getKanbanBoard(client, {}, { now: NOW });
 
-    expect(board.shift?.id).toBe('shift-1');
     expect(board.cards).toHaveLength(1);
     expect(board.cards[0]).toMatchObject({
-      lineId: 'line-1',
-      orderLabel: 'ПЗ po-12345',
-      workCenterCode: '03',
-      productCode: 'GP002',
-      plan: 40,
-      fact: 45,
-      operatorName: 'Иванов И.И.',
+      kind: 'line',
       column: 'CLOSED',
       note: 'ожидает 1С',
-      // Клик ведёт на экран действия, а не меняет статус.
+      noteTone: 'pending',
       href: '/production-orders/po-12345678#line-line-1',
     });
   });
 
-  it('перемещение уводит карточку в колонки перемещений и даёт ссылку на перемещение', async () => {
-    const { client } = fakeClient({
-      lines: [
-        gpLine({
-          transferLines: [
-            {
-              id: 'tl-1',
-              goodsTransfer: {
-                id: 'tr-1',
-                status: 'SUBMITTED',
-                sourceWarehouseId: 'wh-prod',
-                destinationWarehouseId: 'wh-gp',
-              },
-            },
-          ],
-        }),
-      ],
-    });
-    const board = await getKanbanBoard(client, {}, { now: new Date('2026-10-30T10:00:00') });
-
-    expect(board.cards[0]).toMatchObject({
-      column: 'TRANSFER_SUBMITTED',
-      transferId: 'tr-1',
-      href: '/transfers/tr-1',
-    });
-  });
-
-  it('фильтр по смене смотрит только эту смену', async () => {
-    const { client, findLines } = fakeClient({});
-    await getKanbanBoard(client, { shiftId: 'shift-1' }, { now: new Date('2026-10-30T10:00:00') });
-
-    expect(findLines).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ order: { shiftId: 'shift-1' } }) }),
-    );
-  });
-
-  it('фильтры РЦ и номенклатуры уходят в запрос строк', async () => {
-    const { client, findLines } = fakeClient({});
-    await getKanbanBoard(
-      client,
-      { shiftId: 'shift-1', workCenterId: 'wc-03', productId: 'gp-1' },
-      { now: new Date('2026-10-30T10:00:00') },
-    );
-
-    const where = (findLines.mock.calls[0][0] as { where: Record<string, unknown> }).where;
-    expect(where).toMatchObject({ workCenterId: 'wc-03', productId: 'gp-1' });
-  });
-
-  it('склад фильтрует только колонки перемещений: карточку ПЗ он не скрывает', async () => {
-    const { client } = fakeClient({ lines: [gpLine()] });
-    const board = await getKanbanBoard(client, { warehouseId: 'wh-gp' }, {
-      now: new Date('2026-10-30T10:00:00'),
-    });
-
-    // Карточка в колонке «Закрыто» (ПЗ) — склада у строки нет, скрывать нечего.
-    expect(board.cards).toHaveLength(1);
-    expect(board.cards[0].column).toBe('CLOSED');
-  });
-
-  it('склад скрывает перемещение чужого склада', async () => {
-    const line = gpLine({
-      transferLines: [
-        {
-          id: 'tl-1',
-          goodsTransfer: {
-            id: 'tr-1',
-            status: 'RECEIVED',
-            sourceWarehouseId: 'wh-prod',
-            destinationWarehouseId: 'wh-other',
-          },
-        },
-      ],
-    });
-
-    const ownClient = fakeClient({ lines: [line] }).client;
-    const foreignClient = fakeClient({ lines: [line] }).client;
-    const own = await getKanbanBoard(ownClient, { warehouseId: 'wh-other' }, {
-      now: new Date('2026-10-30T10:00:00'),
-    });
-    const foreign = await getKanbanBoard(foreignClient, { warehouseId: 'wh-gp' }, {
-      now: new Date('2026-10-30T10:00:00'),
-    });
-
-    expect(own.cards).toHaveLength(1);
-    expect(foreign.cards).toHaveLength(0);
-  });
-
-  it('смен нет — пустая доска без падения', async () => {
-    const { client } = fakeClient({ shifts: [] });
-    const board = await getKanbanBoard(client, {}, { now: new Date('2026-10-30T10:00:00') });
-
-    expect(board.shift).toBeNull();
-    expect(board.cards).toEqual([]);
-  });
-
-  // Требование главной линии: строка в ПЗ, где одна строка отчиталась, а другая нет.
-  it('строки одного ПЗ расходятся по разным колонкам', async () => {
+  it('строки одного ПЗ расходятся по колонкам', async () => {
     const { client } = fakeClient({
       lines: [
         gpLine({ id: 'line-1', status: 'REPORTED', order: { id: 'po-1', status: 'IN_PROGRESS', shiftId: 'shift-1' } }),
         gpLine({ id: 'line-2', status: 'ACCEPTED', order: { id: 'po-1', status: 'IN_PROGRESS', shiftId: 'shift-1' } }),
       ],
     });
-    const board = await getKanbanBoard(client, {}, { now: new Date('2026-10-30T10:00:00') });
+    const board = await getKanbanBoard(client, {}, { now: NOW });
 
-    const byLine = Object.fromEntries(board.cards.map((card) => [card.lineId, card.column]));
+    const byLine = Object.fromEntries(
+      board.cards
+        .filter((card) => card.kind === 'line')
+        .map((card) => [(card as unknown as { lineId: string }).lineId, card.column]),
+    );
     expect(byLine).toEqual({ 'line-1': 'REPORTED', 'line-2': 'IN_PROGRESS' });
   });
 
-  it('подпись «проведено» берётся из задачи 1С по ПЗ', async () => {
+  it('срез по смене: строка другой смены в этот срез не попадает', async () => {
     const { client } = fakeClient({
-      lines: [gpLine()],
-      tasks: [{ sourceId: 'po-12345678', status: 'PROCESSED' }],
+      lines: [gpLine({ order: { id: 'po-2', status: 'COMPLETED', shiftId: 'shift-2' } })],
     });
-    const board = await getKanbanBoard(client, {}, { now: new Date('2026-10-30T10:00:00') });
+    const board = await getKanbanBoard(client, { shiftId: 'shift-1' }, { now: NOW });
 
-    expect(board.cards[0]).toMatchObject({ column: 'CLOSED', note: 'проведено' });
+    expect(board.cards.filter((card) => card.kind === 'line')).toHaveLength(0);
   });
 });
 
-describe('доска: срез по выбранной смене — видимое правило (ОПЭ-74, дефект 1)', () => {
-  const SECOND_SHIFT = {
-    id: 'shift-2',
-    number: 2,
-    date: new Date('2026-10-31T00:00:00'),
-    start: '08:00',
-    end: '20:00',
-  };
+describe('доска: перемещения (колонки 6–9)', () => {
+  it('черновик — «Перемещение создано»: номенклатура, количество, склады, ссылка', async () => {
+    const { client } = fakeClient({ transfers: [transfer()] });
+    const board = await getKanbanBoard(client, {}, { now: NOW });
 
-  function lineWithTransfer(shiftId: string) {
-    return gpLine({
-      order: { id: 'po-12345678', status: 'COMPLETED', shiftId },
-      transferLines: [
-        {
-          id: 'tl-1',
-          goodsTransfer: {
-            id: 'tr-1',
-            status: 'SUBMITTED',
-            sourceWarehouseId: 'wh-prod',
-            destinationWarehouseId: 'wh-gp',
-          },
-        },
+    expect(board.cards.find((item) => item.kind === 'transfer')).toMatchObject({
+      kind: 'transfer',
+      transferId: 'tr-1',
+      column: 'TRANSFER_DRAFT',
+      productCode: 'GP002',
+      quantity: 10,
+      sourceWarehouseName: 'Производственный склад',
+      destinationWarehouseName: 'Склад ГП',
+      href: '/transfers/tr-1',
+    });
+  });
+
+  it('отправленное — «Отправлено» с пометкой «в пути»', async () => {
+    const { client } = fakeClient({
+      transfers: [
+        transfer({
+          status: 'SUBMITTED',
+          submittedAt: new Date('2026-10-30T12:00:00'),
+          updatedAt: new Date('2026-10-30T12:00:00'),
+        }),
       ],
     });
-  }
+    const board = await getKanbanBoard(client, {}, { now: NOW });
 
-  it('перемещение строки другой смены в смену A не попадает, но видно про другие смены', async () => {
+    expect(board.cards.find((item) => item.kind === 'transfer')).toMatchObject({
+      column: 'TRANSFER_SUBMITTED',
+      note: 'в пути',
+    });
+  });
+
+  it('принятое и согласованное — «Принято складом»', async () => {
+    const received = fakeClient({
+      transfers: [transfer({ status: 'RECEIVED', updatedAt: new Date('2026-10-30T15:00:00') })],
+    });
+    const receivedBoard = await getKanbanBoard(received.client, {}, { now: NOW });
+    expect(receivedBoard.cards.find((item) => item.kind === 'transfer')).toMatchObject({
+      column: 'RECEIVED',
+      note: null,
+    });
+
+    const reconciled = fakeClient({
+      transfers: [transfer({ status: 'RECONCILED', updatedAt: new Date('2026-10-30T16:00:00') })],
+    });
+    const reconciledBoard = await getKanbanBoard(reconciled.client, {}, { now: NOW });
+    expect(reconciledBoard.cards.find((item) => item.kind === 'transfer')).toMatchObject({
+      column: 'RECEIVED',
+      note: 'расхождение согласовано',
+    });
+  });
+
+  it('расхождение — отдельная колонка', async () => {
     const { client } = fakeClient({
-      shifts: [DAY_SHIFT, SECOND_SHIFT],
-      lines: [lineWithTransfer('shift-2')],
+      transfers: [transfer({ status: 'DISCREPANCY', updatedAt: new Date('2026-10-30T17:00:00') })],
     });
+    const board = await getKanbanBoard(client, {}, { now: NOW });
 
-    const board = await getKanbanBoard(client, { shiftId: 'shift-1' }, {
-      now: new Date('2026-10-30T10:00:00'),
+    expect(board.cards.find((item) => item.kind === 'transfer')).toMatchObject({
+      column: 'DISCREPANCY',
+      note: 'расхождение',
     });
-
-    // Срез по смене: карточек нет вовсе — это правило, а не дефект.
-    expect(board.cards).toHaveLength(0);
-    // И экран знает, что данные есть в другой смене: «есть за N других смен».
-    expect(board.otherShiftsWithTransfers).toBe(1);
   });
 
-  it('в своей смене B перемещение появляется, и подсказка не нужна', async () => {
+  it('отменённое перемещение — «Отменено»', async () => {
     const { client } = fakeClient({
-      shifts: [DAY_SHIFT, SECOND_SHIFT],
-      lines: [lineWithTransfer('shift-2')],
+      transfers: [transfer({ status: 'CANCELLED', updatedAt: new Date('2026-10-30T18:00:00') })],
     });
+    const board = await getKanbanBoard(client, {}, { now: NOW });
 
-    const board = await getKanbanBoard(client, { shiftId: 'shift-2' }, {
-      now: new Date('2026-10-30T10:00:00'),
+    expect(board.cards.find((item) => item.kind === 'transfer')).toMatchObject({
+      column: 'CANCELLED',
+      note: 'перемещение отменено',
+      cancelledBy: 'transfer',
     });
-
-    expect(board.cards).toHaveLength(1);
-    expect(board.cards[0]).toMatchObject({ column: 'TRANSFER_SUBMITTED', transferId: 'tr-1' });
-    expect(board.otherShiftsWithTransfers).toBe(0);
   });
 
-  it('когда в срезе есть перемещения, лишний запрос не делается', async () => {
-    const { client, findLines } = fakeClient({
-      shifts: [DAY_SHIFT],
-      lines: [lineWithTransfer('shift-1')],
+  it('перемещение вне окна смены не показывается', async () => {
+    const { client } = fakeClient({
+      transfers: [transfer({ status: 'DRAFT', createdAt: new Date('2026-10-29T09:00:00') })],
     });
+    const board = await getKanbanBoard(client, {}, { now: NOW });
 
-    const board = await getKanbanBoard(client, { shiftId: 'shift-1' }, {
-      now: new Date('2026-10-30T10:00:00'),
-    });
-
-    expect(board.otherShiftsWithTransfers).toBe(0);
-    // Один запрос строк доски; второй (для подсказки) не понадобился.
-    expect(findLines).toHaveBeenCalledTimes(1);
+    expect(board.cards.filter((item) => item.kind === 'transfer')).toHaveLength(0);
   });
-});
 
-describe('доска: метка закрытия и её тон (ОПЭ-74)', () => {
-  it('«ожидает 1С» — тон pending, «проведено» — done', async () => {
-    const pending = await getKanbanBoard(fakeClient({ lines: [gpLine()] }).client, {}, {
-      now: new Date('2026-10-30T10:00:00'),
-    });
-    expect(pending.cards[0]).toMatchObject({ note: 'ожидает 1С', noteTone: 'pending' });
-
+  it('фильтр по складу действует только на перемещения', async () => {
     const { client } = fakeClient({
       lines: [gpLine()],
-      tasks: [{ sourceId: 'po-12345678', status: 'PROCESSED' }],
+      transfers: [
+        transfer({
+          sourceWarehouse: { id: 'wh-prod', name: 'Производственный склад' },
+          destinationWarehouse: { id: 'wh-other', name: 'Другой склад' },
+        }),
+      ],
     });
-    const done = await getKanbanBoard(client, {}, { now: new Date('2026-10-30T10:00:00') });
-    expect(done.cards[0]).toMatchObject({ note: 'проведено', noteTone: 'done' });
+    const board = await getKanbanBoard(client, { warehouseId: 'wh-gp' }, { now: NOW });
+
+    expect(board.cards.filter((item) => item.kind === 'transfer')).toHaveLength(0);
+    expect(board.cards.filter((item) => item.kind === 'line')).toHaveLength(1);
   });
 
-  it('у карточек вне колонки закрытия тон нейтральный', async () => {
+  it('подсказка про другие смены считается по перемещениям', async () => {
     const { client } = fakeClient({
-      lines: [
-        gpLine({
-          transferLines: [
-            {
-              id: 'tl-1',
-              goodsTransfer: {
-                id: 'tr-1',
-                status: 'SUBMITTED',
-                sourceWarehouseId: 'wh-prod',
-                destinationWarehouseId: 'wh-gp',
-              },
-            },
-          ],
+      shifts: [DAY_SHIFT, SECOND_SHIFT],
+      transfers: [
+        transfer({
+          createdAt: new Date('2026-10-31T09:00:00'),
+          updatedAt: new Date('2026-10-31T09:00:00'),
         }),
       ],
     });
 
-    const board = await getKanbanBoard(client, {}, { now: new Date('2026-10-30T10:00:00') });
-    expect(board.cards[0]).toMatchObject({ note: 'в пути', noteTone: 'neutral' });
+    const first = await getKanbanBoard(client, { shiftId: 'shift-1' }, { now: NOW });
+    expect(first.cards.filter((item) => item.kind === 'transfer')).toHaveLength(0);
+    expect(first.otherShiftsWithTransfers).toBe(1);
+
+    const second = await getKanbanBoard(client, { shiftId: 'shift-2' }, { now: NOW });
+    expect(second.cards.filter((item) => item.kind === 'transfer')).toHaveLength(1);
+    expect(second.otherShiftsWithTransfers).toBe(0);
   });
-});
 
-describe('доска: складские роли видят перемещения (ОПЭ-74, пункт 4)', () => {
-  function transferLine(status: string) {
-    return gpLine({
-      transferLines: [
-        {
-          id: 'tl-1',
-          goodsTransfer: {
-            id: 'tr-1',
-            status,
-            sourceWarehouseId: 'wh-prod',
-            destinationWarehouseId: 'wh-gp',
-          },
-        },
-      ],
+  // Пункт 5 задания: перемещение видно в колонке той смены, когда его создали или отправили.
+  it('создано в смену S — видно в S; после отправки в другую смену — в ней', async () => {
+    const shifts = [DAY_SHIFT, SECOND_SHIFT];
+    const createdBoard = await getKanbanBoard(
+      fakeClient({ shifts, transfers: [transfer({ status: 'DRAFT' })] }).client,
+      { shiftId: 'shift-1' },
+      { now: NOW },
+    );
+    expect(createdBoard.cards.find((card) => card.kind === 'transfer')).toMatchObject({
+      column: 'TRANSFER_DRAFT',
     });
-  }
 
-  for (const role of ['KSGP', 'USGP']) {
-    it(`${role}: привязанное перемещение видно, хотя колонки ПЗ скрыты`, async () => {
-      const { client } = fakeClient({ lines: [transferLine('SUBMITTED')] });
-      const board = await getKanbanBoard(client, {}, { now: new Date('2026-10-30T10:00:00') });
-
-      const visible = filterKanbanCardsForRoles(board.cards, [role]);
-      expect(visible).toHaveLength(1);
-      expect(visible[0]).toMatchObject({ column: 'TRANSFER_SUBMITTED', transferId: 'tr-1' });
-      // Колонки ПЗ роли не видят — это и есть причина, по которой карточка обязана идти
-      // в колонки перемещений, а не в «Закрыто».
-      expect(visibleKanbanColumns([role]).map((column) => column.key)).not.toContain('CLOSED');
+    const submittedLater = transfer({
+      status: 'SUBMITTED',
+      createdAt: new Date('2026-10-30T09:00:00'),
+      updatedAt: new Date('2026-10-31T12:00:00'),
+      submittedAt: new Date('2026-10-31T12:00:00'),
     });
-  }
 
-  it('расхождение идёт в «Расхождение», после согласования — в «Принято складом»', async () => {
-    const { client } = fakeClient({ lines: [transferLine('DISCREPANCY')] });
-    const board = await getKanbanBoard(client, {}, { now: new Date('2026-10-30T10:00:00') });
-    expect(filterKanbanCardsForRoles(board.cards, ['KSGP'])[0].column).toBe('DISCREPANCY');
+    const inFirstShift = await getKanbanBoard(
+      fakeClient({ shifts, transfers: [submittedLater] }).client,
+      { shiftId: 'shift-1' },
+      { now: NOW },
+    );
+    expect(inFirstShift.cards.filter((card) => card.kind === 'transfer')).toHaveLength(0);
 
-    const { client: reconciledClient } = fakeClient({ lines: [transferLine('RECONCILED')] });
-    const reconciled = await getKanbanBoard(reconciledClient, {}, {
-      now: new Date('2026-10-30T10:00:00'),
-    });
-    expect(filterKanbanCardsForRoles(reconciled.cards, ['KSGP'])[0]).toMatchObject({
-      column: 'RECEIVED',
-      note: 'расхождение согласовано',
+    const inSecondShift = await getKanbanBoard(
+      fakeClient({ shifts, transfers: [submittedLater] }).client,
+      { shiftId: 'shift-2' },
+      { now: NOW },
+    );
+    expect(inSecondShift.cards.find((card) => card.kind === 'transfer')).toMatchObject({
+      column: 'TRANSFER_SUBMITTED',
     });
   });
 });
 
 describe('доска: права ролей', () => {
-  it('складские роли не видят колонок ПЗ, а НП и ОТК видят все', () => {
+  it('складские роли не видят колонок ПЗ, но видят перемещения', async () => {
     expect(visibleKanbanColumns(['KSGP']).map((column) => column.key)).toEqual([
       'TRANSFER_DRAFT',
       'TRANSFER_SUBMITTED',
@@ -383,28 +306,27 @@ describe('доска: права ролей', () => {
       'DISCREPANCY',
       'CANCELLED',
     ]);
-    expect(visibleKanbanColumns(['USGP'])).toHaveLength(5);
-    expect(visibleKanbanColumns(['NP'])).toHaveLength(10);
-    expect(visibleKanbanColumns(['OTK'])).toHaveLength(10);
-  });
 
-  it('карточки колонок ПЗ складской роли не показываются', () => {
-    const cards = [
-      { column: 'CLOSED', cancelledBy: null },
-      { column: 'RECEIVED', cancelledBy: null },
-    ] as KanbanCard[];
+    const { client } = fakeClient({
+      lines: [gpLine()],
+      transfers: [transfer({ status: 'RECEIVED', updatedAt: new Date('2026-10-30T15:00:00') })],
+    });
+    const board = await getKanbanBoard(client, {}, { now: NOW });
 
-    expect(filterKanbanCardsForRoles(cards, ['KSGP']).map((card) => card.column)).toEqual(['RECEIVED']);
-    expect(filterKanbanCardsForRoles(cards, ['NP'])).toHaveLength(2);
+    const forKsGP = filterKanbanCardsForRoles(board.cards, ['KSGP']);
+    expect(forKsGP).toHaveLength(1);
+    expect(forKsGP[0]).toMatchObject({ kind: 'transfer', column: 'RECEIVED' });
+    expect(filterKanbanCardsForRoles(board.cards, ['USGP'])).toHaveLength(1);
+    expect(filterKanbanCardsForRoles(board.cards, ['NP'])).toHaveLength(2);
   });
 
   it('отменённое ПЗ складской роли не показывается, отменённое перемещение — показывается', () => {
     const cards = [
-      { column: 'CANCELLED', cancelledBy: 'order' },
-      { column: 'CANCELLED', cancelledBy: 'transfer' },
+      { kind: 'line', column: 'CANCELLED', cancelledBy: 'order' },
+      { kind: 'transfer', column: 'CANCELLED', cancelledBy: 'transfer' },
     ] as KanbanCard[];
 
-    expect(filterKanbanCardsForRoles(cards, ['KSGP']).map((card) => card.cancelledBy)).toEqual([
+    expect(filterKanbanCardsForRoles(cards, ['KSGP']).map((card) => card.kind)).toEqual([
       'transfer',
     ]);
     expect(filterKanbanCardsForRoles(cards, ['OTK'])).toHaveLength(2);

@@ -20,14 +20,10 @@ interface TransferFormProps {
   warehouses: Warehouse[];
   products: Product[];
   stockByWarehouse: StockByWarehouse;
-  /** Поле «Строка ПЗ» — только тем, кому можно читать ПЗ (T-103). */
-  canLinkOrderLine?: boolean;
-  /** Строки ПЗ для выбора привязки. */
-  orderLines?: Array<{ id: string; productId: string; label: string }>;
-  /** Предзаполнение из карточки ПЗ (T-103). */
+  /** Предзаполнение из карточки ПЗ (T-103): номенклатура, склады и количество-факт. */
   initialSourceWarehouseId?: string;
   initialDestinationWarehouseId?: string;
-  initialLines?: Array<{ productId: string; plannedQuantity: string; productionOrderLineId: string }>;
+  initialLines?: Array<{ productId: string; plannedQuantity: string }>;
 }
 
 interface LineDraft {
@@ -36,8 +32,6 @@ interface LineDraft {
   plannedQuantity: string;
   /** Необязательный комментарий к строке (фидбэк ОПЭ, 13.10.2026). */
   comment: string;
-  /** Строка ПЗ, из которой создано перемещение (T-103). Пусто — ручное перемещение. */
-  productionOrderLineId: string;
 }
 
 function makeLineId(): string {
@@ -45,15 +39,13 @@ function makeLineId(): string {
 }
 
 function emptyLine(): LineDraft {
-  return { id: makeLineId(), productId: '', plannedQuantity: '', comment: '', productionOrderLineId: '' };
+  return { id: makeLineId(), productId: '', plannedQuantity: '', comment: '' };
 }
 
 export default function TransferForm({
   warehouses,
   products,
   stockByWarehouse,
-  canLinkOrderLine = false,
-  orderLines = [],
   initialSourceWarehouseId = '',
   initialDestinationWarehouseId = '',
   initialLines,
@@ -69,7 +61,6 @@ export default function TransferForm({
           productId: line.productId,
           plannedQuantity: line.plannedQuantity,
           comment: '',
-          productionOrderLineId: line.productionOrderLineId,
         }))
       : [emptyLine()],
   );
@@ -160,8 +151,6 @@ export default function TransferForm({
       productId: line.productId,
       plannedQuantity: Number(parseQuantityInput(line.plannedQuantity)),
       comment: line.comment.trim(),
-      // Привязка к строке ПЗ уходит вместе со строкой перемещения (T-103).
-      productionOrderLineId: line.productionOrderLineId || null,
     }));
 
     const formData = new FormData();
@@ -258,11 +247,7 @@ export default function TransferForm({
                     <SearchSelect
                       id={line.id + '_product'}
                       value={line.productId}
-                      onChange={(value) =>
-                        // Смена продукта сбрасывает привязку к строке ПЗ: старая строка
-                        // относится к другой номенклатуре, и сервер её отклонит (ОПЭ-74).
-                        updateLine(line.id, { productId: value, productionOrderLineId: '' })
-                      }
+                      onChange={(value) => updateLine(line.id, { productId: value })}
                       options={productOptions}
                       placeholder={
                         sourceWarehouseId === ''
@@ -302,39 +287,6 @@ export default function TransferForm({
                         Выберите склад-источник и продукт, чтобы увидеть доступный остаток
                       </p>
                     )}
-                    {/*
-                      Поле «Строка ПЗ» (T-103): привязка нужна доске контура, а видна только тем,
-                      кому можно читать ПЗ. Из карточки ПЗ строка приходит уже выбранной.
-                    */}
-                    {canLinkOrderLine && (
-                      <div className="space-y-2 pt-2">
-                        <Label htmlFor={line.id + '_orderLine'}>Строка ПЗ (необязательно)</Label>
-                        <Select
-                          id={line.id + '_orderLine'}
-                          value={line.productionOrderLineId}
-                          onChange={(e) =>
-                            updateLine(line.id, { productionOrderLineId: e.target.value })
-                          }
-                          options={[
-                            {
-                              value: '',
-                              label: line.productId
-                                ? 'Без привязки — ручное перемещение'
-                                : 'Сначала выберите продукт',
-                            },
-                            // Строго по выбранной номенклатуре (ОПЭ-74, дефект 2): пока продукт
-                            // не выбран, строк ПЗ не предлагаем вовсе — иначе пользователю
-                            // показывались строки чужой номенклатуры, которые сервер отклонит.
-                            ...(line.productId
-                              ? orderLines
-                                  .filter((option) => option.productId === line.productId)
-                                  .map((option) => ({ value: option.id, label: option.label }))
-                              : []),
-                          ]}
-                        />
-                      </div>
-                    )}
-
                     {/* Комментарий необязателен: приёмщик увидит его в карточке и в форме приёмки. */}
                     <div className="space-y-2 pt-2">
                       <Label htmlFor={line.id + '_comment'}>Комментарий (необязательно)</Label>

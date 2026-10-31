@@ -52,12 +52,6 @@ interface ProductionOrderCardProps {
           }
         >;
         workerAssignments: Array<ProductionOrderLineWorkers & { employee: Employee }>;
-        /** Привязанные перемещения (T-103): карточка показывает, что перемещение уже создано. */
-        transferLines: Array<{
-          id: string;
-          goodsTransferId: string;
-          goodsTransfer: { status: string };
-        }>;
       }
     >;
   };
@@ -216,14 +210,6 @@ interface CardWorkerRow {
   comment: string;
 }
 
-const TRANSFER_STATUS_LABELS: Record<string, string> = {
-  DRAFT: 'черновик',
-  SUBMITTED: 'отправлено',
-  RECEIVED: 'принято',
-  DISCREPANCY: 'расхождение',
-  RECONCILED: 'согласовано',
-  CANCELLED: 'отменено',
-};
 
 const SUBSTITUTION_REASON_OPTIONS = [
   { value: 'ILLNESS', label: 'Болезнь' },
@@ -445,7 +431,7 @@ export default function ProductionOrderCard({
     const production = transferWarehouses.find((warehouse) => warehouse.type === 'PRODUCTION');
     const finishedGoods = transferWarehouses.find((warehouse) => warehouse.type === 'FINISHED_GOODS');
     const quantity = gpFactOfLine(line as unknown as { facts: Array<{ factCategory: string; quantity: { toString(): string } }> });
-    const params = new URLSearchParams({ productId: line.productId, productionOrderLineId: line.id });
+    const params = new URLSearchParams({ productId: line.productId });
     if (quantity) {
       params.set('quantity', quantity);
     }
@@ -991,25 +977,6 @@ export default function ProductionOrderCard({
                             Создать перемещение
                           </Button>
                         </Link>
-                        {/* Предупреждение, а не блокировка: второе перемещение бывает законным
-                            (возврат на доработку, повторный выпуск по той же строке). */}
-                        {(line.transferLines ?? []).length > 0 && (
-                          <p className="text-xs text-signal-amber">
-                            Уже создано перемещение:{' '}
-                            {(line.transferLines ?? []).map((transfer, index) => (
-                              <span key={transfer.id}>
-                                {index > 0 ? ', ' : ''}
-                                <Link
-                                  href={'/transfers/' + transfer.goodsTransferId}
-                                  className="underline decoration-dotted"
-                                >
-                                  {transfer.goodsTransferId.slice(0, 8)}
-                                </Link>{' '}
-                                ({TRANSFER_STATUS_LABELS[transfer.goodsTransfer.status] ?? transfer.goodsTransfer.status})
-                              </span>
-                            ))}
-                          </p>
-                        )}
                       </div>
                     )}
                     {canCorrectFact && line.facts.length > 0 && (

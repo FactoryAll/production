@@ -1555,15 +1555,6 @@ export async function getProductionOrderById(id: string) {
                 employee: true,
               },
             },
-            // С T-103 строка знает свои перемещения: по ним карточка показывает, что
-            // перемещение уже создано, и ведёт на него (без блокировки второй попытки).
-            transferLines: {
-              select: {
-                id: true,
-                goodsTransferId: true,
-                goodsTransfer: { select: { status: true } },
-              },
-            },
           },
         },
       },
