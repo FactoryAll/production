@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
+import { ALL_PERMISSIONS, ROLE_PERMISSIONS } from '@prodtrack/contracts';
 import {
   PERMISSIONS,
   ROLES,
@@ -205,3 +206,36 @@ describe('Сид не перезаписывает данные, которые 
       .find((data) => data.code === '13');
     expect(marking).toMatchObject({ code: '13', name: 'Маркировка ЧЗ', producesMass: false, active: true });
   });
+
+/**
+ * Сид и контракты не должны расходиться (T-103, 30.10.2026).
+ *
+ * В базе есть своя таблица прав ролей, и её видит экран «Роли» — но доступ в приложении
+ * проверяется по матрице из `@prodtrack/contracts`. Две копии уже разъехались: `reports:read`
+ * и `nsi:read` есть в контрактах, но не у всех ролей в сиде, а кода `nsi:read` в списке
+ * PERMISSIONS не было вовсе — то есть в базу он не попадал никогда, и сид молча терял его
+ * на `.filter(Boolean)`. Эти тесты держат копии вместе.
+ */
+describe('сид и контракты: матрица прав', () => {
+  it('список прав в сиде совпадает с ALL_PERMISSIONS из контрактов', () => {
+    const seeded = PERMISSIONS.map((permission) => permission.code).sort();
+    const contract = [...ALL_PERMISSIONS].sort();
+    expect(seeded).toEqual(contract);
+  });
+
+  it('права каждой роли в сиде совпадают с матрицей контрактов', () => {
+    for (const [role, permissions] of Object.entries(ROLE_PERMISSIONS)) {
+      const seeded = [...ROLE_PERMISSION_MAP[role as keyof typeof ROLE_PERMISSION_MAP]].sort();
+      expect(seeded, `роль ${role}`).toEqual([...permissions].sort());
+    }
+  });
+
+  // T-103: доска контура — отдельное право; складские роли получают его, ОПР и гость — нет.
+  it('kanban:read есть у шести ролей и нет у ОПР и гостя', () => {
+    for (const role of ['NP', 'ADM', 'S1C', 'OTK', 'KSGP', 'USGP']) {
+      expect(ROLE_PERMISSION_MAP[role as keyof typeof ROLE_PERMISSION_MAP]).toContain('kanban:read');
+    }
+    expect(ROLE_PERMISSION_MAP.OPR).not.toContain('kanban:read');
+    expect(ROLE_PERMISSION_MAP.GUEST).not.toContain('kanban:read');
+  });
+});

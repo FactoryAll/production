@@ -110,10 +110,17 @@ export const PERMISSIONS = [
   { code: 'roles:manage', action: 'Управление ролями' },
   // Отчёты (решение владельца 26.10.2026).
   { code: 'reports:read', action: 'Просмотр отчётов' },
+  // Просмотр справочников. Кода не было в этом списке вовсе, хотя роли на него ссылались:
+  // `.filter(Boolean)` в seedRoles молча выбрасывал его, и в базе права не появлялось (T-103).
+  { code: 'nsi:read', action: 'Просмотр справочников' },
+  // Доска производственного контура (T-103, решение владельца 29.10.2026).
+  { code: 'kanban:read', action: 'Просмотр доски контура' },
 ];
 
 export const ROLE_PERMISSION_MAP: Record<RoleCode, string[]> = {
   NP: [
+    'reports:read',
+    'kanban:read',
     'production_order:create',
     'production_order:update',
     'production_order:confirm',
@@ -139,9 +146,13 @@ export const ROLE_PERMISSION_MAP: Record<RoleCode, string[]> = {
     'production_order:report',
     'stock:read',
     'dashboard:read_own',
+    'nsi:read',
   ],
   KSGP: [
     'timing:read',
+    // Доска контура (T-103): у КСГП нет production_order:read, поэтому колонки ПЗ ему
+    // не показываются — но перемещения своего склада он видит.
+    'kanban:read',
     // Создание и корректировка Перемещения (решение владельца 21.10.2026, ОПЭ-25).
     'transfer:create',
     // Отправка черновика («Провести») требует transfer:update — без него созданный
@@ -152,21 +163,26 @@ export const ROLE_PERMISSION_MAP: Record<RoleCode, string[]> = {
     'transfer:reconcile',
     'stock:read',
     'dashboard:read',
+    'nsi:read',
   ],
   USGP: [
     'timing:read',
+    // Доска контура (T-103): как и у КСГП — без колонок ПЗ, со своими перемещениями.
+    'kanban:read',
     // Приёмка на Производственном складе (решение владельца 21.10.2026, ОПЭ-28).
     'transfer:receive',
     // Создание и корректировка Перемещения (решение владельца продукта, ОПЭ-20, 20.10.2026).
-    // Отправка черновика требует transfer:update (ОПЭ-26).
     'transfer:update',
     'transfer:create',
     'transfer:read',
     'transfer:reconcile',
     'stock:read',
     'dashboard:read',
+    'nsi:read',
   ],
   S1C: [
+    'reports:read',
+    'kanban:read',
     'timing:read',
     // Просмотр ПЗ и Перемещений (решение владельца продукта, 03.10.2026).
     'transfer:read',
@@ -175,6 +191,7 @@ export const ROLE_PERMISSION_MAP: Record<RoleCode, string[]> = {
     'onec:process',
     'stock:read',
     'dashboard:read',
+    'nsi:read',
   ],
   ADM: PERMISSIONS.map(({ code }) => code),
   /**
@@ -184,8 +201,15 @@ export const ROLE_PERMISSION_MAP: Record<RoleCode, string[]> = {
    * `dashboard:read` — потому что дашборд является точкой входа после входа в систему.
    */
   GUEST: ['production_order:read', 'stock:read', 'transfer:read', 'dashboard:read'],
-  /** ОТК (решение владельца 26.10.2026): гостевой просмотр + отчёты, без прав на изменение. */
-  OTK: ['production_order:read', 'stock:read', 'transfer:read', 'dashboard:read', 'reports:read'],
+  /** ОТК (решение владельца 26.10.2026): гостевой просмотр + отчёты и доска, без прав на изменение. */
+  OTK: [
+    'production_order:read',
+    'stock:read',
+    'transfer:read',
+    'dashboard:read',
+    'reports:read',
+    'kanban:read',
+  ],
 };
 
 /**
