@@ -26,7 +26,11 @@ export type PermissionCode =
   | 'users:manage'
   | 'roles:manage'
   | 'nsi:read'
-  | 'reports:read';
+  | 'reports:read'
+  // Доска производственного контура (T-103, решение владельца 29.10.2026): отдельное право,
+  // потому что складские роли (КСГП, УСГП) не имеют production_order:read и иначе в контур
+  // не попадают вовсе.
+  | 'kanban:read';
 
 export const ALL_PERMISSIONS: PermissionCode[] = [
   'production_order:create',
@@ -58,11 +62,14 @@ export const ALL_PERMISSIONS: PermissionCode[] = [
   // администратор получает права именно из этого списка, и без строки пункт «Отчёты»
   // ему не показывался (поймано на дев-стенде).
   'reports:read',
+  // Доска производственного контура (T-103): то же правило — без строки здесь АДМ её не увидит.
+  'kanban:read',
 ];
 
 export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
   NP: [
     'reports:read',
+    'kanban:read',
     'production_order:create',
     'production_order:update',
     'production_order:confirm',
@@ -95,6 +102,9 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
   ],
   KSGP: [
     'timing:read',
+    // Доска контура (T-103): у КСГП нет production_order:read, поэтому колонки ПЗ ему
+    // не показываются — но перемещения своего склада он видит на доске.
+    'kanban:read',
     // Создание и корректировка Перемещения (решение владельца 21.10.2026, ОПЭ-25).
     'transfer:create',
     // Отправка черновика («Провести») требует transfer:update — без него созданный
@@ -109,6 +119,8 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
   ],
   USGP: [
     'timing:read',
+    // Доска контура (T-103): как и у КСГП — без колонок ПЗ, со своими перемещениями.
+    'kanban:read',
     // Приёмка на Производственном складе (решение владельца 21.10.2026, ОПЭ-28).
     'transfer:receive',
     // Создание и корректировка Перемещения (решение владельца продукта, ОПЭ-20, 20.10.2026).
@@ -125,6 +137,7 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
   ],
   S1C: [
     'reports:read',
+    'kanban:read',
     'timing:read',
     // Просмотр ПЗ и Перемещений — чтобы переходить из уведомлений в целевой объект
     // (решение владельца продукта, 03.10.2026; согласованное изменение матрицы 00 §4.2).
@@ -149,7 +162,15 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
    * ОТК (решение владельца 26.10.2026): гостевой доступ на просмотр + отчёты.
    * Ни одного права на изменение — как у гостя.
    */
-  OTK: ['production_order:read', 'stock:read', 'transfer:read', 'dashboard:read', 'reports:read'],
+  // ОТК видит доску контура целиком: у него есть и ПЗ, и перемещения на чтение (T-103).
+  OTK: [
+    'production_order:read',
+    'stock:read',
+    'transfer:read',
+    'dashboard:read',
+    'reports:read',
+    'kanban:read',
+  ],
 };
 
 /** Role priority for audit attribution (highest → lowest). */

@@ -42,6 +42,17 @@ describe('access matrix', () => {
     expect(() => requirePermission([RoleCode.ADM], 'users:manage')).not.toThrow();
   });
 
+  // T-103 (решение владельца 29.10.2026): доска производственного контура — отдельное право.
+  it('kanban:read есть у тех, кто видит контур, и нет у ОПР и гостя', () => {
+    for (const role of [RoleCode.NP, RoleCode.ADM, RoleCode.S1C, RoleCode.OTK, RoleCode.KSGP, RoleCode.USGP]) {
+      expect(hasPermission([role], 'kanban:read')).toBe(true);
+    }
+    expect(hasPermission([RoleCode.OPR], 'kanban:read')).toBe(false);
+    expect(hasPermission([RoleCode.GUEST], 'kanban:read')).toBe(false);
+    // Право объявлено в общем списке: иначе администратор не получил бы его из ALL_PERMISSIONS.
+    expect(ALL_PERMISSIONS).toContain('kanban:read');
+  });
+
   it('ADM role has every permission', () => {
     for (const permission of ALL_PERMISSIONS) {
       expect(hasPermission([RoleCode.ADM], permission)).toBe(true);

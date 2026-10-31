@@ -3,7 +3,7 @@
 // Обычный модуль без 'use server': запросы данных не держим в файлах действий
 // (урок Фазы 3).
 
-import type { ProductionOrder, ProductionOrderLine, Shift, WorkCenter } from '@prisma/client';
+import type { Prisma, ProductionOrder, ProductionOrderLine, Shift, WorkCenter } from '@prisma/client';
 import { prisma } from '@prodtrack/db';
 import { requirePermission } from '@/lib/auth/access';
 import { parsePageParam, toPageResult, type PageResult } from '@/lib/pagination';
@@ -28,13 +28,22 @@ export function parseOrderStatusFilter(value: string | undefined): OrderStatusFi
 }
 
 /** Условие выборки списка ПЗ. */
-export function orderWhere(filter: { status?: OrderStatusFilter }) {
-  return filter.status && filter.status !== 'ALL' ? { status: filter.status } : {};
+export function orderWhere(filter: { status?: OrderStatusFilter; shiftId?: string }): Prisma.ProductionOrderWhereInput {
+  const where: Prisma.ProductionOrderWhereInput = {};
+  if (filter.status && filter.status !== 'ALL') {
+    where.status = filter.status as Exclude<OrderStatusFilter, 'ALL'>;
+  }
+  // Фильтр по смене (T-103, 30.10.2026): общий параметр со доской — при переключении
+  // видов смена не теряется.
+  if (filter.shiftId) {
+    where.shiftId = filter.shiftId;
+  }
+  return where;
 }
 
-/** Страница ПЗ: фильтр по статусу и пагинация без отдельного `count`. */
+/** Страница ПЗ: фильтры по статусу и смене, пагинация без отдельного `count`. */
 export async function getOrdersPage(
-  filter: { status?: OrderStatusFilter },
+  filter: { status?: OrderStatusFilter; shiftId?: string },
   pageParam?: string,
 ): Promise<PageResult<ProductionOrderWithLines>> {
   await requirePermission('production_order:read');

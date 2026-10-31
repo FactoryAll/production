@@ -25,6 +25,12 @@ interface ProductionOrdersPageProps {
   userRoles: string[];
   /** Фильтр по статусу применяется на сервере (T-058). */
   statusFilter: 'ALL' | 'DRAFT' | 'CONFIRMED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  /** Выбранная смена (T-103): общий параметр с доской. */
+  shiftId: string;
+  /** Смены для фильтра. */
+  shifts: Array<{ id: string; label: string }>;
+  /** Переключатель «Список | Канбан», собранный на сервере под права пользователя. */
+  viewSwitch?: React.ReactNode;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -55,6 +61,9 @@ export default function ProductionOrdersPage({
   orders,
   userRoles,
   statusFilter,
+  shiftId,
+  shifts,
+  viewSwitch,
 }: ProductionOrdersPageProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -211,14 +220,17 @@ export default function ProductionOrdersPage({
 
   return (
     <div className="space-y-4 p-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold text-graphite">Производственные задания</h1>
-        {/* Кнопка создания — только ролям с правом production_order:create (НП). */}
-        {canCreate && (
-          <Link href="/production-orders/new">
-            <Button variant="cta">Создать ПЗ</Button>
-          </Link>
-        )}
+        <div className="flex items-center gap-3">
+          {viewSwitch}
+          {/* Кнопка создания — только ролям с правом production_order:create (НП). */}
+          {canCreate && (
+            <Link href="/production-orders/new">
+              <Button variant="cta">Создать ПЗ</Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Фильтр по статусу применяется на сервере (T-058), поэтому форма отправляет GET-запрос. */}
@@ -236,6 +248,21 @@ export default function ProductionOrdersPage({
             <option value="IN_PROGRESS">В работе</option>
             <option value="COMPLETED">Завершено</option>
             <option value="CANCELLED">Отменено</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-sm text-steel-graphite">
+          Смена
+          <select
+            name="shiftId"
+            defaultValue={shiftId}
+            className="h-[var(--button-height-sm)] max-w-[18rem] rounded-md border border-mist-metal bg-white px-3 font-sans text-graphite"
+          >
+            <option value="">Все смены</option>
+            {shifts.map((shift) => (
+              <option key={shift.id} value={shift.id}>
+                {shift.label}
+              </option>
+            ))}
           </select>
         </label>
         <Button type="submit" variant="secondary">

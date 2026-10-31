@@ -25,6 +25,23 @@ describe('список ПЗ: серверный фильтр и пагинаци
     expect(parseOrderStatusFilter('UNKNOWN')).toBe('ALL');
   });
 
+  // T-103: фильтр по смене — общий параметр с доской контура.
+  it('фильтр по смене сужает выборку', async () => {
+    expect(orderWhere({ shiftId: 'shift-1' })).toEqual({ shiftId: 'shift-1' });
+    expect(orderWhere({ status: 'CONFIRMED', shiftId: 'shift-1' })).toEqual({
+      status: 'CONFIRMED',
+      shiftId: 'shift-1',
+    });
+    // Пустая строка — «все смены», а не «смена с пустым идентификатором».
+    expect(orderWhere({ shiftId: '' })).toEqual({});
+
+    (prisma.productionOrder.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    await getOrdersPage({ shiftId: 'shift-1' });
+    expect(prisma.productionOrder.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { shiftId: 'shift-1' } }),
+    );
+  });
+
   it('фильтр «все» не накладывает условий', () => {
     expect(orderWhere({ status: 'ALL' })).toEqual({});
     expect(orderWhere({})).toEqual({});

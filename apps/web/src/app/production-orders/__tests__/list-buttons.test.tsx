@@ -56,7 +56,7 @@ const order = {
 describe('Список ПЗ: кнопки по правам роли (дефект №3 ручного тестирования)', () => {
   it('под С1С нет кнопки создания ПЗ — роль имеет только просмотр', () => {
     render(
-      <ProductionOrdersPage orders={[order] as never} userRoles={['S1C']} statusFilter="ALL" />,
+      <ProductionOrdersPage orders={[order] as never} userRoles={['S1C']} statusFilter="ALL" shiftId="" shifts={[]} />,
     );
 
     expect(screen.queryByRole('button', { name: 'Создать ПЗ' })).toBeNull();
@@ -64,7 +64,7 @@ describe('Список ПЗ: кнопки по правам роли (дефек
 
   it('под НП кнопка создания ПЗ есть', () => {
     render(
-      <ProductionOrdersPage orders={[order] as never} userRoles={['NP']} statusFilter="ALL" />,
+      <ProductionOrdersPage orders={[order] as never} userRoles={['NP']} statusFilter="ALL" shiftId="" shifts={[]} />,
     );
 
     expect(screen.getByRole('button', { name: 'Создать ПЗ' })).toBeTruthy();
@@ -86,10 +86,11 @@ describe('Сортировка по смене', () => {
     const later = orderWithShift('po-c', 2, '2026-10-24');
     const earlier = orderWithShift('po-a', 1, '2026-10-23');
     render(
-      <ProductionOrdersPage orders={[later, earlier] as never} userRoles={['NP']} statusFilter="ALL" />,
+      <ProductionOrdersPage orders={[later, earlier] as never} userRoles={['NP']} statusFilter="ALL" shiftId="" shifts={[]} />,
     );
 
-    fireEvent.click(screen.getByText('Смена'));
+    // Заголовок столбца, а не подпись фильтра «Смена» над таблицей.
+    fireEvent.click(screen.getByRole('columnheader', { name: /Смена/ }));
 
     const rows = screen.getAllByRole('row').slice(1);
     const first = rows[0].textContent ?? '';

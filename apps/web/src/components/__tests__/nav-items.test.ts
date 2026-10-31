@@ -42,6 +42,15 @@ describe('nav-items', () => {
     expect(hrefsFor(['GUEST'])).not.toContain('/reports');
   });
 
+  // T-103: доска — отдельное право, ОПР и гость в первую версию не пускаются.
+  it('доски контура нет у ОПР и гостя', () => {
+    expect(hrefsFor(['OPR'])).not.toContain('/kanban');
+    expect(hrefsFor(['GUEST'])).not.toContain('/kanban');
+    expect(hrefsFor(['OTK'])).toContain('/kanban');
+    expect(hrefsFor(['S1C'])).toContain('/kanban');
+    expect(hrefsFor(['USGP'])).toContain('/kanban');
+  });
+
   // Регресс 25.10.2026: меню «НСИ» выводилось в шапке без всякой проверки права —
   // гость видел его и получал отказ по клику.
   it('меню НСИ показывается только тем, у кого есть право читать справочники', () => {
@@ -83,6 +92,8 @@ describe('nav-items', () => {
       '/dashboard',
       '/notifications',
       '/production-orders',
+      // Доска контура (T-103): сразу после «ПЗ», своё право kanban:read.
+      '/kanban',
       '/stock',
       '/transfers',
       // Отчёты — по праву reports:read (решение владельца 26.10.2026).
@@ -96,6 +107,8 @@ describe('nav-items', () => {
     expect(hrefsFor(['KSGP'])).toEqual([
       '/dashboard',
       '/notifications',
+      // Доски контура у него есть право kanban:read, а ПЗ он открыть не может (T-103).
+      '/kanban',
       '/stock',
       '/transfers',
     ]);
@@ -116,6 +129,7 @@ describe('nav-items', () => {
     expect(hrefsFor(['ADM'])).toEqual([
       '/dashboard',
       '/production-orders',
+      '/kanban',
       '/shift-execution',
       '/stock',
       '/transfers',

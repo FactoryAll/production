@@ -58,6 +58,12 @@ export function getNavItems(userRoles: string[]): NavItem[] {
     items.push({ label: 'ПЗ', href: '/production-orders' });
   }
 
+  // Доска контура (T-103): отдельное право, потому что у КСГП и УСГП нет production_order:read —
+  // для них это единственный вход в контур.
+  if (hasPermission(userRoles, 'kanban:read')) {
+    items.push({ label: 'Канбан', href: '/kanban' });
+  }
+
   if (hasPermission(userRoles, 'production_order:accept')) {
     items.push({ label: 'Исполнение', href: '/shift-execution' });
   }
