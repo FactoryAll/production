@@ -184,7 +184,10 @@ describe('мост: когда показывать', () => {
     expect(screen.queryByRole('button', { name: 'Включить уведомления' })).toBeNull();
   });
 
-  it('скрытая вкладка не показывает уведомление, а при возврате не выдаёт пачку', () => {
+  // Назначение уровня 1 — предупредить, когда трекер не на экране: в скрытой вкладке
+  // уведомление ПОКАЗЫВАЕТСЯ. А пачки при возврате нет по другой причине: кадры обрабатываются
+  // по мере прихода и не откладываются, а повтор id молчит.
+  it('скрытая вкладка показывает уведомление — это и есть назначение', () => {
     window.localStorage.setItem(
       NOTIFICATION_SETTINGS_KEY,
       JSON.stringify({ desktop: true, sound: false }),
@@ -194,11 +197,29 @@ describe('мост: когда показывать', () => {
     emitFrame(frame('n-1'));
     setHidden(true);
     emitFrame(frame('n-2'));
-    expect(showDesktopNotification).not.toHaveBeenCalled();
 
-    setHidden(false);
+    expect(showDesktopNotification).toHaveBeenCalledTimes(1);
+    expect(showDesktopNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'n-2' }),
+    );
+  });
+
+  it('при возврате на вкладку пачки нет: показанное не повторяется', () => {
+    window.localStorage.setItem(
+      NOTIFICATION_SETTINGS_KEY,
+      JSON.stringify({ desktop: true, sound: false }),
+    );
+    render(<NotificationBridge />);
+
+    emitFrame(frame('n-1'));
+    setHidden(true);
     emitFrame(frame('n-2'));
-    expect(showDesktopNotification).not.toHaveBeenCalled();
+    emitFrame(frame('n-3'));
+    setHidden(false);
+    // Возврат сам по себе кадров не порождает; повтор последнего кадра — тишина.
+    emitFrame(frame('n-3'));
+
+    expect(showDesktopNotification).toHaveBeenCalledTimes(2);
   });
 });
 
