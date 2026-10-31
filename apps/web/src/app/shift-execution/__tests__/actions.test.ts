@@ -808,6 +808,50 @@ describe('reportProductionFact', () => {
     );
   });
 
+  // ОПЭ-73: до правки простои писались в КАЖДЫЙ факт строки, и на ГП-РЦ (факты ГП и ПФ)
+  // они задваивались в данных: 30 минут превращались в 60 при суммировании по строке.
+  it('пишет простои один раз — на факт основной категории (ОПЭ-73)', async () => {
+    const line = makeLine({ status: 'ACCEPTED', productId: 'gp-1' });
+    const deps = buildMockPrisma({
+      line,
+      product: gpProduct,
+      workCenter: { id: 'wc-01', code: 'WC-01', name: 'РЦ 01', active: true, producesMass: false },
+    });
+
+    await reportProductionFact(
+      'line-1',
+      { outputByCategory: { GP: 10, PF: 4 }, stopsCount: 2, stopsDurationMinutes: 30 },
+      {
+        prisma: deps.prisma,
+        writeAudit: vi.fn(),
+        writeTiming: vi.fn(),
+        requireShiftWindow: vi.fn().mockResolvedValue(baseSession),
+        getAvailableBalance: deps.getAvailableBalance,
+        applyStockMovements: deps.applyStockMovements,
+        updateShiftSummary: deps.updateShiftSummary,
+        syncOneCTask: vi.fn().mockResolvedValue('created'),
+      },
+    );
+
+    // `mock.calls` — массив аргументов каждого вызова: [0] — объект { where, create, update }.
+    const calls = (deps.productionFactUpsert.mock.calls as unknown as Array<
+      [{ create: { factCategory: string; stopsCount: number; stopsDurationMinutes: number } }]
+    >).map((args) => args[0]);
+    const byCategory = Object.fromEntries(
+      calls.map((call) => [
+        call.create.factCategory,
+        `${call.create.stopsCount}/${call.create.stopsDurationMinutes}`,
+      ]),
+    );
+
+    // Основной факт (категория продукции строки — ГП) несёт простой, второй — нули.
+    expect(byCategory).toEqual({ GP: '2/30', PF: '0/0' });
+
+    // И сумма по строке равна 30, а не 60.
+    const totalMinutes = calls.reduce((sum, call) => sum + call.create.stopsDurationMinutes, 0);
+    expect(totalMinutes).toBe(30);
+  });
+
   it('blocks stops count without duration', async () => {
     const line = makeLine({ status: 'ACCEPTED' });
     const deps = buildMockPrisma({ line });

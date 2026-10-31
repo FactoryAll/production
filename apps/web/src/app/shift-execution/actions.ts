@@ -25,6 +25,7 @@ import {
   type WorkerCompositionInput,
 } from '@/lib/worker-composition';
 import { pickPrimaryFact, saveWorkerComposition } from '@/lib/fact-worker-composition';
+import { primaryFactCategory, stopsForFact } from '@/lib/fact-stops';
 
 export type AcceptLineResult =
   | { success: true }
@@ -476,7 +477,17 @@ export async function reportProductionFact(
     const categoryById = new Map(consumedProducts.map((p) => [p.id, p.category]));
 
     const createdFacts: ProductionFact[] = [];
+    // ОПЭ-73: простой пишется ОДИН раз — на факт основной категории (правило одно,
+    // то же, что у `pickPrimaryFact` для состава и потребления).
+    const primaryCategory = primaryFactCategory(
+      Object.keys(outputByCategory),
+      line.product.category,
+    );
     for (const [category, quantity] of Object.entries(outputByCategory) as [FactCategoryInput, Prisma.Decimal][]) {
+      const factStops = stopsForFact(category, primaryCategory, {
+        count: stopsCount,
+        durationMinutes: stopsDurationMinutes,
+      });
       const fact = await tx.productionFact.upsert({
         where: { lineId_factCategory: { lineId, factCategory: category } },
         create: {
@@ -486,8 +497,8 @@ export async function reportProductionFact(
           quantity,
           defectQuantity,
           defectReasonId: input.defectReasonId ?? null,
-          stopsCount,
-          stopsDurationMinutes,
+          stopsCount: factStops.count,
+          stopsDurationMinutes: factStops.durationMinutes,
           recordedAt: now,
           reportedAt: now,
           reportedByUserId: session.userId,
@@ -498,8 +509,8 @@ export async function reportProductionFact(
           quantity,
           defectQuantity,
           defectReasonId: input.defectReasonId ?? null,
-          stopsCount,
-          stopsDurationMinutes,
+          stopsCount: factStops.count,
+          stopsDurationMinutes: factStops.durationMinutes,
           recordedAt: now,
           reportedAt: now,
           reportedByUserId: session.userId,
@@ -886,7 +897,17 @@ export async function correctFactByOperator(
     const categoryById = new Map(relatedProducts.map((p) => [p.id, p.category]));
 
     const createdFacts: ProductionFact[] = [];
+    // ОПЭ-73: простой пишется ОДИН раз — на факт основной категории (правило одно,
+    // то же, что у `pickPrimaryFact` для состава и потребления).
+    const primaryCategory = primaryFactCategory(
+      Object.keys(outputByCategory),
+      line.product.category,
+    );
     for (const [category, quantity] of Object.entries(outputByCategory) as [FactCategoryInput, Prisma.Decimal][]) {
+      const factStops = stopsForFact(category, primaryCategory, {
+        count: stopsCount,
+        durationMinutes: stopsDurationMinutes,
+      });
       const fact = await tx.productionFact.upsert({
         where: { lineId_factCategory: { lineId, factCategory: category } },
         create: {
@@ -896,8 +917,8 @@ export async function correctFactByOperator(
           quantity,
           defectQuantity,
           defectReasonId: input.defectReasonId ?? null,
-          stopsCount,
-          stopsDurationMinutes,
+          stopsCount: factStops.count,
+          stopsDurationMinutes: factStops.durationMinutes,
           recordedAt: now,
           reportedAt: now,
           reportedByUserId: session.userId,
@@ -908,8 +929,8 @@ export async function correctFactByOperator(
           quantity,
           defectQuantity,
           defectReasonId: input.defectReasonId ?? null,
-          stopsCount,
-          stopsDurationMinutes,
+          stopsCount: factStops.count,
+          stopsDurationMinutes: factStops.durationMinutes,
           recordedAt: now,
           reportedAt: now,
           reportedByUserId: session.userId,

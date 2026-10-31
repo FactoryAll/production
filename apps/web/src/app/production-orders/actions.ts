@@ -49,6 +49,7 @@ import {
 } from '@/lib/production-order-closing';
 import { pickPrimaryFact, saveWorkerComposition } from '@/lib/fact-worker-composition';
 import type { WorkerCompositionInput } from '@/lib/worker-composition';
+import { primaryFactCategory, stopsForFact } from '@/lib/fact-stops';
 
 export type CreateProductionOrderResult =
   | { success: true; id: string }
@@ -806,7 +807,14 @@ export async function substituteOperator(
 
     const createdFacts: ProductionFact[] = [];
     const now = new Date();
+    // ОПЭ-73: простои — один раз на линию, на основной факт (то же правило, что pickPrimaryFact).
+    const primaryCategory = primaryFactCategory(Object.keys(outputByCategory), line.product.category);
     for (const [category, quantity] of Object.entries(outputByCategory) as ['MASS' | 'GP' | 'PF', Prisma.Decimal][]) {
+      // ОПЭ-73: простой пишется ОДИН раз — на факт основной категории строки.
+      const factStops = stopsForFact(category, primaryCategory, {
+        count: stopsCount,
+        durationMinutes: stopsDurationMinutes,
+      });
       const fact = await tx.productionFact.upsert({
         where: { lineId_factCategory: { lineId, factCategory: category } },
         create: {
@@ -816,8 +824,8 @@ export async function substituteOperator(
           quantity,
           defectQuantity,
           defectReasonId: input.defectReasonId ?? null,
-          stopsCount,
-          stopsDurationMinutes,
+          stopsCount: factStops.count,
+          stopsDurationMinutes: factStops.durationMinutes,
           recordedAt: now,
           reportedAt: now,
           reportedByUserId: userId,
@@ -829,8 +837,8 @@ export async function substituteOperator(
           quantity,
           defectQuantity,
           defectReasonId: input.defectReasonId ?? null,
-          stopsCount,
-          stopsDurationMinutes,
+          stopsCount: factStops.count,
+          stopsDurationMinutes: factStops.durationMinutes,
           recordedAt: now,
           reportedAt: now,
           reportedByUserId: userId,
