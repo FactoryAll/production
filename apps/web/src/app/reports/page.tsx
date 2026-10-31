@@ -42,6 +42,12 @@ const REPORTS = [
     description:
       'Незакрытые ПЗ за период: сколько висят, какие РЦ не отметились, кто просрочен сверх срока.',
   },
+  {
+    href: '/reports/employee-output',
+    title: 'Выработка по сотрудникам',
+    description:
+      'Сколько выпущено операторами и работниками за период: Масса, ГП, ПФ и брак по категориям.',
+  },
 ];
 
 export default async function ReportsPage() {

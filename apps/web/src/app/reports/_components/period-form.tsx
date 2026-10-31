@@ -27,6 +27,8 @@ export function PeriodForm({
   weeks,
   shifts,
   category,
+  workCenters,
+  workCenter,
 }: {
   action: string;
   /** Режим, с которым отчёт открыт сейчас. */
@@ -43,6 +45,9 @@ export function PeriodForm({
   shifts: Array<{ id: string; label: string; date: string }>;
   /** Если задано — показываем выбор категории выпуска (отчёт по номенклатуре). */
   category?: string;
+  /** Если задано — показываем фильтр по РЦ (отчёт «Выработка по сотрудникам», T-097). */
+  workCenters?: Array<{ id: string; label: string }>;
+  workCenter?: string;
 }) {
   const [mode, setMode] = useState(period);
   // Выбранная неделя: понедельник в формате ГГГГ-ММ-ДД. По умолчанию — неделя, в которой
@@ -235,6 +240,24 @@ export function PeriodForm({
             </>
           )}
         </>
+      )}
+
+      {workCenters !== undefined && (
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-steel-graphite">РЦ</span>
+          <select
+            name="workCenterId"
+            defaultValue={workCenter ?? ''}
+            className="h-10 max-w-[18rem] rounded-md border border-mist-metal bg-white px-3 text-base text-graphite"
+          >
+            <option value="">Все РЦ</option>
+            {workCenters.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
       )}
 
       {category !== undefined && (
