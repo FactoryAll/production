@@ -15,11 +15,27 @@ export const NOTIFICATION_STREAM_INTERVAL_MS = 5000;
  */
 export const NOTIFICATION_STREAM_PING_MS = 15000;
 
+export interface NotificationStreamLatest {
+  id: string;
+  /** Заголовок последнего уведомления — для системного окна на рабочем столе. */
+  title: string;
+  body: string | null;
+  /** Куда вести по клику (deep-link события). */
+  deepLink: string | null;
+}
+
 export interface NotificationStreamPayload {
   /** Количество непрочитанных уведомлений пользователя. */
   unreadCount: number;
   /** Идентификатор последнего уведомления — признак появления нового. */
   latestId: string | null;
+  /**
+   * Текст и ссылка последнего уведомления (уровень 1, 01.11.2026).
+   *
+   * Раньше кадр нёс только счётчик и id, и системному уведомлению было нечего показать.
+   * Поле необязательное: старые клиенты его игнорируют, канал остаётся совместимым.
+   */
+  latest?: NotificationStreamLatest | null;
 }
 
 /** Кадр SSE: строка "data: <json>" и пустая строка после неё. */

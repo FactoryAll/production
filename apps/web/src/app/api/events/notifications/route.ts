@@ -46,13 +46,22 @@ export async function GET(): Promise<Response> {
           prisma.notification.findFirst({
             where: { recipientId },
             orderBy: { createdAt: 'desc' },
-            select: { id: true },
+            // Текст и ссылка нужны клиенту для системного уведомления (уровень 1, 01.11.2026).
+            select: { id: true, title: true, body: true, deepLink: true },
           }),
         ]);
 
         const payload: NotificationStreamPayload = {
           unreadCount,
           latestId: latest?.id ?? null,
+          latest: latest
+            ? {
+                id: latest.id,
+                title: latest.title,
+                body: latest.body,
+                deepLink: latest.deepLink,
+              }
+            : null,
         };
 
         if (previous && !isNotificationStreamChanged(previous, payload)) {

@@ -41,7 +41,12 @@ describe('SSE-канал центра уведомлений (M09 T-045)', () =>
       user: { id: 'user-1', roles: [{ role: { code: 'KSGP' } }] },
     });
     (prisma.notification.count as ReturnType<typeof vi.fn>).mockResolvedValue(2);
-    (prisma.notification.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'n-5' });
+    (prisma.notification.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 'n-5',
+      title: 'Новая задача 1С',
+      body: 'ПЗ 1234',
+      deepLink: '/onec/task-1',
+    });
 
     const response = await GET();
 
@@ -50,7 +55,23 @@ describe('SSE-канал центра уведомлений (M09 T-045)', () =>
     expect(response.headers.get('X-Accel-Buffering')).toBe('no');
 
     const chunk = await readFirstChunk(response);
-    expect(chunk).toBe('data: ' + JSON.stringify({ unreadCount: 2, latestId: 'n-5' }) + String.fromCharCode(10) + String.fromCharCode(10));
+    // Кадр несёт текст и ссылку последнего уведомления — из них строится системное окно
+    // на рабочем столе (уровень 1, 01.11.2026).
+    expect(chunk).toBe(
+      'data: ' +
+        JSON.stringify({
+          unreadCount: 2,
+          latestId: 'n-5',
+          latest: {
+            id: 'n-5',
+            title: 'Новая задача 1С',
+            body: 'ПЗ 1234',
+            deepLink: '/onec/task-1',
+          },
+        }) +
+        String.fromCharCode(10) +
+        String.fromCharCode(10),
+    );
 
     expect(prisma.notification.count).toHaveBeenCalledWith({
       where: { recipientId: 'user-1', readAt: null },
@@ -68,6 +89,11 @@ describe('SSE-канал центра уведомлений (M09 T-045)', () =>
     const response = await GET();
     const chunk = await readFirstChunk(response);
 
-    expect(chunk).toBe('data: ' + JSON.stringify({ unreadCount: 0, latestId: null }) + String.fromCharCode(10) + String.fromCharCode(10));
+    expect(chunk).toBe(
+      'data: ' +
+        JSON.stringify({ unreadCount: 0, latestId: null, latest: null }) +
+        String.fromCharCode(10) +
+        String.fromCharCode(10),
+    );
   });
 });
