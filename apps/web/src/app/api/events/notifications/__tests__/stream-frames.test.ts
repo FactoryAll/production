@@ -28,14 +28,27 @@ describe('SSE-канал: кадры после первого', () => {
 
   it('шлёт keep-alive каждые 15 секунд, а изменения — на каждом опросе', async () => {
     (prisma.notification.count as ReturnType<typeof vi.fn>).mockResolvedValue(1);
-    (prisma.notification.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'n-1' });
+    (prisma.notification.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 'n-1',
+      title: 'Смена началась',
+      body: null,
+      deepLink: '/shift-execution',
+    });
 
     const response = await GET();
     const reader = response.body!.getReader();
 
-    // 1) первый кадр — текущее состояние
+    // 1) первый кадр — текущее состояние, вместе с текстом для системного уведомления
     const first = await reader.read();
-    expect(decode(first.value)).toBe('data: ' + JSON.stringify({ unreadCount: 1, latestId: 'n-1' }) + String.fromCharCode(10, 10));
+    expect(decode(first.value)).toBe(
+      'data: ' +
+        JSON.stringify({
+          unreadCount: 1,
+          latestId: 'n-1',
+          latest: { id: 'n-1', title: 'Смена началась', body: null, deepLink: '/shift-execution' },
+        }) +
+        String.fromCharCode(10, 10),
+    );
 
     // 2) через 15 секунд — служебный кадр
     await vi.advanceTimersByTimeAsync(NOTIFICATION_STREAM_PING_MS);

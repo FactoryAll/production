@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { dbCodeToEventCode } from '@prodtrack/contracts';
 import { Card } from '@prodtrack/ui';
+import { subscribeToNotificationStream } from '@/lib/notifications/stream-client';
 import { markNotificationReadAction } from './actions';
 import {
   describeNotification,
@@ -32,29 +33,19 @@ export default function NotificationsPage({
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
 
-  // Real-time: SSE-канал M09 обновляет список и счётчик без перезагрузки страницы.
+  // Real-time: канал общий на всё приложение (уровень 1, 01.11.2026). Своё соединение
+  // страница больше не открывает — второй EventSource на /notifications был дефектом.
   useEffect(() => {
-    if (refreshIntervalMs <= 0 || typeof EventSource === 'undefined') {
+    if (refreshIntervalMs <= 0) {
       return undefined;
     }
 
-    const source = new EventSource('/api/events/notifications');
-    source.onmessage = (event: MessageEvent<string>) => {
-      try {
-        const payload = JSON.parse(event.data) as { unreadCount: number; latestId: string | null };
-        const latestId = notifications[0]?.id ?? null;
-        if (payload.unreadCount !== unreadCount || payload.latestId !== latestId) {
-          router.refresh();
-        }
-      } catch {
-        // Некорректный кадр канала не должен ломать экран.
+    return subscribeToNotificationStream((frame) => {
+      const latestId = notifications[0]?.id ?? null;
+      if (frame.unreadCount !== unreadCount || frame.latestId !== latestId) {
+        router.refresh();
       }
-    };
-    source.onerror = () => {
-      // Канал сам переподключится; падать не нужно.
-    };
-
-    return () => source.close();
+    });
   }, [notifications, refreshIntervalMs, router, unreadCount]);
 
   async function handleOpen(item: NotificationItem) {

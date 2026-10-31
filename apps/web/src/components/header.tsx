@@ -3,6 +3,7 @@ import { LogoutButton } from './logout-button';
 import { getAdminNavItems, getNavItems, getNsiNavItems } from './nav-items';
 import { roleCanReceiveEvents } from '@prodtrack/contracts';
 import { UnreadBadge } from './unread-badge';
+import { NotificationBridge } from './notification-bridge';
 
 interface HeaderProps {
   user: {
@@ -88,6 +89,9 @@ export function Header({ user, unreadCount = 0 }: HeaderProps) {
 
         <div className="flex shrink-0 items-center gap-4">
           {showNotifications && <UnreadBadge initialCount={unreadCount} />}
+          {/* Мост уведомлений: одно соединение на всё приложение, разрешение — по кнопке
+              (уровень 1, 01.11.2026). Стоит рядом с колокольчиком. */}
+          {showNotifications && <NotificationBridge />}
           {/* Логин прячется раньше (lg, а не sm): узкой полосе шапки сначала нужен бренд и меню. */}
           <span className="hidden text-sm text-neutral-300 lg:inline">
             {user.login}

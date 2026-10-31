@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { subscribeToNotificationStream } from '@/lib/notifications/stream-client';
 
 /**
  * Счётчик непрочитанных уведомлений в шапке (M09 §8).
@@ -18,26 +19,12 @@ export function UnreadBadge({ initialCount }: { initialCount: number }) {
   }, [initialCount]);
 
   useEffect(() => {
-    if (typeof EventSource === 'undefined') {
-      return undefined;
-    }
-
-    const source = new EventSource('/api/events/notifications');
-    source.onmessage = (event: MessageEvent<string>) => {
-      try {
-        const payload = JSON.parse(event.data) as { unreadCount: number };
-        if (typeof payload.unreadCount === 'number') {
-          setCount(payload.unreadCount);
-        }
-      } catch {
-        // Некорректный кадр не должен ломать шапку.
+    // Канал общий на всё приложение (уровень 1, 01.11.2026): второго EventSource больше нет.
+    return subscribeToNotificationStream((frame) => {
+      if (typeof frame.unreadCount === 'number') {
+        setCount(frame.unreadCount);
       }
-    };
-    source.onerror = () => {
-      // Канал переподключается сам; счётчик остаётся последним известным.
-    };
-
-    return () => source.close();
+    });
   }, []);
 
   return (
