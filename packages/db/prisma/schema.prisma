@@ -284,6 +284,7 @@ model ProductionOrderLine {
   facts             ProductionFact[]
 
   @@map("production_order_lines")
+  transferLines TransferLine[] @relation("LineTransfers")
 }
 
 model ProductionOrderLineWorkers {
@@ -522,7 +523,13 @@ model TransferLine {
 
   discrepancies Discrepancy[]
 
-  @@map("transfer_lines")
+  @@map("transfer_lines")  /// Строка ПЗ, из которой создано перемещение (T-103, решение владельца 30.10.2026).
+  /// Нужна доске: без неё этапы «создано / отправлено / принято» нельзя достоверно
+  /// положить на карточку ПЗ. У перемещений, созданных вручную, поле пустое.
+  productionOrderLineId String?
+  productionOrderLine   ProductionOrderLine? @relation("LineTransfers", fields: [productionOrderLineId], references: [id], onDelete: SetNull)
+
+  @@index([productionOrderLineId])
 }
 
 model Discrepancy {
