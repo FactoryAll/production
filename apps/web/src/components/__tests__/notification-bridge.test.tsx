@@ -120,12 +120,14 @@ describe('мост: когда показывать', () => {
     emitFrame(frame('n-2'));
 
     expect(showDesktopNotification).toHaveBeenCalledTimes(1);
-    expect(showDesktopNotification).toHaveBeenCalledWith({
-      id: 'n-2',
-      title: 'Новая задача 1С',
-      body: 'ПЗ 1234',
-      deepLink: '/onec/task-1',
-    });
+    expect(showDesktopNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'n-2',
+        title: 'Новая задача 1С',
+        body: 'ПЗ 1234',
+        deepLink: '/onec/task-1',
+      }),
+    );
   });
 
   it('повторный кадр с тем же id — тишина', () => {
@@ -220,6 +222,72 @@ describe('мост: когда показывать', () => {
     emitFrame(frame('n-3'));
 
     expect(showDesktopNotification).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('мост: одно окно и счётчик заменённых', () => {
+  it('второе событие поверх висящего окна дописывает «и ещё 1»', () => {
+    window.localStorage.setItem(
+      NOTIFICATION_SETTINGS_KEY,
+      JSON.stringify({ desktop: true, sound: false }),
+    );
+    render(<NotificationBridge />);
+
+    emitFrame(frame('n-1'));
+    emitFrame(frame('n-2'));
+    emitFrame(frame('n-3'));
+
+    const bodies = showDesktopNotification.mock.calls.map(
+      (call) => (call[0] as { body: string | null }).body,
+    );
+    expect(bodies).toEqual(['ПЗ 1234', 'ПЗ 1234 (и ещё 1)']);
+  });
+
+  it('счётчик сбрасывается, когда пользователь открыл уведомление', () => {
+    window.localStorage.setItem(
+      NOTIFICATION_SETTINGS_KEY,
+      JSON.stringify({ desktop: true, sound: false }),
+    );
+    render(<NotificationBridge />);
+
+    emitFrame(frame('n-1'));
+    emitFrame(frame('n-2'));
+    // Пользователь кликнул по окну — вызываем переданный обработчик, как это делает модуль.
+    const firstCall = showDesktopNotification.mock.calls[0][0] as { onOpen?: () => void };
+    act(() => {
+      firstCall.onOpen?.();
+    });
+    emitFrame(frame('n-3'));
+
+    const lastBody = (
+      showDesktopNotification.mock.calls.at(-1)?.[0] as { body: string | null }
+    ).body;
+    expect(lastBody).toBe('ПЗ 1234');
+  });
+
+  it('возврат во вкладку сбрасывает счётчик заменённых', () => {
+    window.localStorage.setItem(
+      NOTIFICATION_SETTINGS_KEY,
+      JSON.stringify({ desktop: true, sound: false }),
+    );
+    render(<NotificationBridge />);
+
+    emitFrame(frame('n-1'));
+    emitFrame(frame('n-2'));
+    setHidden(true);
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    setHidden(false);
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    emitFrame(frame('n-3'));
+
+    const lastBody = (
+      showDesktopNotification.mock.calls.at(-1)?.[0] as { body: string | null }
+    ).body;
+    expect(lastBody).toBe('ПЗ 1234');
   });
 });
 

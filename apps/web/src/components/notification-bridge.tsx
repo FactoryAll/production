@@ -41,6 +41,10 @@ export function NotificationBridge() {
   const [panelOpen, setPanelOpen] = useState(false);
   // Последний известный id: null — канал ещё не давал кадров (первый кадр всегда молчит).
   const lastSeenId = useRef<string | null>(null);
+  // Сколько событий пришло, пока окно висело неоткрытым. Окно одно (общий тег), поэтому
+  // счётчик — единственный способ сказать «было ещё N». Сбрасывается, когда пользователь
+  // открыл уведомление или вернулся во вкладку.
+  const pendingCount = useRef(0);
   const settingsRef = useRef(settings);
 
   useEffect(() => {
@@ -50,6 +54,17 @@ export function NotificationBridge() {
   useEffect(() => {
     setSettings(readNotificationSettings());
     setPermission(notificationPermission());
+  }, []);
+
+  // Возврат во вкладку — пользователь вернулся в трекер: счётчик заменённых окон больше не нужен.
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (!document.hidden) {
+        pendingCount.current = 0;
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, []);
 
   useEffect(() => {
@@ -70,11 +85,17 @@ export function NotificationBridge() {
         playNotificationSound();
       }
       if (settingsRef.current.desktop && latest !== null) {
+        pendingCount.current += 1;
+        const more = pendingCount.current - 1;
         showDesktopNotification({
           id: latest.id,
           title: latest.title,
-          body: latest.body,
+          // Окно одно: без счётчика заменённое событие исчезло бы бесследно.
+          body: more > 0 ? `${latest.body ?? ''} (и ещё ${more})`.trim() : latest.body,
           deepLink: latest.deepLink,
+          onOpen: () => {
+            pendingCount.current = 0;
+          },
         });
       }
     });

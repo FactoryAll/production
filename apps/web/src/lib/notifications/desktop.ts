@@ -5,11 +5,21 @@
  * не реализована, и без отделяемого вызова её нечем проверить.
  */
 
+/**
+ * Общий тег окна: все уведомления приложения занимают ОДНО системное окно (решение
+ * 01.11.2026, см. `docs/notifications_desktop.md` §9). Новое событие заменяет предыдущее,
+ * а не встаёт в стопку: с `requireInteraction` окна висят до действия пользователя, и
+ * десяток событий превратился бы в десяток окон поверх работы.
+ */
+export const NOTIFICATION_TAG = 'prodtrack-notifications';
+
 export interface DesktopNotificationInput {
   id: string;
   title: string;
   body: string | null;
   deepLink: string | null;
+  /** Пользователь открыл уведомление (клик) — повод сбросить счётчик «и ещё N». */
+  onOpen?: () => void;
 }
 
 /** Поддерживает ли браузер системные уведомления. */
@@ -64,16 +74,26 @@ export function showDesktopNotification(
   }
 
   const notification = new window.Notification(input.title, {
-    // tag склеивает одинаковые уведомления: одно событие — одно окно, без пачки.
-    tag: input.id,
+    // Один тег на приложение: новое событие заменяет окно, а не добавляет второе.
+    tag: NOTIFICATION_TAG,
     body: input.body ?? undefined,
     icon: '/logo-mark.svg',
+    // Окно висит до действия пользователя (решение владельца 01.11.2026): он мог отойти,
+    // и самоисчезнувшее окно означало бы «уведомление было, но вы его не увидели».
+    // Safari и часть мобильных браузеров параметр игнорируют — там окно скроется само,
+    // это ограничение платформы, а не дефект.
+    requireInteraction: true,
   });
 
   notification.onclick = () => {
+    input.onOpen?.();
     openNotificationTarget(input.deepLink);
     notification.close();
   };
+
+  // Закрытие крестиком ничего не открывает: пользователь сказал «убрать окно», а не
+  // «перейти в приложение». Обработчик оставлен пустым осознанно — так проверяется тестом.
+  notification.onclose = () => undefined;
 
   return notification;
 }

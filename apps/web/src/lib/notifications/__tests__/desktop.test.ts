@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+  NOTIFICATION_TAG,
   notificationPermission,
   openNotificationTarget,
   showDesktopNotification,
@@ -97,7 +98,7 @@ describe('показ уведомления', () => {
     expect(created).toHaveLength(0);
   });
 
-  it('при разрешении создаётся окно с title, body, tag и icon', () => {
+  it('при разрешении создаётся окно с title, body, общим tag и icon', () => {
     const result = showDesktopNotification({
       id: 'n-42',
       title: 'Новая задача 1С',
@@ -110,10 +111,16 @@ describe('показ уведомления', () => {
     expect(created[0].title).toBe('Новая задача 1С');
     expect(created[0].options).toMatchObject({
       body: 'ПЗ 1234',
-      // tag = id: одно событие — одно окно, без пачки.
-      tag: 'n-42',
+      // Общий тег: новое событие заменяет окно, а не встаёт вторым.
+      tag: NOTIFICATION_TAG,
       icon: '/logo-mark.svg',
     });
+  });
+
+  // Решение владельца 01.11.2026: окно не сворачивается само — пользователь мог отойти.
+  it('окно не закрывается само: requireInteraction = true', () => {
+    showDesktopNotification({ id: 'n-1', title: 'T', body: 'B', deepLink: '/x' });
+    expect(created[0].options.requireInteraction).toBe(true);
   });
 
   it('без body окно всё равно создаётся', () => {
@@ -148,6 +155,35 @@ describe('клик по уведомлению', () => {
     notification?.onclick?.call(notification, new Event('click') as never);
 
     expect(assign).toHaveBeenCalledWith('/notifications');
+  });
+
+  it('закрытие крестиком не открывает приложение', () => {
+    const notification = showDesktopNotification({
+      id: 'n-9',
+      title: 'T',
+      body: null,
+      deepLink: '/production-orders/po-1',
+    });
+
+    notification?.onclose?.call(notification, new Event('close') as never);
+
+    expect(assign).not.toHaveBeenCalled();
+    expect(focus).not.toHaveBeenCalled();
+  });
+
+  it('клик сообщает вызывающему коду, что уведомление открыто', () => {
+    const onOpen = vi.fn();
+    const notification = showDesktopNotification({
+      id: 'n-10',
+      title: 'T',
+      body: null,
+      deepLink: '/x',
+      onOpen,
+    });
+
+    notification?.onclick?.call(notification, new Event('click') as never);
+
+    expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
   it('переход по ссылке выносит фокус и навигацию отдельной функцией', () => {
