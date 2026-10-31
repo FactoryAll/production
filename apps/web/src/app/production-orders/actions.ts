@@ -1547,6 +1547,15 @@ export async function getProductionOrderById(id: string) {
                 employee: true,
               },
             },
+            // С T-103 строка знает свои перемещения: по ним карточка показывает, что
+            // перемещение уже создано, и ведёт на него (без блокировки второй попытки).
+            transferLines: {
+              select: {
+                id: true,
+                goodsTransferId: true,
+                goodsTransfer: { select: { status: true } },
+              },
+            },
           },
         },
       },
@@ -1560,6 +1569,13 @@ export async function getProductionOrderById(id: string) {
     // и при вводе итога за Оператора предлагалось всё подряд.
     getConsumableStock(prisma),
   ]);
+
+  // Склады для кнопки «Создать перемещение» (T-103): перемещение ГП идёт
+  // с Производственного склада на Склад ГП (M07).
+  const transferWarehouses = await prisma.warehouse.findMany({
+    where: { type: { in: ['PRODUCTION', 'FINISHED_GOODS'] } },
+    select: { id: true, type: true },
+  });
 
   // Состав работников (T-093): причины неявки и кого можно добавить в состав.
   // Для «Ввода за Оператора» и правки факта НП — те же правила, что у оператора.
@@ -1577,7 +1593,7 @@ export async function getProductionOrderById(id: string) {
   ]);
 
   if (!order) {
-    return { order: null, defectReasons, consumableProducts, absenceReasons, workerCandidates };
+    return { order: null, defectReasons, consumableProducts, absenceReasons, workerCandidates, transferWarehouses };
   }
 
   // ОПР видит только ПЗ, в которых есть строка его РЦ, и только эти строки (свой РЦ, M02).
@@ -1587,7 +1603,14 @@ export async function getProductionOrderById(id: string) {
       ? order.lines.filter((line) => line.operatorId === employeeId)
       : [];
     if (ownLines.length === 0) {
-      return { order: null, defectReasons, consumableProducts, absenceReasons, workerCandidates };
+      return {
+        order: null,
+        defectReasons,
+        consumableProducts,
+        absenceReasons,
+        workerCandidates,
+        transferWarehouses,
+      };
     }
     return {
       order: { ...order, lines: ownLines },
@@ -1595,10 +1618,18 @@ export async function getProductionOrderById(id: string) {
       consumableProducts,
       absenceReasons,
       workerCandidates,
+      transferWarehouses,
     };
   }
 
-  return { order, defectReasons, consumableProducts, absenceReasons, workerCandidates };
+  return {
+    order,
+    defectReasons,
+    consumableProducts,
+    absenceReasons,
+    workerCandidates,
+    transferWarehouses,
+  };
 }
 
 export async function getProductionOrders() {

@@ -106,6 +106,7 @@ function makeOrder() {
         operator: null,
         facts: [fact],
         workerAssignments: [],
+        transferLines: [],
       },
     ],
   } as never;
@@ -124,6 +125,7 @@ describe('Корректировка факта: потребление (T-073, 
         consumableProducts={[massProduct] as never}
       absenceReasons={[]}
       workerCandidates={[]}
+      transferWarehouses={[]}
         userRoles={['NP']}
       />,
     );
@@ -141,6 +143,7 @@ describe('Корректировка факта: потребление (T-073, 
         consumableProducts={[massProduct] as never}
       absenceReasons={[]}
       workerCandidates={[]}
+      transferWarehouses={[]}
         userRoles={['NP']}
       />,
     );
@@ -165,6 +168,7 @@ describe('Корректировка факта: потребление (T-073, 
         consumableProducts={[massProduct] as never}
       absenceReasons={[]}
       workerCandidates={[]}
+      transferWarehouses={[]}
         userRoles={['NP']}
       />,
     );
@@ -196,6 +200,7 @@ describe('Корректировка факта: потребление (T-073, 
         consumableProducts={[massProduct] as never}
       absenceReasons={[]}
       workerCandidates={[]}
+      transferWarehouses={[]}
         userRoles={['NP']}
       />,
     );
@@ -228,6 +233,7 @@ describe('Корректировка факта: потребление (T-073, 
         consumableProducts={[massProduct] as never}
       absenceReasons={[]}
       workerCandidates={[]}
+      transferWarehouses={[]}
         userRoles={['NP']}
       />,
     );

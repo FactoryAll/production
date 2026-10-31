@@ -36,6 +36,13 @@ export interface TransferLineInput {
   plannedQuantity: number;
   /** Необязательный комментарий к строке (фидбэк ОПЭ, 13.10.2026). */
   comment?: string;
+  /**
+   * Строка ПЗ, из которой создано перемещение (T-103, решение владельца 30.10.2026).
+   * Заполняется, когда перемещение создают из строки ПЗ; у ручных перемещений пусто.
+   * Нужна доске контура: без неё этапы «создано / отправлено / принято» нельзя достоверно
+   * положить на карточку ПЗ.
+   */
+  productionOrderLineId?: string | null;
 }
 
 
@@ -144,7 +151,12 @@ async function validateCreateInput(
 ): Promise<{
   warehouses: Warehouse[];
   products: Product[];
-  parsedLines: { productId: string; plannedQuantity: Prisma.Decimal; comment: string | null }[];
+  parsedLines: {
+    productId: string;
+    plannedQuantity: Prisma.Decimal;
+    comment: string | null;
+    productionOrderLineId: string | null;
+  }[];
 }> {
   const { sourceWarehouseId, destinationWarehouseId, lines } = input;
 
@@ -178,8 +190,26 @@ async function validateCreateInput(
   });
   const productById = new Map(products.map((p) => [p.id, p]));
 
+  // Строки ПЗ, к которым привязываются строки перемещения (T-103).
+  const orderLineIds = [
+    ...new Set(lines.map((line) => line.productionOrderLineId).filter((id): id is string => Boolean(id))),
+  ];
+  const orderLines =
+    orderLineIds.length > 0
+      ? await client.productionOrderLine.findMany({
+          where: { id: { in: orderLineIds } },
+          select: { id: true, productId: true, order: { select: { status: true } } },
+        })
+      : [];
+  const orderLineById = new Map(orderLines.map((line) => [line.id, line]));
+
   const seenProducts = new Set<string>();
-  const parsedLines: { productId: string; plannedQuantity: Prisma.Decimal; comment: string | null }[] = [];
+  const parsedLines: {
+    productId: string;
+    plannedQuantity: Prisma.Decimal;
+    comment: string | null;
+    productionOrderLineId: string | null;
+  }[] = [];
 
   for (const line of lines) {
     if (!line.productId) {
@@ -214,10 +244,27 @@ async function validateCreateInput(
       );
     }
 
+    // Привязка к строке ПЗ: строка должна существовать и говорить о той же номенклатуре.
+    // Иначе доска показала бы перемещение в карточке чужой строки.
+    const orderLineId = line.productionOrderLineId?.trim() || null;
+    if (orderLineId) {
+      const orderLine = orderLineById.get(orderLineId);
+      if (!orderLine) {
+        throw new Error('Строка ПЗ не найдена');
+      }
+      if (orderLine.order.status === 'CANCELLED') {
+        throw new Error('ПЗ отменено — привязать перемещение к его строке нельзя');
+      }
+      if (orderLine.productId !== product.id) {
+        throw new Error('Номенклатура строки перемещения не совпадает с номенклатурой строки ПЗ');
+      }
+    }
+
     parsedLines.push({
       productId: product.id,
       plannedQuantity: quantity,
       comment: comment.length > 0 ? comment : null,
+      productionOrderLineId: orderLineId,
     });
   }
 
@@ -249,6 +296,7 @@ export async function createGoodsTransfer(
             productId: line.productId,
             plannedQuantity: line.plannedQuantity,
             comment: line.comment,
+            productionOrderLineId: line.productionOrderLineId,
           })),
         },
       },
@@ -268,6 +316,8 @@ export async function createGoodsTransfer(
         lines: parsedLines.map((line) => ({
           productId: line.productId,
           plannedQuantity: line.plannedQuantity.toNumber(),
+          // Привязка к строке ПЗ — в аудите: по ней потом восстанавливают, откуда пришло перемещение.
+          productionOrderLineId: line.productionOrderLineId,
         })),
       }),
       userId,

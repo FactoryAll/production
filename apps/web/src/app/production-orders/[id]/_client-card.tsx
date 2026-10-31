@@ -52,6 +52,12 @@ interface ProductionOrderCardProps {
           }
         >;
         workerAssignments: Array<ProductionOrderLineWorkers & { employee: Employee }>;
+        /** Привязанные перемещения (T-103): карточка показывает, что перемещение уже создано. */
+        transferLines: Array<{
+          id: string;
+          goodsTransferId: string;
+          goodsTransfer: { status: string };
+        }>;
       }
     >;
   };
@@ -72,6 +78,8 @@ interface ProductionOrderCardProps {
   absenceReasons: Array<{ id: string; code: string; name: string }>;
   /** Кого можно добавить в состав, если назначение не совпало с выходом. */
   workerCandidates: Array<{ id: string; fullName: string; tabNumber: string }>;
+  /** Склады для кнопки «Создать перемещение» (T-103): производственный и склад ГП. */
+  transferWarehouses: Array<{ id: string; type: 'PRODUCTION' | 'FINISHED_GOODS' }>;
   userRoles: string[];
 }
 
@@ -207,6 +215,15 @@ interface CardWorkerRow {
   absenceReasonId: string;
   comment: string;
 }
+
+const TRANSFER_STATUS_LABELS: Record<string, string> = {
+  DRAFT: 'черновик',
+  SUBMITTED: 'отправлено',
+  RECEIVED: 'принято',
+  DISCREPANCY: 'расхождение',
+  RECONCILED: 'согласовано',
+  CANCELLED: 'отменено',
+};
 
 const SUBSTITUTION_REASON_OPTIONS = [
   { value: 'ILLNESS', label: 'Болезнь' },
@@ -365,6 +382,7 @@ export default function ProductionOrderCard({
   consumableProducts,
   absenceReasons,
   workerCandidates,
+  transferWarehouses,
   userRoles,
 }: ProductionOrderCardProps) {
   const router = useRouter();
@@ -408,6 +426,37 @@ export default function ProductionOrderCard({
     editableStatuses.includes(order.status) && !hasReportedLine && hasPermission(userRoles, 'production_order:update');
   const canSubstitute = hasPermission(userRoles, 'production_order:confirm') && !isDraft && !isCancelled;
   const canCorrectFact = isCompleted && hasPermission(userRoles, 'production_order:confirm');
+  // Перемещение ГП из строки ПЗ (T-103): только тому, кто вправе его создать.
+  const canCreateTransfer = hasPermission(userRoles, 'transfer:create');
+
+  /** Факт ГП по строке — количество для предзаполнения перемещения (T-103). */
+  function gpFactOfLine(line: { facts: Array<{ factCategory: string; quantity: { toString(): string } }> }): string {
+    const total = line.facts
+      .filter((fact) => fact.factCategory === 'GP')
+      .reduce((sum, fact) => sum + Number(fact.quantity.toString()), 0);
+    return total > 0 ? String(total) : '';
+  }
+
+  /**
+   * Ссылка «Создать перемещение» из строки ПЗ: номенклатура строки, количество — **факт ГП**
+   * (а не план), строка ПЗ и склады по умолчанию (Производственный → Склад ГП).
+   */
+  function transferCreateHref(line: ProductionOrderLine): string {
+    const production = transferWarehouses.find((warehouse) => warehouse.type === 'PRODUCTION');
+    const finishedGoods = transferWarehouses.find((warehouse) => warehouse.type === 'FINISHED_GOODS');
+    const quantity = gpFactOfLine(line as unknown as { facts: Array<{ factCategory: string; quantity: { toString(): string } }> });
+    const params = new URLSearchParams({ productId: line.productId, productionOrderLineId: line.id });
+    if (quantity) {
+      params.set('quantity', quantity);
+    }
+    if (production) {
+      params.set('sourceWarehouseId', production.id);
+    }
+    if (finishedGoods) {
+      params.set('destinationWarehouseId', finishedGoods.id);
+    }
+    return `/transfers/new?${params.toString()}`;
+  }
   const canViewShiftReport = isCompleted && hasPermission(userRoles, 'production_order:read');
   const canCancel =
     (order.status === 'DRAFT' || order.status === 'CONFIRMED') &&
@@ -934,6 +983,34 @@ export default function ProductionOrderCard({
                       >
                         Ввести за Оператора
                       </Button>
+                    )}
+                    {canCreateTransfer && line.product.category === 'GP' && (
+                      <div className="space-y-1">
+                        <Link href={transferCreateHref(line)}>
+                          <Button variant="secondary" size="sm">
+                            Создать перемещение
+                          </Button>
+                        </Link>
+                        {/* Предупреждение, а не блокировка: второе перемещение бывает законным
+                            (возврат на доработку, повторный выпуск по той же строке). */}
+                        {(line.transferLines ?? []).length > 0 && (
+                          <p className="text-xs text-signal-amber">
+                            Уже создано перемещение:{' '}
+                            {(line.transferLines ?? []).map((transfer, index) => (
+                              <span key={transfer.id}>
+                                {index > 0 ? ', ' : ''}
+                                <Link
+                                  href={'/transfers/' + transfer.goodsTransferId}
+                                  className="underline decoration-dotted"
+                                >
+                                  {transfer.goodsTransferId.slice(0, 8)}
+                                </Link>{' '}
+                                ({TRANSFER_STATUS_LABELS[transfer.goodsTransfer.status] ?? transfer.goodsTransfer.status})
+                              </span>
+                            ))}
+                          </p>
+                        )}
+                      </div>
                     )}
                     {canCorrectFact && line.facts.length > 0 && (
                       <div className="space-y-2">

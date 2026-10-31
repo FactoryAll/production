@@ -73,6 +73,7 @@ describe('ProductionOrderCard: ошибка подтверждения ПЗ ви
         consumableProducts={[]}
       absenceReasons={[]}
       workerCandidates={[]}
+      transferWarehouses={[]}
         userRoles={['NP']}
       />,
     );
