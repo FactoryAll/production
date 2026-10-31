@@ -48,6 +48,12 @@ const REPORTS = [
     description:
       'Сколько выпущено операторами и работниками за период: Масса, ГП, ПФ и брак по категориям.',
   },
+  {
+    href: '/reports/defect-stops',
+    title: 'Брак и простои',
+    description:
+      'Брак по причинам и категориям, простои по РЦ и по операторам: остановки, минуты и часы.',
+  },
 ];
 
 export default async function ReportsPage() {
