@@ -60,6 +60,12 @@ const REPORTS = [
     description:
       'Что и сколько списано на производство: по РЦ и по номенклатуре, с категорией остатка.',
   },
+  {
+    href: '/reports/transfers-discrepancies',
+    title: 'Перемещения и расхождения',
+    description:
+      'Цикл перемещения от отправки до приёмки и сроки согласования расхождений по журналу переходов.',
+  },
 ];
 
 export default async function ReportsPage() {
