@@ -22,7 +22,7 @@ services:
       dockerfile: ./apps/web/Dockerfile
       args:
         # Суффикс -dev виден в футере: на скриншоте сразу понятно, дев это или прод.
-        VERSION: v2.6.0-dev
+        VERSION: v2.7.0-dev
     container_name: prodtrack_dev_web
     restart: unless-stopped
     ports:
@@ -31,7 +31,7 @@ services:
       - .env.dev
     environment:
       - NODE_ENV=production
-      - VERSION=v2.6.0-dev
+      - VERSION=v2.7.0-dev
       - TZ=Europe/Moscow
     depends_on:
       postgres:
