@@ -29,6 +29,8 @@ export function PeriodForm({
   category,
   workCenters,
   workCenter,
+  products,
+  product
 }: {
   action: string;
   /** Режим, с которым отчёт открыт сейчас. */
@@ -45,9 +47,12 @@ export function PeriodForm({
   shifts: Array<{ id: string; label: string; date: string }>;
   /** Если задано — показываем выбор категории выпуска (отчёт по номенклатуре). */
   category?: string;
-  /** Если задано — показываем фильтр по РЦ (отчёт «Выработка по сотрудникам», T-097). */
+  /** Если задано — показываем фильтр по РЦ (T-097 «Выработка», T-098 «Потребление»). */
   workCenters?: Array<{ id: string; label: string }>;
   workCenter?: string;
+  /** Если задано — показываем фильтр по номенклатуре (T-098 «Потребление»). */
+  products?: Array<{ id: string; label: string }>;
+  product?: string;
 }) {
   const [mode, setMode] = useState(period);
   // Выбранная неделя: понедельник в формате ГГГГ-ММ-ДД. По умолчанию — неделя, в которой
@@ -61,15 +66,13 @@ export function PeriodForm({
   // чекбоксы другого года исчезают с экрана, но выбранные месяцы теряться не должны
   // (требование владельца 29.10.2026 — можно набрать месяцы разных лет).
   const [selectedMonths, setSelectedMonths] = useState<string[]>(() =>
-    months.length > 0 ? months : [currentMonth()],
+    months.length > 0 ? months : [currentMonth()]
   );
   const [year, setYear] = useState(() => defaultMonthYear(monthsAvailable));
 
   const years = yearsOf(monthsAvailable);
   const visibleMonths = monthsOfYear(monthsAvailable, year);
-  const monthsOutsideYear = selectedMonths.filter(
-    (month) => Number(month.slice(0, 4)) !== year,
-  );
+  const monthsOutsideYear = selectedMonths.filter((month) => Number(month.slice(0, 4)) !== year);
 
   const selectedWeek = weeks.find((option) => option.value === week);
   const selectedShift = shifts.find((shift) => shift.id === shiftId);
@@ -127,7 +130,7 @@ export function PeriodForm({
                         setSelectedMonths((current) =>
                           event.target.checked
                             ? [...current, month].sort()
-                            : current.filter((item) => item !== month),
+                            : current.filter((item) => item !== month)
                         )
                       }
                     />
@@ -144,7 +147,10 @@ export function PeriodForm({
           ))}
 
           <p className="mt-1 text-steel-graphite">
-            Выбрано: {selectedMonths.length > 0 ? selectedMonths.map(monthLabel).join(', ') : 'ни одного месяца'}
+            Выбрано:{' '}
+            {selectedMonths.length > 0
+              ? selectedMonths.map(monthLabel).join(', ')
+              : 'ни одного месяца'}
             {monthsOutsideYear.length > 0
               ? ` (из них не в этом году: ${monthsOutsideYear.map(monthLabel).join(', ')})`
               : ''}
@@ -252,6 +258,24 @@ export function PeriodForm({
           >
             <option value="">Все РЦ</option>
             {workCenters.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      {products !== undefined && (
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-steel-graphite">Номенклатура</span>
+          <select
+            name="productId"
+            defaultValue={product ?? ''}
+            className="h-10 max-w-[18rem] rounded-md border border-mist-metal bg-white px-3 text-base text-graphite"
+          >
+            <option value="">Вся номенклатура</option>
+            {products.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.label}
               </option>

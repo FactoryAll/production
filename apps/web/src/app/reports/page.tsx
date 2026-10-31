@@ -54,6 +54,12 @@ const REPORTS = [
     description:
       'Брак по причинам и категориям, простои по РЦ и по операторам: остановки, минуты и часы.',
   },
+  {
+    href: '/reports/consumption',
+    title: 'Потребление',
+    description:
+      'Что и сколько списано на производство: по РЦ и по номенклатуре, с категорией остатка.',
+  },
 ];
 
 export default async function ReportsPage() {
