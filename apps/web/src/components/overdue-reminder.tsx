@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { daysSinceShift, type OverdueOrder } from '@/app/notifications/overdue-queries';
+import { daysSinceShift, type OverdueOrder } from '@/lib/overdue';
 
 /**
  * Напоминание о незакрытых ПЗ сверх срока (ОПЭ-60).

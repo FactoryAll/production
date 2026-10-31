@@ -5,7 +5,7 @@ import { Footer } from '@/components/footer';
 import { prisma } from '@prodtrack/db';
 import { getSession } from '@/lib/auth/session';
 import { getUnreadNotificationCount } from '@/app/notifications/queries';
-import { getOverdueOrders } from '@/app/notifications/overdue-queries';
+import { getOverdueOrders } from '@/lib/overdue';
 import { OverdueReminder } from '@/components/overdue-reminder';
 
 export const metadata: Metadata = {
