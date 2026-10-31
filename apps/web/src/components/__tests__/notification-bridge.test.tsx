@@ -243,6 +243,37 @@ describe('мост: одно окно и счётчик заменённых', (
     expect(bodies).toEqual(['ПЗ 1234', 'ПЗ 1234 (и ещё 1)']);
   });
 
+  // Решение владельца 01.11.2026: одно событие — ведём по его deepLink; пропущено несколько —
+  // в центр уведомлений, где виден весь список (иначе два из трёх исчезают из поля зрения).
+  it('одно событие — клик ведёт по deepLink этого события', () => {
+    window.localStorage.setItem(
+      NOTIFICATION_SETTINGS_KEY,
+      JSON.stringify({ desktop: true, sound: false }),
+    );
+    render(<NotificationBridge />);
+
+    emitFrame(frame('n-1'));
+    emitFrame(frame('n-2'));
+
+    const call = showDesktopNotification.mock.calls.at(-1)?.[0] as { deepLink: string | null };
+    expect(call.deepLink).toBe('/onec/task-1');
+  });
+
+  it('пропущено несколько — клик ведёт в центр уведомлений', () => {
+    window.localStorage.setItem(
+      NOTIFICATION_SETTINGS_KEY,
+      JSON.stringify({ desktop: true, sound: false }),
+    );
+    render(<NotificationBridge />);
+
+    emitFrame(frame('n-1'));
+    emitFrame(frame('n-2'));
+    emitFrame(frame('n-3'));
+
+    const call = showDesktopNotification.mock.calls.at(-1)?.[0] as { deepLink: string | null };
+    expect(call.deepLink).toBe('/notifications');
+  });
+
   it('счётчик сбрасывается, когда пользователь открыл уведомление', () => {
     window.localStorage.setItem(
       NOTIFICATION_SETTINGS_KEY,

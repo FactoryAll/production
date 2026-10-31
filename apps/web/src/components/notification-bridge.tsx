@@ -92,7 +92,11 @@ export function NotificationBridge() {
           title: latest.title,
           // Окно одно: без счётчика заменённое событие исчезло бы бесследно.
           body: more > 0 ? `${latest.body ?? ''} (и ещё ${more})`.trim() : latest.body,
-          deepLink: latest.deepLink,
+          // Куда вести по клику (решение владельца 01.11.2026):
+          //   одно событие — туда, куда оно ведёт;
+          //   пропущено несколько — в центр уведомлений, где виден весь список.
+          // Иначе два из трёх пропущенных исчезают из поля зрения.
+          deepLink: more > 0 ? '/notifications' : latest.deepLink,
           onOpen: () => {
             pendingCount.current = 0;
           },
