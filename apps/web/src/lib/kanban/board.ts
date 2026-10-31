@@ -1,3 +1,4 @@
+import type { PrismaClient } from '@prisma/client';
 import { hasPermission } from '@prodtrack/contracts';
 import { resolveCurrentShift, shiftWindowBounds, type ShiftWindow } from './current-shift';
 import {
@@ -88,11 +89,7 @@ function shiftLabelOf(shift: ShiftWindow): string {
  * с учётом перехода через полночь, а не «дата = сегодня».
  */
 export async function getKanbanBoard(
-  client: {
-    shift: { findMany: (args: unknown) => Promise<unknown> };
-    productionOrderLine: { findMany: (args: unknown) => Promise<unknown> };
-    taskForOneC: { findMany: (args: unknown) => Promise<unknown> };
-  },
+  client: Pick<PrismaClient, 'shift' | 'productionOrderLine' | 'taskForOneC'>,
   filter: KanbanBoardFilter,
   options: { now?: Date } = {},
 ): Promise<KanbanBoard> {

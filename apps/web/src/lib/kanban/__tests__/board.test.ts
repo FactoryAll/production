@@ -42,18 +42,20 @@ function fakeClient(input: {
   lines?: unknown[];
   tasks?: unknown[];
 }) {
-  return {
+  const findLines = vi.fn().mockResolvedValue(input.lines ?? []);
+  const client = {
     shift: { findMany: vi.fn().mockResolvedValue(input.shifts ?? [DAY_SHIFT]) },
-    productionOrderLine: { findMany: vi.fn().mockResolvedValue(input.lines ?? []) },
+    productionOrderLine: { findMany: findLines },
     taskForOneC: { findMany: vi.fn().mockResolvedValue(input.tasks ?? []) },
   };
+  // Приведение нужно только тесту: настоящий клиент Prisma здесь не поднимаем.
+  return { client: client as unknown as Parameters<typeof getKanbanBoard>[0], findLines };
 }
 
 describe('доска: сборка и фильтры', () => {
   it('строит карточку строки: подписи, план/факт, этап и ссылка', async () => {
-    const board = await getKanbanBoard(fakeClient({ lines: [gpLine()] }), {}, {
-      now: new Date('2026-10-30T10:00:00'),
-    });
+    const { client } = fakeClient({ lines: [gpLine()] });
+    const board = await getKanbanBoard(client, {}, { now: new Date('2026-10-30T10:00:00') });
 
     expect(board.shift?.id).toBe('shift-1');
     expect(board.cards).toHaveLength(1);
@@ -73,27 +75,24 @@ describe('доска: сборка и фильтры', () => {
   });
 
   it('перемещение уводит карточку в колонки перемещений и даёт ссылку на перемещение', async () => {
-    const board = await getKanbanBoard(
-      fakeClient({
-        lines: [
-          gpLine({
-            transferLines: [
-              {
-                id: 'tl-1',
-                goodsTransfer: {
-                  id: 'tr-1',
-                  status: 'SUBMITTED',
-                  sourceWarehouseId: 'wh-prod',
-                  destinationWarehouseId: 'wh-gp',
-                },
+    const { client } = fakeClient({
+      lines: [
+        gpLine({
+          transferLines: [
+            {
+              id: 'tl-1',
+              goodsTransfer: {
+                id: 'tr-1',
+                status: 'SUBMITTED',
+                sourceWarehouseId: 'wh-prod',
+                destinationWarehouseId: 'wh-gp',
               },
-            ],
-          }),
-        ],
-      }),
-      {},
-      { now: new Date('2026-10-30T10:00:00') },
-    );
+            },
+          ],
+        }),
+      ],
+    });
+    const board = await getKanbanBoard(client, {}, { now: new Date('2026-10-30T10:00:00') });
 
     expect(board.cards[0]).toMatchObject({
       column: 'TRANSFER_SUBMITTED',
@@ -103,32 +102,31 @@ describe('доска: сборка и фильтры', () => {
   });
 
   it('фильтр по смене смотрит только эту смену', async () => {
-    const client = fakeClient({});
+    const { client, findLines } = fakeClient({});
     await getKanbanBoard(client, { shiftId: 'shift-1' }, { now: new Date('2026-10-30T10:00:00') });
 
-    expect(client.productionOrderLine.findMany).toHaveBeenCalledWith(
+    expect(findLines).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ order: { shiftId: 'shift-1' } }) }),
     );
   });
 
   it('фильтры РЦ и номенклатуры уходят в запрос строк', async () => {
-    const client = fakeClient({});
+    const { client, findLines } = fakeClient({});
     await getKanbanBoard(
       client,
       { shiftId: 'shift-1', workCenterId: 'wc-03', productId: 'gp-1' },
       { now: new Date('2026-10-30T10:00:00') },
     );
 
-    const where = (client.productionOrderLine.findMany.mock.calls[0][0] as { where: Record<string, unknown> }).where;
+    const where = (findLines.mock.calls[0][0] as { where: Record<string, unknown> }).where;
     expect(where).toMatchObject({ workCenterId: 'wc-03', productId: 'gp-1' });
   });
 
   it('склад фильтрует только колонки перемещений: карточку ПЗ он не скрывает', async () => {
-    const board = await getKanbanBoard(
-      fakeClient({ lines: [gpLine()] }),
-      { warehouseId: 'wh-gp' },
-      { now: new Date('2026-10-30T10:00:00') },
-    );
+    const { client } = fakeClient({ lines: [gpLine()] });
+    const board = await getKanbanBoard(client, { warehouseId: 'wh-gp' }, {
+      now: new Date('2026-10-30T10:00:00'),
+    });
 
     // Карточка в колонке «Закрыто» (ПЗ) — склада у строки нет, скрывать нечего.
     expect(board.cards).toHaveLength(1);
@@ -150,10 +148,12 @@ describe('доска: сборка и фильтры', () => {
       ],
     });
 
-    const own = await getKanbanBoard(fakeClient({ lines: [line] }), { warehouseId: 'wh-other' }, {
+    const ownClient = fakeClient({ lines: [line] }).client;
+    const foreignClient = fakeClient({ lines: [line] }).client;
+    const own = await getKanbanBoard(ownClient, { warehouseId: 'wh-other' }, {
       now: new Date('2026-10-30T10:00:00'),
     });
-    const foreign = await getKanbanBoard(fakeClient({ lines: [line] }), { warehouseId: 'wh-gp' }, {
+    const foreign = await getKanbanBoard(foreignClient, { warehouseId: 'wh-gp' }, {
       now: new Date('2026-10-30T10:00:00'),
     });
 
@@ -162,9 +162,8 @@ describe('доска: сборка и фильтры', () => {
   });
 
   it('смен нет — пустая доска без падения', async () => {
-    const board = await getKanbanBoard(fakeClient({ shifts: [] }), {}, {
-      now: new Date('2026-10-30T10:00:00'),
-    });
+    const { client } = fakeClient({ shifts: [] });
+    const board = await getKanbanBoard(client, {}, { now: new Date('2026-10-30T10:00:00') });
 
     expect(board.shift).toBeNull();
     expect(board.cards).toEqual([]);
@@ -172,27 +171,24 @@ describe('доска: сборка и фильтры', () => {
 
   // Требование главной линии: строка в ПЗ, где одна строка отчиталась, а другая нет.
   it('строки одного ПЗ расходятся по разным колонкам', async () => {
-    const board = await getKanbanBoard(
-      fakeClient({
-        lines: [
-          gpLine({ id: 'line-1', status: 'REPORTED', order: { id: 'po-1', status: 'IN_PROGRESS', shiftId: 'shift-1' } }),
-          gpLine({ id: 'line-2', status: 'ACCEPTED', order: { id: 'po-1', status: 'IN_PROGRESS', shiftId: 'shift-1' } }),
-        ],
-      }),
-      {},
-      { now: new Date('2026-10-30T10:00:00') },
-    );
+    const { client } = fakeClient({
+      lines: [
+        gpLine({ id: 'line-1', status: 'REPORTED', order: { id: 'po-1', status: 'IN_PROGRESS', shiftId: 'shift-1' } }),
+        gpLine({ id: 'line-2', status: 'ACCEPTED', order: { id: 'po-1', status: 'IN_PROGRESS', shiftId: 'shift-1' } }),
+      ],
+    });
+    const board = await getKanbanBoard(client, {}, { now: new Date('2026-10-30T10:00:00') });
 
     const byLine = Object.fromEntries(board.cards.map((card) => [card.lineId, card.column]));
     expect(byLine).toEqual({ 'line-1': 'REPORTED', 'line-2': 'IN_PROGRESS' });
   });
 
   it('подпись «проведено» берётся из задачи 1С по ПЗ', async () => {
-    const board = await getKanbanBoard(
-      fakeClient({ lines: [gpLine()], tasks: [{ sourceId: 'po-12345678', status: 'PROCESSED' }] }),
-      {},
-      { now: new Date('2026-10-30T10:00:00') },
-    );
+    const { client } = fakeClient({
+      lines: [gpLine()],
+      tasks: [{ sourceId: 'po-12345678', status: 'PROCESSED' }],
+    });
+    const board = await getKanbanBoard(client, {}, { now: new Date('2026-10-30T10:00:00') });
 
     expect(board.cards[0]).toMatchObject({ column: 'CLOSED', note: 'проведено' });
   });
