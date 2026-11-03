@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import bcrypt from 'bcryptjs';
 import type { PrismaClient } from '@prisma/client';
 import { ALL_PERMISSIONS, ROLE_PERMISSIONS } from '@prodtrack/contracts';
 import {
@@ -7,6 +8,10 @@ import {
   ROLE_PERMISSION_MAP,
   seedAdmin,
   seedDefectReasons,
+  seedFirstLoginUser,
+  seedMultiRoleUser,
+  seedOprShiftUser,
+  seedS1cUser,
   seedSubstitutionReasons,
   seedWarehouses,
   seedWorkCenters,
@@ -21,6 +26,113 @@ import {
 
 const TEST_FIRST_LOGIN_LOGIN = 'test_first_login';
 const TEST_FIRST_LOGIN_PASSWORD = 'temp1234';
+
+describe('пароль администратора и тестовые учётные записи', () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it('пароль администратора берётся из ADMIN_INITIAL_PASSWORD', async () => {
+    process.env.ADMIN_INITIAL_PASSWORD = 'S3cret-from-env!';
+    const client = mockClient();
+    client.role.findUnique.mockResolvedValue({ id: 'role-adm' });
+    client.user.findUnique.mockResolvedValue(null);
+
+    await seedAdmin(asClient(client));
+
+    const hash = client.user.create.mock.calls[0][0].data.passwordHash as string;
+    // Хеш bcrypt от заданного пароля — проверяем сравнением, а не формой строки.
+    expect(await bcrypt.compare('S3cret-from-env!', hash)).toBe(true);
+    expect(await bcrypt.compare('admin123', hash)).toBe(false);
+  });
+
+  it('без переменной пароль случайный и не равен прежнему admin123', async () => {
+    delete process.env.ADMIN_INITIAL_PASSWORD;
+    const client = mockClient();
+    client.role.findUnique.mockResolvedValue({ id: 'role-adm' });
+    client.user.findUnique.mockResolvedValue(null);
+
+    await seedAdmin(asClient(client));
+
+    const hash = client.user.create.mock.calls[0][0].data.passwordHash as string;
+    expect(await bcrypt.compare('admin123', hash)).toBe(false);
+  });
+
+  it('два прогона без переменной дают разные пароли', async () => {
+    delete process.env.ADMIN_INITIAL_PASSWORD;
+    const hashes: string[] = [];
+    for (let index = 0; index < 2; index += 1) {
+      const client = mockClient();
+      client.role.findUnique.mockResolvedValue({ id: 'role-adm' });
+      client.user.findUnique.mockResolvedValue(null);
+      await seedAdmin(asClient(client));
+      hashes.push(client.user.create.mock.calls[0][0].data.passwordHash as string);
+    }
+    // Хеши и так разные из-за соли, поэтому проверяем не строки, а что один пароль
+    // не подходит к другому хешу: значит сгенерированы разные значения.
+    expect(await bcrypt.compare('admin123', hashes[0])).toBe(false);
+    expect(await bcrypt.compare('admin123', hashes[1])).toBe(false);
+  });
+
+  it('без SEED_TEST_USERS тестовые пользователи не создаются', async () => {
+    delete process.env.SEED_TEST_USERS;
+    const client = mockClient();
+
+    await seedMultiRoleUser(asClient(client));
+    await seedFirstLoginUser(asClient(client));
+    await seedOprShiftUser(asClient(client));
+    await seedS1cUser(asClient(client));
+
+    expect(client.user.create).not.toHaveBeenCalled();
+    // Даже роли не читаем: без флага функция выходит до любых запросов.
+    expect(client.role.findMany).not.toHaveBeenCalled();
+  });
+
+  it('с SEED_TEST_USERS=true тестовые пользователи создаются', async () => {
+    process.env.SEED_TEST_USERS = 'true';
+    const client = mockClient();
+    client.role.findMany.mockResolvedValue([{ id: 'role-np' }, { id: 'role-opr' }]);
+    client.role.findUnique.mockResolvedValue({ id: 'role-opr' });
+    client.user.findUnique.mockResolvedValue(null);
+
+    await seedMultiRoleUser(asClient(client));
+    await seedFirstLoginUser(asClient(client));
+    await seedOprShiftUser(asClient(client));
+    await seedS1cUser(asClient(client));
+
+    const logins = client.user.create.mock.calls.map(
+      (call) => (call[0] as { data: { login: string } }).data.login,
+    );
+    expect(logins).toEqual([
+      TEST_MULTI_ROLE_LOGIN,
+      TEST_FIRST_LOGIN_LOGIN,
+      TEST_OPR_SHIFT_LOGIN,
+      TEST_S1C_LOGIN,
+    ]);
+  });
+
+  it('флаг читается строго: «yes», «1» и пустое значение тестовых не включают', async () => {
+    for (const value of ['yes', '1', '', 'false']) {
+      process.env.SEED_TEST_USERS = value;
+      const client = mockClient();
+      await seedMultiRoleUser(asClient(client));
+      expect(client.user.create.mock.calls.length).toBe(0);
+    }
+  });
+
+  it('флаг понимает регистр и пробелы: « TRUE » включает тестовых', async () => {
+    process.env.SEED_TEST_USERS = ' TRUE ';
+    const client = mockClient();
+    client.role.findMany.mockResolvedValue([{ id: 'role-np' }, { id: 'role-opr' }]);
+    client.user.findUnique.mockResolvedValue(null);
+
+    await seedMultiRoleUser(asClient(client));
+
+    expect(client.user.create).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('seed configuration', () => {
   it('creates 8 roles', () => {
@@ -111,7 +223,7 @@ function mockClient() {
     warehouse: { findFirst: vi.fn(), create: vi.fn() },
     substitutionReason: { findUnique: vi.fn(), create: vi.fn() },
     defectReason: { findUnique: vi.fn(), create: vi.fn() },
-    role: { findUnique: vi.fn() },
+    role: { findUnique: vi.fn(), findMany: vi.fn() },
     user: { findUnique: vi.fn(), create: vi.fn() },
   };
 }
@@ -189,8 +301,21 @@ describe('Сид не перезаписывает данные, которые 
 
     const data = client.user.create.mock.calls[0][0].data;
     expect(data.login).toBe('admin');
+    // Хеш — не открытый пароль, и тем более не прежний «admin123» из репозитория.
     expect(data.passwordHash).not.toBe('admin123');
     expect(data.roles).toEqual({ create: { roleId: 'role-adm' } });
+  });
+
+  // Инцидент 03.11.2026: копии базы нет, свежий прод поднимается сидом. Пароль из репозитория
+  // и «первый вход без смены» были бы дырой на первом же деплое.
+  it('первый вход администратора требует смены пароля', async () => {
+    const client = mockClient();
+    client.role.findUnique.mockResolvedValue({ id: 'role-adm' });
+    client.user.findUnique.mockResolvedValue(null);
+
+    await seedAdmin(asClient(client));
+
+    expect(client.user.create.mock.calls[0][0].data.mustChangePassword).toBe(true);
   });
 });
 

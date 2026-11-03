@@ -1,4 +1,5 @@
 import { PrismaClient, RoleCode } from '@prisma/client';
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
@@ -68,7 +69,48 @@ export const ROLES = [
 ];
 
 const ADMIN_LOGIN = 'admin';
-const ADMIN_PASSWORD = 'admin123';
+
+/**
+ * Сид свежей базы — это первый контакт с продакшеном (инцидент 03.11.2026: копии базы нет,
+ * поднимаемся с нуля). Поэтому:
+ *
+ *   1. **Тестовые учётные записи создаются только по явному флагу** `SEED_TEST_USERS=true`.
+ *      Раньше они создавались всегда, и свежий прод поднимался с четырьмя логинами, пароли
+ *      которых лежат в публичном репозитории. По умолчанию — не создаются.
+ *   2. **Пароль администратора берётся из `ADMIN_INITIAL_PASSWORD`.** Если переменная не задана,
+ *      генерируется случайный и печатается ОДИН раз в лог сида, чтобы владелец увидел и сохранил.
+ *      Пароля по умолчанию больше нет вовсе.
+ *   3. Первый вход требует смены пароля (`mustChangePassword: true`).
+ *   4. Существующий администратор не трогается: иначе деплой сбрасывал бы сменённый пароль.
+ */
+function shouldSeedTestUsers(): boolean {
+  return (process.env.SEED_TEST_USERS ?? '').trim().toLowerCase() === 'true';
+}
+
+/** Пароль администратора: из окружения либо случайный (генерируется один раз при создании). */
+function adminInitialPassword(): { password: string; generated: boolean } {
+  const fromEnv = (process.env.ADMIN_INITIAL_PASSWORD ?? '').trim();
+  if (fromEnv.length > 0) {
+    return { password: fromEnv, generated: false };
+  }
+  // 24 байта base64url — 32 символа: достаточно для одноразового пароля, легко скопировать.
+  const random = crypto.randomBytes(24).toString('base64url');
+  return { password: random, generated: true };
+}
+
+/** Крупная рамка в логе: пароль должен быть виден, а не потерян среди строк сида. */
+function printAdminPasswordBanner(password: string): void {
+  const line = '='.repeat(64);
+  console.log('');
+  console.log(line);
+  console.log('  ВНИМАНИЕ: создан администратор с паролем, который показан ОДИН раз.');
+  console.log('  Логин:  admin');
+  console.log(`  Пароль: ${password}`);
+  console.log('  Сохраните его СЕЙЧАС: в базе лежит только хеш, восстановить пароль нельзя,');
+  console.log('  можно только сменить. При первом входе система потребует смены пароля.');
+  console.log(line);
+  console.log('');
+}
 
 export const TEST_MULTI_ROLE_LOGIN = 'test_multi_role';
 export const TEST_MULTI_ROLE_PASSWORD = 'test1234';
@@ -325,7 +367,8 @@ async function seedRoles() {
   }
 }
 
-async function seedMultiRoleUser(client: PrismaClient = prisma): Promise<void> {
+export async function seedMultiRoleUser(client: PrismaClient = prisma): Promise<void> {
+  if (!shouldSeedTestUsers()) return;
   const roles = await client.role.findMany({
     where: { code: { in: TEST_MULTI_ROLE_ROLES } },
   });
@@ -348,7 +391,8 @@ async function seedMultiRoleUser(client: PrismaClient = prisma): Promise<void> {
   });
 }
 
-async function seedFirstLoginUser(client: PrismaClient = prisma): Promise<void> {
+export async function seedFirstLoginUser(client: PrismaClient = prisma): Promise<void> {
+  if (!shouldSeedTestUsers()) return;
   const role = await client.role.findUnique({ where: { code: 'OPR' } });
   if (!role) return;
 
@@ -366,7 +410,8 @@ async function seedFirstLoginUser(client: PrismaClient = prisma): Promise<void> 
   });
 }
 
-async function seedOprShiftUser(client: PrismaClient = prisma): Promise<void> {
+export async function seedOprShiftUser(client: PrismaClient = prisma): Promise<void> {
+  if (!shouldSeedTestUsers()) return;
   const role = await client.role.findUnique({ where: { code: 'OPR' } });
   if (!role) return;
 
@@ -384,7 +429,8 @@ async function seedOprShiftUser(client: PrismaClient = prisma): Promise<void> {
   });
 }
 
-async function seedS1cUser(client: PrismaClient = prisma): Promise<void> {
+export async function seedS1cUser(client: PrismaClient = prisma): Promise<void> {
+  if (!shouldSeedTestUsers()) return;
   const role = await client.role.findUnique({ where: { code: 'S1C' } });
   if (!role) return;
 
@@ -411,15 +457,24 @@ export async function seedAdmin(client: PrismaClient = prisma): Promise<void> {
   const existing = await client.user.findUnique({ where: { login: ADMIN_LOGIN } });
   if (existing) return;
 
+  const { password, generated } = adminInitialPassword();
+
   await client.user.create({
     data: {
       login: ADMIN_LOGIN,
-      passwordHash: await bcrypt.hash(ADMIN_PASSWORD, 10),
+      passwordHash: await bcrypt.hash(password, 10),
       active: true,
-      mustChangePassword: false,
+      // Первый вход обязан сменить пароль: сид задаёт временный, постоянный выбирает владелец.
+      mustChangePassword: true,
       roles: { create: { roleId: adminRole.id } },
     },
   });
+
+  if (generated) {
+    printAdminPasswordBanner(password);
+  } else {
+    console.log(`[seed] Администратор создан, пароль взят из ADMIN_INITIAL_PASSWORD (как и задан).`);
+  }
 }
 
 async function main() {
@@ -433,10 +488,17 @@ async function main() {
   // остались только в исторических базах и больше не поднимаются при каждом деплое.
   await seedRoles();
   await seedAdmin();
-  await seedMultiRoleUser();
-  await seedFirstLoginUser();
-  await seedOprShiftUser();
-  await seedS1cUser();
+  // Тестовые учётные записи — только по явному флагу SEED_TEST_USERS=true (стенды).
+  // На проде их нет: пароли этих логинов лежат в публичном репозитории.
+  if (shouldSeedTestUsers()) {
+    await seedMultiRoleUser();
+    await seedFirstLoginUser();
+    await seedOprShiftUser();
+    await seedS1cUser();
+    console.log('[seed] Тестовые учётные записи созданы (SEED_TEST_USERS=true).');
+  } else {
+    console.log('[seed] Тестовые учётные записи пропущены (SEED_TEST_USERS не задан).');
+  }
   console.log('Reference data seeded successfully.');
 }
 
