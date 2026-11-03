@@ -9,7 +9,7 @@
 | Часть системы | Где | Переживает потерю сервера? |
 |---|---|---|
 | Код (приложение, пакеты, миграции, сид) | GitHub `FactoryAll/production` | **да** |
-| Инфраструктура как код: `docker-compose*.yml`, `scripts/`, `docs/nginx/`, `docs/fail2ban/` | GitHub | **да** |
+| Инфраструктура как код: `docker-compose*.yml`, `scripts/`, `docs/nginx/`, `docs/nginx/fail2ban/` | GitHub | **да** |
 | Правила и постановки (`docs/`, `specs/`, `tasks.md`) | GitHub | **да** |
 | Переменные окружения (`.env*`) | только сервер, в git не попадают | **нет** — пересоздаются по шаблонам |
 | База данных (ПЗ, смены, факты, остатки, пользователи) | сервер, PostgreSQL в docker | **нет** — только из дампа |
@@ -42,6 +42,13 @@
 - свободный порт 3000 на localhost;
 - A-запись домена на IP нового сервера.
 
+Пакеты, которых на чистом Ubuntu нет (ставим до всего остального):
+
+```bash
+apt update && apt install -y nginx certbot python3-certbot-nginx fail2ban apache2-utils
+# apache2-utils нужен для htpasswd — им создаётся пароль дев- и фикс-стендов
+```
+
 ### 3.2 Код и окружение
 
 ```bash
@@ -71,11 +78,19 @@ bash scripts/make-dev-env.sh --fix    # .env.fix
 docker compose build
 docker compose up -d
 sleep 20
+
+# Схему НИКТО не накатывает автоматически: контейнер запускает только приложение
+# (`CMD node apps/web/server.js`, entrypoint миграций нет). Накатываем вручную —
+# иначе приложение поднимется на пустой базе и это не будет видно по логам.
+docker compose exec -T web sh -lc \
+  'prisma migrate deploy --schema=/app/packages/db/prisma/schema.prisma'
+docker compose exec -T web sh -lc 'cd /app/packages/db && tsx prisma/seed.ts'
+
 bash scripts/postdeploy-check.sh      # 10 разделов: образ, миграции, сид, стенды, БД
 ```
 
-Миграции применяются при старте контейнера; сид идемпотентен и создаёт справочники,
-роли и администратора.
+Либо одной командой, которая делает то же самое и проверяет тег:
+`bash scripts/deploy.sh <тег>`. Сид идемпотентен — его можно гонять повторно.
 
 ### 3.4 Если есть дамп базы
 
@@ -103,14 +118,25 @@ docker compose up -d && sleep 20 && bash scripts/postdeploy-check.sh
 Пошагово — `docs/deploy_vps.md`, разделы 4–6. Коротко:
 
 ```bash
-# конфиг сайта — образец в репозитории
-cp docs/nginx/prodtracker.factoryall.ru.conf /etc/nginx/sites-available/
-ln -s /etc/nginx/sites-available/prodtracker.factoryall.ru.conf /etc/nginx/sites-enabled/
-certbot --nginx -d prodtracker.factoryall.ru
-nginx -t && systemctl reload nginx
+# 1) конфиги сайтов — образцы в репозитории
+cp docs/nginx/prodtracker.factoryall.ru.conf     /etc/nginx/sites-available/
+cp docs/nginx/prodtracker-dev.factoryall.ru.conf /etc/nginx/sites-available/
+cp docs/nginx/prodtracker-fix.factoryall.ru.conf /etc/nginx/sites-available/
+ln -sf /etc/nginx/sites-available/prodtracker*.conf /etc/nginx/sites-enabled/
 
-# пароль на дев и фикс стенды
+# 2) пароль стендов: и файл с логином, и сниппеты, на которые ссылаются конфиги.
+#    Без этого шага nginx не запустится (include не найдёт файл) — и это правильно:
+#    молча поднятый стенд без пароля хуже, чем незапустившийся nginx.
 htpasswd -c /etc/nginx/.htpasswd-prodtrack prodtrack
+cp docs/nginx/snippets/prodtracker-stand-auth.conf /etc/nginx/snippets/prodtracker-dev-allow.conf
+cp docs/nginx/snippets/prodtracker-stand-auth.conf /etc/nginx/snippets/prodtracker-fix-allow.conf
+
+# 3) сертификаты (certbot допишет блок 443 в каждый конфиг)
+certbot --nginx -d prodtracker.factoryall.ru \
+               -d prodtracker-dev.factoryall.ru \
+               -d prodtracker-fix.factoryall.ru
+
+nginx -t && systemctl reload nginx
 ```
 
 SSE-канал уведомлений требует отдельного `location /api/events/` — образец и объяснение
