@@ -7,6 +7,7 @@
 # Использование (на сервере, из каталога репозитория):
 #   bash scripts/backup-db.sh              # прод
 #   bash scripts/backup-db.sh --dev        # дев-стенд
+#   bash scripts/backup-db.sh --fix        # фикс-стенд
 #   BACKUP_KEEP=30 bash scripts/backup-db.sh   # хранить 30 копий вместо 14
 #
 # Копия кладётся ВНЕ репозитория (/var/backups/prodtrack по умолчанию): её не должно
@@ -23,14 +24,22 @@ KEEP="${BACKUP_KEEP:-14}"
 
 STAND="prod"
 COMPOSE=(docker compose)
-if [ "${1:-}" = "--dev" ]; then
-  STAND="dev"
-  COMPOSE=(docker compose -f docker-compose.dev.yml)
-elif [ -n "${1:-}" ] && [ "${1:-}" != "--dev" ]; then
-  echo "Неизвестный аргумент: $1" >&2
-  echo "Допустимо: --dev (без аргумента — прод)" >&2
-  exit 2
-fi
+case "${1:-}" in
+  "") ;;
+  --dev)
+    STAND="dev"
+    COMPOSE=(docker compose -f docker-compose.dev.yml)
+    ;;
+  --fix)
+    STAND="fix"
+    COMPOSE=(docker compose -f docker-compose.fix.yml)
+    ;;
+  *)
+    echo "Неизвестный аргумент: $1" >&2
+    echo "Допустимо: --dev, --fix (без аргумента — прод)" >&2
+    exit 2
+    ;;
+esac
 
 cd "${APP_DIR}" || { echo "Нет каталога ${APP_DIR}" >&2; exit 1; }
 mkdir -p "${BACKUP_DIR}"
@@ -60,3 +69,17 @@ COUNT="$(ls -1 "${BACKUP_DIR}"/prodtrack-"${STAND}"-*.sql.gz 2>/dev/null | wc -l
 echo "Копия снята: ${FILE}"
 echo "  размер: $(du -h "${FILE}" | cut -f1), проверка gzip: ок"
 echo "  копий стенда ${STAND} в ${BACKUP_DIR}: ${COUNT} (хранится последних ${KEEP})"
+
+# Возраст предыдущей копии — дешёвая защита от молча сломавшегося cron.
+# Скрипт не падает (копия снята), но говорит громко: «предыдущая копия была сутки назад»
+# означает, что расписание не работало и об этом никто не знал.
+PREVIOUS="$(ls -1t "${BACKUP_DIR}"/prodtrack-"${STAND}"-*.sql.gz 2>/dev/null | sed -n '2p' || true)"
+if [ -n "${PREVIOUS}" ]; then
+  PREV_AGE_HOURS=$(( ( $(date +%s) - $(date -r "${PREVIOUS}" +%s) ) / 3600 ))
+  if [ "${PREV_AGE_HOURS}" -gt 24 ]; then
+    echo "ВНИМАНИЕ: предыдущая копия стенда ${STAND} старше суток (${PREV_AGE_HOURS} ч): ${PREVIOUS}" >&2
+    echo "          Похоже, расписание (cron) не работало. Проверьте: crontab -l и /var/log/prodtrack-backup.log" >&2
+  fi
+else
+  echo "  предыдущих копий стенда ${STAND} нет — это первая."
+fi

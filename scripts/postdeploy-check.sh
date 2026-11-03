@@ -141,8 +141,15 @@ curl -s -o /dev/null -w 'HTTP %{http_code} (ожидается 401 без cookie
 
 echo
 echo "=== 6. Соседи по серверу ==="
-curl -sI --max-time 10 https://mes-midex.factoryall.ru | head -1 || echo 'mes-midex DOWN'
-curl -sI --max-time 10 https://tracker.factoryall.ru | head -1 || echo 'tracker DOWN'
+# Соседи (mes-midex, tracker) живут на старом общем сервере. На новом сервере их может не быть —
+# это ОЖИДАЕМО, а не поломка развёртывания (инцидент 03.11.2026: сервер утрачен, поднимаем новый).
+NEIGHBOURS_DOWN=0
+curl -sI --max-time 10 https://mes-midex.factoryall.ru | head -1 || { echo 'mes-midex DOWN'; NEIGHBOURS_DOWN=$((NEIGHBOURS_DOWN + 1)); }
+curl -sI --max-time 10 https://tracker.factoryall.ru | head -1 || { echo 'tracker DOWN'; NEIGHBOURS_DOWN=$((NEIGHBOURS_DOWN + 1)); }
+if [ "${NEIGHBOURS_DOWN}" -gt 0 ]; then
+  echo "ПОМЕТКА: соседей нет (${NEIGHBOURS_DOWN} из 2). На новом сервере это ожидаемо;"
+  echo "         если сервер прежний — проверьте, что чужие сервисы живы (docs/deploy_vps.md)."
+fi
 
 echo
 echo "=== 7. Что отдаёт домен (проверка nginx) ==="

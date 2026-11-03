@@ -19,7 +19,7 @@
 | Проект compose | `prodtrack` | `prodtrack-dev` |
 | Контейнеры | `prodtrack_web`, `prodtrack_postgres` | `prodtrack_dev_web`, `prodtrack_dev_postgres` |
 | База и том | `prodtrack_pgdata` | `prodtrack_dev_pgdata` (отдельный) |
-| Переменные | `.env` | `.env.dev` (свой пароль и свой `SECRET_KEY`) |
+| Переменные | `.env` | `.env.dev` (свой пароль базы) |
 | Версия в футере | `v2.2.0` | `v2.2.0-dev` |
 
 Третий стенд — **фикс** (порт 3002, `prodtracker-fix.factoryall.ru`, `v2.2.0-fix`).
@@ -97,8 +97,12 @@ cd /opt/prodtrack && git pull origin main && git log -1 --oneline && docker comp
 Резервный путь, если домен недоступен — SSH-туннель (ключ заведён на сервере):
 
 ```powershell
-ssh -N -L 3001:127.0.0.1:3001 root@prodtracker.factoryall.ru
+ssh -N -L 3001:127.0.0.1:3001 prodtrack@prodtracker.factoryall.ru
 ```
+
+> Вход под `root` как штатный способ не используется: у отдельного пользователя меньше прав,
+> а `root` нужен только для `nginx`/`certbot`/`docker` и настраивается через `sudo`
+> (`docs/branching_model.md`, `docs/disaster_recovery.md` §3.1).
 
 Окно держать открытым, затем в браузере `http://127.0.0.1:3001`. Без открытого туннеля
 браузер выдаст `ERR_CONNECTION_REFUSED` — это нормально, а не поломка стенда.

@@ -94,6 +94,8 @@ pnpm typecheck && pnpm lint && pnpm test && pnpm build
 ```bash
 bash scripts/deploy.sh            # деплой с бэкапом
 bash scripts/postdeploy-check.sh  # проверка после деплоя: 10 разделов
+bash scripts/backup-db.sh         # дамп базы (вне репозитория)
+bash scripts/backup-offsite.sh    # выгрузка дампа ЗА ПРЕДЕЛЫ сервера (обязательно)
 ```
 
 ---
