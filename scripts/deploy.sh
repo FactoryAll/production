@@ -186,11 +186,36 @@ fi
 # Версию в футере сверяем со значением из compose, а не с прошитой строкой: версия
 # встраивается при сборке из docker-compose.yml, и константа в скрипте устаревает молча.
 DEPLOY_VERSION="$(grep -m1 -oE 'VERSION: *v[0-9]+\.[0-9]+\.[0-9]+' docker-compose.yml | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || true)"
-echo "[deploy] Checking version in footer (ожидается ${DEPLOY_VERSION:-неизвестно})..."
-if [ -n "${DEPLOY_VERSION}" ] && curl -s --max-time 10 "http://127.0.0.1:3000/login" | grep -q "${DEPLOY_VERSION}"; then
-    echo "[deploy] Version ${DEPLOY_VERSION} found in page."
+
+# ЧТО ИМЕННО ЗАПУЩЕНО. Футер — косвенная проверка: страницу мог отдать кэш, а образ мог
+# остаться прежним (ровно это случилось 11.11.2026, когда .env помнил старую версию).
+# Поэтому сначала сверяем образ работающего контейнера — это прямой факт.
+RUNNING_IMAGE="$(docker inspect --format '{{.Config.Image}}' prodtrack_web 2>/dev/null || true)"
+EXPECTED_IMAGE="prodtrack-web:${TARGET}"
+echo "[deploy] Образ контейнера: ${RUNNING_IMAGE:-неизвестен} (ожидается ${EXPECTED_IMAGE})"
+if [ -n "${RUNNING_IMAGE}" ] && [ "${RUNNING_IMAGE}" != "${EXPECTED_IMAGE}" ]; then
+    echo "[deploy] ОТКАЗ: запущен образ ${RUNNING_IMAGE}, а ожидался ${EXPECTED_IMAGE}." >&2
+    echo "         Значит контейнер поднялся не на той версии, которую разворачивали." >&2
+    echo "         Проверьте VERSION в .env и наличие образа: docker images | grep prodtrack-web" >&2
+    exit 1
+fi
+
+# Футер: до трёх попыток — страница после рестарта может отдаться из кэша.
+echo "[deploy] Checking version in footer (ожидается ${DEPLOY_VERSION:-${TARGET}})..."
+FOOTER_OK=0
+for attempt in 1 2 3; do
+    if curl -s --max-time 10 "http://127.0.0.1:3000/login" | grep -q "${DEPLOY_VERSION:-${TARGET}}"; then
+        FOOTER_OK=1
+        break
+    fi
+    sleep 3
+done
+if [ "${FOOTER_OK}" = "1" ]; then
+    echo "[deploy] Version ${DEPLOY_VERSION:-${TARGET}} found in page."
 else
-    echo "[deploy] WARNING: version ${DEPLOY_VERSION:-из compose} NOT found in page."
+    echo "[deploy] ОТКАЗ: в футере нет ${DEPLOY_VERSION:-${TARGET}} после трёх попыток." >&2
+    echo "         Развёрнутый код не совпадает с ожидаемой версией — «Done» печатать нельзя." >&2
+    exit 1
 fi
 
 echo "[deploy] Done. Дальше: bash scripts/postdeploy-check.sh"
