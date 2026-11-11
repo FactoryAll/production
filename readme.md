@@ -127,6 +127,7 @@ bash scripts/backup-offsite.sh    # выгрузка дампа ЗА ПРЕДЕ�
 | `docs/branching_model.md` | правила веток, две линии, приоритеты, порядок выкладки |
 | `docs/deploy_vps.md` | развёртывание на сервере, nginx, сертификаты, стенды |
 | `docs/disaster_recovery.md` | подъём на новом сервере, восстановление БД, бэкапы |
+| `docs/deploy_timeweb.md` | прод на малом сервере: 1 ГБ RAM, сборка локально, лимиты памяти |
 | `docs/pilot_operation_journal.md` | журнал находок опытной эксплуатации |
 | `docs/kanban_design.md` | постановка канбана производственного контура |
 | `tech_stack.md`, `specs/` | технический стек и спецификации модулей |

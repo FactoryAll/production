@@ -1,0 +1,65 @@
+# Прод на малом сервере (Timeweb, 1 vCPU / 1 ГБ RAM / 15 ГБ NVMe).
+#
+# Зачем отдельный файл: основной docker-compose.yml рассчитан на нормальную машину.
+# Здесь — то, без чего прод на 1 ГБ либо не поднимется, либо умрёт через неделю:
+#
+#   1. ПАМЯТЬ. Приложение и база получают жёсткий потолок, чтобы OOM-killer не убивал
+#      postgres в тот момент, когда ему не хватило памяти на сборку следующей страницы.
+#   2. ОБРАЗ СОБИРАЕТСЯ НЕ ЗДЕСЬ. Next.js на 1 ГБ собирается в OOM. Образ собирается
+#      на рабочей машине и переносится `docker save | docker load` (см. docs/deploy_timeweb.md).
+#      Поэтому у web стоит `image:`, а сборка запускается с `--no-build`.
+#   3. ЛОГИ. Без ограничения размера docker-логи съедают диск 15 ГБ за недели.
+#      Каждый контейнер пишет не больше 3 файлов по 10 МБ.
+#
+# Запуск (на сервере, из каталога /opt/prodtrack):
+#   docker compose -f docker-compose.yml -f docker-compose.timeweb.yml up -d --no-build
+#
+# Значения лимитов: postgres 320 МБ, web 560 МБ, вместе ~880 МБ из 1024 МБ —
+# остаток оставлен системе и nginx.
+
+services:
+  web:
+    image: prodtrack-web:${VERSION:-v2.9.3}
+    mem_limit: 560m
+    memswap_limit: 780m
+    environment:
+      - NODE_ENV=production
+      - VERSION=${VERSION:-v2.9.3}
+      - TZ=Europe/Moscow
+      # Куча Node ограничена: иначе V8 берёт «сколько дадут» и получает OOM-kill.
+      - NODE_OPTIONS=--max-old-space-size=384
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  postgres:
+    # Настройки под 1 ГБ: shared_buffers 128 МБ вместо 128 МБ по умолчанию не бывает —
+    # у postgres:15-alpine он равен 128 МБ при конфигурации по умолчанию, но
+    # effective_cache_size и work_mem там рассчитаны на большую машину.
+    command:
+      - postgres
+      - -c
+      - max_connections=30
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - effective_cache_size=384MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=48MB
+      - -c
+      - wal_buffers=8MB
+      # Логи только по ошибкам: на 15 ГБ диска подробный лог — роскошь.
+      - -c
+      - log_min_messages=warning
+    mem_limit: 320m
+    memswap_limit: 512m
+    shm_size: 128m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
