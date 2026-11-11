@@ -14,20 +14,22 @@
 # Запуск (на сервере, из каталога /opt/prodtrack):
 #   docker compose -f docker-compose.yml -f docker-compose.timeweb.yml up -d --no-build
 #
-# Значения лимитов: postgres 320 МБ, web 560 МБ, вместе ~880 МБ из 1024 МБ —
-# остаток оставлен системе и nginx.
+# Значения лимитов: postgres 256 МБ, web 432 МБ — вместе 688 МБ.
+# На сервере MemTotal не 1024, а 889 МБ (виртуализация забирает своё), поэтому лимиты
+# подобраны так, чтобы системе, nginx, docker daemon и ssh осталось ~200 МБ.
+# При 560+320 (первый расчёт) на всё это оставалось 9 МБ — гарантированный OOM.
 
 services:
   web:
     image: prodtrack-web:${VERSION:-v2.9.3}
-    mem_limit: 560m
-    memswap_limit: 780m
+    mem_limit: 432m
+    memswap_limit: 640m
     environment:
       - NODE_ENV=production
       - VERSION=${VERSION:-v2.9.3}
       - TZ=Europe/Moscow
       # Куча Node ограничена: иначе V8 берёт «сколько дадут» и получает OOM-kill.
-      - NODE_OPTIONS=--max-old-space-size=384
+      - NODE_OPTIONS=--max-old-space-size=320
     logging:
       driver: json-file
       options:
@@ -41,11 +43,11 @@ services:
     command:
       - postgres
       - -c
-      - max_connections=30
+      - max_connections=25
       - -c
-      - shared_buffers=128MB
+      - shared_buffers=96MB
       - -c
-      - effective_cache_size=384MB
+      - effective_cache_size=320MB
       - -c
       - work_mem=4MB
       # На одном ядре параллельные планы только мешают: планировщик тратит время
@@ -53,17 +55,17 @@ services:
       - -c
       - max_parallel_workers_per_gather=0
       - -c
-      - maintenance_work_mem=48MB
+      - maintenance_work_mem=32MB
       - -c
       - wal_buffers=8MB
       # Логи только по ошибкам: на 15 ГБ диска подробный лог — роскошь.
       - -c
       - log_min_messages=warning
-    mem_limit: 320m
-    memswap_limit: 512m
+    mem_limit: 256m
+    memswap_limit: 448m
     # shm_size — это tmpfs, и в cgroup v2 он считается ВНУТРИ mem_limit:
     # 128 МБ shm + 128 МБ shared_buffers = 256 МБ из 320. Оставляем запас.
-    shm_size: 64m
+    shm_size: 48m
     logging:
       driver: json-file
       options:
