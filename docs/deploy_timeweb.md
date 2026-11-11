@@ -102,13 +102,20 @@ bash scripts/postdeploy-check.sh --no-db-write 2>&1 | head -40
 
 ## 5. nginx и сертификат
 
+Для нашего сервера домен и конфиг уже подготовлены в репозитории:
+
 ```bash
-cp docs/nginx/prodtracker.factoryall.ru.conf /etc/nginx/sites-available/<домен>.conf
-# поправить server_name и порт (у нас 127.0.0.1:3000), путь к статике не нужен
-ln -sf /etc/nginx/sites-available/<домен>.conf /etc/nginx/sites-enabled/
-certbot --nginx -d <домен>
+cp docs/nginx/prodtrack.vegas-ai.ru.conf /etc/nginx/sites-available/
+ln -sf /etc/nginx/sites-available/prodtrack.vegas-ai.ru.conf /etc/nginx/sites-enabled/
+mkdir -p /etc/nginx/snippets
+cp docs/nginx/snippets/prodtrack-junk-paths.conf /etc/nginx/snippets/
+nginx -t && systemctl reload nginx          # до certbot: проверить, что конфиг валиден
+
+certbot --nginx -d prodtrack.vegas-ai.ru
 nginx -t && systemctl reload nginx
 ```
+
+Домен должен уже указывать на сервер (A-запись), иначе certbot не выпустит сертификат.
 
 Стендов нет → сниппет с паролем не нужен, но защита от сканеров — нужна:
 `docs/nginx/snippets/prodtrack-junk-paths.conf`.
