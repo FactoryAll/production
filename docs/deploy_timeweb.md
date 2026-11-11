@@ -45,37 +45,39 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-## 3. Сборка образа — на рабочей машине, не на сервере
+## 3. Образ: собирается в GitHub Actions, сервер забирает из GHCR
 
-Next.js на 1 ГБ собирается в OOM. Собираем локально и переносим готовый образ.
+Сборка на сервере невозможна (1 ГБ, измерено: 740 МБ на процесс, до ~2 ГБ на дерево).
+Поэтому образ собирает GitHub Actions по тегу и публикует в реестр — `.github/workflows/release-image.yml`.
 
-**На рабочей машине** (в каталоге репозитория):
+**Что делает воркфлоу:** на пуш тега `v*` собирает `linux/amd64` и публикует
+`ghcr.io/factoryall/production:<тег>` и `:latest`.
+
+**Доступ с сервера.** Пакет приватный (репозиторий приватный), поэтому сервер должен
+войти в реестр токеном с правом `read:packages`:
 
 ```bash
-# --platform обязателен: Dockerfile копирует библиотеки из x86_64-слоя
-# (/usr/lib/x86_64-linux-gnu/libssl.so.3). На Apple Silicon без этого флага сборка
-# либо упадёт на этих COPY, либо соберёт arm64-образ, который на сервере даст
-# «exec format error» уже при запуске.
+# на сервере, один раз
+echo "<PERSONAL_ACCESS_TOKEN>" | docker login ghcr.io -u <github-user> --password-stdin
+```
+
+**Забрать образ:**
+
+```bash
+# на сервере
+docker pull ghcr.io/factoryall/production:v2.9.6
+# compose ждёт локальное имя prodtrack-web:<тег> — даём его
+docker tag ghcr.io/factoryall/production:v2.9.6 prodtrack-web:v2.9.6
+docker image inspect prodtrack-web:v2.9.6 --format '{{.Architecture}}'   # amd64
+```
+
+**Если Actions недоступны** — образ можно по-прежнему собрать на любой машине с Docker:
+
+```bash
 docker build --platform linux/amd64 \
-  -t prodtrack-web:v2.9.3 -f apps/web/Dockerfile --build-arg VERSION=v2.9.3 .
-
-docker save prodtrack-web:v2.9.3 | gzip -1 | ssh <user>@<ip> 'gunzip | docker load'
+  -t prodtrack-web:<тег> -f apps/web/Dockerfile --build-arg VERSION=<тег> .
+docker save prodtrack-web:<тег> | gzip -1 | ssh <user>@<ip> 'gunzip | docker load'
 ```
-
-**На сервере:**
-
-```bash
-cd /opt/prodtrack
-docker images | grep prodtrack-web
-# архитектура должна быть amd64 — иначе образ не запустится
-docker image inspect prodtrack-web:v2.9.3 --format '{{.Architecture}}'
-```
-
-**Почему не на сервере — измерено.** Сборка turbo запускает задачи параллельно: до четырёх
-процессов, пик одного процесса — **740 МБ**, суммарно дерево доходит до ~2 ГБ. При 1 ГБ и
-работающих postgres с nginx это гарантированный OOM, swap не спасает. Поэтому сборка на
-сервере не рассматривается — `scripts/deploy.sh` (он делает `up -d --build`) на этой машине
-**запускать нельзя**.
 
 ## 4. Запуск
 

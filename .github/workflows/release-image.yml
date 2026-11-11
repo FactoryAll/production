@@ -1,0 +1,81 @@
+# Сборка образа прода в GitHub Actions и публикация в GHCR.
+#
+# Зачем: прод живёт на сервере с 1 ГБ памяти, где сборка Next.js уходит в OOM
+# (измерено: 740 МБ на процесс, до ~2 ГБ на дерево процессов). До этого образ собирали
+# на рабочей машине и переносили `docker save | ssh docker load` — это требовало Docker
+# у человека и превращало каждый релиз в ручную операцию.
+#
+# Теперь: тег `v*` → Actions собирает образ под linux/amd64 → публикует в реестр →
+# на сервере `docker pull`. Ни у кого не должно быть Docker локально.
+#
+# Образ: ghcr.io/factoryall/production:<тег> и :latest
+
+name: Release image
+
+on:
+  push:
+    tags: ['v*']
+  # Ручной запуск для проверки самого воркфлоу, без релиза.
+  workflow_dispatch:
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: ghcr.io/factoryall/production
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Тег версии
+        id: vars
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Вход в GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Сборка и публикация
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./apps/web/Dockerfile
+          # Прод-сервер amd64. Явно, а не «как получится»: Dockerfile копирует
+          # библиотеки из x86_64-слоя (/usr/lib/x86_64-linux-gnu/libssl.so.3).
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            VERSION=${{ steps.vars.outputs.version }}
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.version }}
+            ${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Итог
+        run: |
+          echo "Опубликовано:"
+          echo "  ${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.version }}"
+          echo "На сервере: docker pull ${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.version }}"
+          echo "Затем:      bash scripts/deploy.sh ${{ steps.vars.outputs.version }} --no-build"
