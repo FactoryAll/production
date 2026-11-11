@@ -19,6 +19,31 @@ set -euo pipefail
 APP_DIR="${PRODTRACK_DIR:-/opt/prodtrack}"
 COMPOSE_PROJECT_NAME="prodtrack"
 
+# ФАЙЛЫ COMPOSE. На малом сервере нужен второй слой (docker-compose.timeweb.yml):
+# лимиты памяти, настройки postgres под 1 ГБ и ограничение логов. Без него контейнеры
+# поднимаются без потолков — то есть ровно так, как ломается на гигабайте.
+#
+# Раньше скрипт всегда звал `docker compose` с одним файлом, и перенесённый образ
+# (prodtrack-web:<тег>) не находился: в базовом compose у сервиса web нет поля image,
+# compose ждал образ prodtrack-web без тега. Теперь слой подключается явно.
+#
+# Переопределяется списком: PRODTRACK_COMPOSE_FILES="-f a.yml -f b.yml".
+# Память сервера: сборка на слабой машине убьёт и приложение, и базу.
+# Файл можно подменить через PRODTRACK_MEMINFO_FILE — это нужно для проверки самой проверки.
+MEMINFO="${PRODTRACK_MEMINFO_FILE:-/proc/meminfo}"
+MEM_TOTAL_MB=0
+if [ -r "${MEMINFO}" ]; then
+    MEM_TOTAL_MB="$(awk '/^MemTotal:/ {printf "%d", $2/1024}' "${MEMINFO}" 2>/dev/null || echo 0)"
+fi
+
+COMPOSE=(docker compose)
+if [ -n "${PRODTRACK_COMPOSE_FILES:-}" ]; then
+    # shellcheck disable=SC2206
+    COMPOSE+=( ${PRODTRACK_COMPOSE_FILES} )
+elif [ -f docker-compose.timeweb.yml ] && [ "${MEM_TOTAL_MB}" -lt 2048 ] 2>/dev/null; then
+    COMPOSE+=( -f docker-compose.yml -f docker-compose.timeweb.yml )
+fi
+
 TARGET=""
 NO_BUILD=0
 for arg in "$@"; do
@@ -37,13 +62,6 @@ if [ -z "${TARGET}" ]; then
     exit 1
 fi
 
-# Память сервера: сборка на слабой машине убьёт и приложение, и базу.
-# Файл можно подменить через PRODTRACK_MEMINFO_FILE — это нужно для проверки самой проверки.
-MEMINFO="${PRODTRACK_MEMINFO_FILE:-/proc/meminfo}"
-MEM_TOTAL_MB=0
-if [ -r "${MEMINFO}" ]; then
-    MEM_TOTAL_MB="$(awk '/^MemTotal:/ {printf "%d", $2/1024}' "${MEMINFO}" 2>/dev/null || echo 0)"
-fi
 
 if [ "${NO_BUILD}" -eq 0 ] && [ "${MEM_TOTAL_MB}" -gt 0 ] && [ "${MEM_TOTAL_MB}" -lt 2048 ]; then
     echo "[deploy] ОТКАЗ: на этой машине ${MEM_TOTAL_MB} МБ памяти — сборка образа уйдёт в OOM." >&2
@@ -103,10 +121,10 @@ if [ "${NO_BUILD}" -eq 1 ]; then
         echo "         Перенесите его (docs/deploy_timeweb.md, шаг 3) или уберите --no-build." >&2
         exit 1
     fi
-    docker compose up -d --no-build
+    "${COMPOSE[@]}" up -d --no-build
 else
     echo "[deploy] Building and starting containers..."
-    docker compose up -d --build
+    "${COMPOSE[@]}" up -d --build
 fi
 
 # Wait for postgres to be healthy (не дольше ~60 с: дальше ждать бессмысленно — если база
@@ -114,7 +132,7 @@ fi
 echo "[deploy] Waiting for postgres healthy..."
 DB_READY=0
 for i in $(seq 1 30); do
-    if docker compose ps 2>/dev/null | grep "prodtrack_postgres" | grep "healthy" >/dev/null; then
+    if "${COMPOSE[@]}" ps 2>/dev/null | grep "prodtrack_postgres" | grep "healthy" >/dev/null; then
         DB_READY=1
         echo "[deploy] Postgres is healthy."
         break
@@ -130,13 +148,13 @@ fi
 # Важно: в standalone-образе нет pnpm-воркспейса, поэтому `pnpm --filter` не работает
 # («No projects matched the filters in "/app"»). Используем глобальные prisma/tsx из образа.
 echo "[deploy] Running Prisma migrate deploy..."
-docker compose exec -T web sh -lc 'prisma migrate deploy --schema=/app/packages/db/prisma/schema.prisma || npx --yes prisma@5.22.0 migrate deploy --schema=/app/packages/db/prisma/schema.prisma'
+"${COMPOSE[@]}" exec -T web sh -lc 'prisma migrate deploy --schema=/app/packages/db/prisma/schema.prisma || npx --yes prisma@5.22.0 migrate deploy --schema=/app/packages/db/prisma/schema.prisma'
 
 echo "[deploy] Running seed (first pass)..."
-docker compose exec -T web sh -lc 'cd /app/packages/db && (tsx prisma/seed.ts || npx --yes tsx@4.15.0 prisma/seed.ts)'
+"${COMPOSE[@]}" exec -T web sh -lc 'cd /app/packages/db && (tsx prisma/seed.ts || npx --yes tsx@4.15.0 prisma/seed.ts)'
 
 echo "[deploy] Running seed again (idempotency check)..."
-docker compose exec -T web sh -lc 'cd /app/packages/db && (tsx prisma/seed.ts || npx --yes tsx@4.15.0 prisma/seed.ts)'
+"${COMPOSE[@]}" exec -T web sh -lc 'cd /app/packages/db && (tsx prisma/seed.ts || npx --yes tsx@4.15.0 prisma/seed.ts)'
 
 # 5. Smoke test
 echo "[deploy] Smoke test: curl http://127.0.0.1:3000/login"
