@@ -13,7 +13,7 @@
 
 | | Прод | Дев |
 |---|---|---|
-| Домен | `prodtracker.factoryall.ru` | `prodtracker-dev.factoryall.ru` |
+| Домен | `prodtrack.vegas-ai.ru` (прод на Timeweb) | локально (серверных стендов больше нет) |
 | Порт на сервере | `127.0.0.1:3000` | `127.0.0.1:3001` |
 | Compose | `docker-compose.yml` | `docker-compose.dev.yml` |
 | Проект compose | `prodtrack` | `prodtrack-dev` |
@@ -97,7 +97,9 @@ cd /opt/prodtrack && git pull origin main && git log -1 --oneline && docker comp
 Резервный путь, если домен недоступен — SSH-туннель (ключ заведён на сервере):
 
 ```powershell
-ssh -N -L 3001:127.0.0.1:3001 prodtrack@prodtracker.factoryall.ru
+# Стенды живут ЛОКАЛЬНО: серверные дев- и фикс-стенды не поднимаются — на 1 ГБ им не хватает места.
+# Туннель к прод-серверу нужен только чтобы посмотреть прод снаружи:
+ssh -N -L 3001:127.0.0.1:3000 prodtrack@prodtrack.vegas-ai.ru
 ```
 
 > Вход под `root` как штатный способ не используется: у отдельного пользователя меньше прав,

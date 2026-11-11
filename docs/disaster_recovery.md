@@ -115,28 +115,26 @@ docker compose up -d && sleep 20 && bash scripts/postdeploy-check.sh
 
 ### 3.5 nginx, сертификат и защита стендов
 
-Пошагово — `docs/deploy_vps.md`, разделы 4–6. Коротко:
+Пошагово для нынешнего сервера — `docs/deploy_timeweb.md` (nginx и сертификат, раздел 5).
+Коротко:
 
 ```bash
-# 1) конфиги сайтов — образцы в репозитории
-cp docs/nginx/prodtracker.factoryall.ru.conf     /etc/nginx/sites-available/
-cp docs/nginx/prodtracker-dev.factoryall.ru.conf /etc/nginx/sites-available/
-cp docs/nginx/prodtracker-fix.factoryall.ru.conf /etc/nginx/sites-available/
-ln -sf /etc/nginx/sites-available/prodtracker*.conf /etc/nginx/sites-enabled/
+# 1) конфиг сайта — образец в репозитории (домен нынешнего прода)
+cp docs/nginx/prodtrack.vegas-ai.ru.conf /etc/nginx/sites-available/
+ln -sf /etc/nginx/sites-available/prodtrack.vegas-ai.ru.conf /etc/nginx/sites-enabled/
 
-# 2) пароль стендов: и файл с логином, и сниппеты, на которые ссылаются конфиги.
-#    Без этого шага nginx не запустится (include не найдёт файл) — и это правильно:
-#    молча поднятый стенд без пароля хуже, чем незапустившийся nginx.
-htpasswd -c /etc/nginx/.htpasswd-prodtrack prodtrack
-cp docs/nginx/snippets/prodtracker-stand-auth.conf /etc/nginx/snippets/prodtracker-dev-allow.conf
-cp docs/nginx/snippets/prodtracker-stand-auth.conf /etc/nginx/snippets/prodtracker-fix-allow.conf
+# 2) сниппет защиты от сканеров: конфиг его подключает, без файла nginx не запустится
+cp docs/nginx/snippets/prodtrack-junk-paths.conf /etc/nginx/snippets/
 
-# 3) сертификаты (certbot допишет блок 443 в каждый конфиг)
-certbot --nginx -d prodtracker.factoryall.ru \
-               -d prodtracker-dev.factoryall.ru \
-               -d prodtracker-fix.factoryall.ru
+# 3) сертификат (certbot допишет блок 443)
+certbot --nginx -d prodtrack.vegas-ai.ru
 
 nginx -t && systemctl reload nginx
+
+# Пароль на стенды ставить НЕ нужно: на нынешнем сервере стендов нет
+# (1 ГБ не тянет три приложения). Если когда-нибудь вернутся — пароль, а не список IP:
+#   htpasswd -c /etc/nginx/.htpasswd-prodtrack prodtrack
+#   cp docs/nginx/snippets/prodtracker-stand-auth.conf /etc/nginx/snippets/prodtracker-dev-allow.conf
 ```
 
 SSE-канал уведомлений требует отдельного `location /api/events/` — образец и объяснение

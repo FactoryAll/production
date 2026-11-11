@@ -68,7 +68,9 @@ else
   COMPOSE=(docker compose)
   STAND_NAME="ПРОД"
   APP_PORT="${PRODTRACK_PORT:-3000}"
-  DOMAIN="prodtracker.factoryall.ru"
+  # Домен нынешнего прода (Timeweb, 11.11.2026). Переопределяется переменной, чтобы
+  # скрипт не врал после очередного переезда: домен — это данные, а не константа кода.
+  DOMAIN="${PRODTRACK_DOMAIN:-prodtrack.vegas-ai.ru}"
   WEB_CONTAINER="prodtrack_web"
   PG_CONTAINER="prodtrack_postgres"
 fi
@@ -179,18 +181,18 @@ if [ "${DEV_STAND}" = "1" ] || [ "${FIX_STAND}" = "1" ]; then
     echo '  см. docs/branching_model.md, раздел про доступ'
   fi
 else
-  if grep -q 'prodtrack-junk-paths' /etc/nginx/sites-enabled/prodtracker.factoryall.ru.conf 2>/dev/null; then
+  if grep -q 'prodtrack-junk-paths' "/etc/nginx/sites-enabled/${DOMAIN}.conf" 2>/dev/null; then
     echo 'сниппет мусорных путей подключён — ок'
   else
     echo 'ВНИМАНИЕ: не подключён сниппет защиты от сканеров (/etc/nginx/snippets/prodtrack-junk-paths.conf).'
-    echo '  см. docs/deploy_vps.md, раздел «Защита от сканеров»'
+    echo '  см. docs/deploy_timeweb.md (или docs/deploy_vps.md, раздел «Защита от сканеров»)'
   fi
   if command -v fail2ban-client >/dev/null 2>&1; then
     if fail2ban-client status prodtrack-scanner >/dev/null 2>&1; then
       echo "джейл fail2ban: $(fail2ban-client status prodtrack-scanner | grep -E 'Currently banned' | sed 's/.*Currently banned:[[:space:]]*//') забанено сейчас"
     else
       echo 'ВНИМАНИЕ: джейл fail2ban prodtrack-scanner не активен.'
-      echo '  см. docs/deploy_vps.md, раздел «Защита от сканеров»'
+      echo '  см. docs/deploy_timeweb.md (или docs/deploy_vps.md, раздел «Защита от сканеров»)'
     fi
   else
     echo 'fail2ban не установлен — защиты от сканеров нет.'
