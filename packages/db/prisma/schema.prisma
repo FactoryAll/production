@@ -261,6 +261,9 @@ model ProductionOrder {
   shiftSummaries ShiftSummary[]
 
   @@map("production_orders")
+
+  // Дашборд каждые 5 с берёт MAX(updatedAt) — без индекса это seq scan по всей таблице.
+  @@index([updatedAt])
 }
 
 model ProductionOrderLine {
@@ -285,6 +288,9 @@ model ProductionOrderLine {
 
   @@map("production_order_lines")
   transferLines TransferLine[] @relation("LineTransfers")
+
+  // То же: MAX(updatedAt) для отпечатка состояния дашборда.
+  @@index([updatedAt])
 }
 
 model ProductionOrderLineWorkers {
@@ -412,6 +418,8 @@ model StockMovement {
   createdAt     DateTime          @default(now())
 
   @@index([warehouseId, productId, stockCategory])
+  // MAX(createdAt) для отпечатка состояния дашборда.
+  @@index([createdAt])
   @@map("stock_movements")
 }
 
@@ -615,6 +623,9 @@ model StageTiming {
   initiatorId    String?
 
   @@map("stage_timings")
+
+  // Журнал переходов растёт быстрее всех таблиц: MAX(transitionedAt) без индекса — seq scan.
+  @@index([transitionedAt])
 }
 
 // === M12: 1C tasks ===

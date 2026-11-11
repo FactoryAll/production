@@ -48,6 +48,10 @@ services:
       - effective_cache_size=384MB
       - -c
       - work_mem=4MB
+      # На одном ядре параллельные планы только мешают: планировщик тратит время
+      # на выбор плана, а выигрыша нет.
+      - -c
+      - max_parallel_workers_per_gather=0
       - -c
       - maintenance_work_mem=48MB
       - -c
@@ -57,7 +61,9 @@ services:
       - log_min_messages=warning
     mem_limit: 320m
     memswap_limit: 512m
-    shm_size: 128m
+    # shm_size — это tmpfs, и в cgroup v2 он считается ВНУТРИ mem_limit:
+    # 128 МБ shm + 128 МБ shared_buffers = 256 МБ из 320. Оставляем запас.
+    shm_size: 64m
     logging:
       driver: json-file
       options:

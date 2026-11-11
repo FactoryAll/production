@@ -52,7 +52,13 @@ Next.js на 1 ГБ собирается в OOM. Собираем локальн
 **На рабочей машине** (в каталоге репозитория):
 
 ```bash
-docker build -t prodtrack-web:v2.9.3 -f apps/web/Dockerfile --build-arg VERSION=v2.9.3 .
+# --platform обязателен: Dockerfile копирует библиотеки из x86_64-слоя
+# (/usr/lib/x86_64-linux-gnu/libssl.so.3). На Apple Silicon без этого флага сборка
+# либо упадёт на этих COPY, либо соберёт arm64-образ, который на сервере даст
+# «exec format error» уже при запуске.
+docker build --platform linux/amd64 \
+  -t prodtrack-web:v2.9.3 -f apps/web/Dockerfile --build-arg VERSION=v2.9.3 .
+
 docker save prodtrack-web:v2.9.3 | gzip -1 | ssh <user>@<ip> 'gunzip | docker load'
 ```
 
@@ -60,12 +66,16 @@ docker save prodtrack-web:v2.9.3 | gzip -1 | ssh <user>@<ip> 'gunzip | docker lo
 
 ```bash
 cd /opt/prodtrack
-docker images | grep prodtrack-web        # образ на месте
+docker images | grep prodtrack-web
+# архитектура должна быть amd64 — иначе образ не запустится
+docker image inspect prodtrack-web:v2.9.3 --format '{{.Architecture}}'
 ```
 
-> Если собирать всё же на сервере, то только с `NODE_OPTIONS=--max-old-space-size=768`
-> и при включённом swap — и следите за `dmesg | tail` на OOM. Этот путь медленнее и
-> ненадёжнее; основной — перенос образа.
+**Почему не на сервере — измерено.** Сборка turbo запускает задачи параллельно: до четырёх
+процессов, пик одного процесса — **740 МБ**, суммарно дерево доходит до ~2 ГБ. При 1 ГБ и
+работающих postgres с nginx это гарантированный OOM, swap не спасает. Поэтому сборка на
+сервере не рассматривается — `scripts/deploy.sh` (он делает `up -d --build`) на этой машине
+**запускать нельзя**.
 
 ## 4. Запуск
 
