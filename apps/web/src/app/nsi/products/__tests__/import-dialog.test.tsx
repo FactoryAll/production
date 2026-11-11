@@ -20,6 +20,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 import { ImportProductsDialog } from '../_components/import-dialog';
 import ProductsPage from '../_client-page';
+import { IMPORT_MAX_FILE_BYTES } from '@/lib/nsi-import/limits';
 
 const emptyCounts = { create: 0, update: 0, unchanged: 0, skip: 0, errors: 0 };
 
@@ -56,6 +57,44 @@ function chooseFile() {
     target: { files: [new File(['dummy'], 'nomenclature.xlsx')] },
   });
 }
+
+describe('Предел размера файла (сервер 1 ГБ, 03.11.2026)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('слишком большой файл не отправляется и объясняется почему', () => {
+    renderDialog();
+
+    const input = screen.getByLabelText('Файл') as HTMLInputElement;
+    const big = new File(['x'], 'big.xlsx');
+    // Размер задаём свойством: File в jsdom не даёт создать мегабайты по-настоящему.
+    Object.defineProperty(big, 'size', { value: IMPORT_MAX_FILE_BYTES + 1 });
+    fireEvent.change(input, { target: { files: [big] } });
+
+    expect(screen.getByText(/Файл больше 3 МБ/)).toBeDefined();
+    // Сервер не дёргаем вовсе: проверка срабатывает до отправки.
+    expect(checkProductImportAction).not.toHaveBeenCalled();
+    // Кнопка проверки остаётся недоступной — файл не выбран.
+    expect(
+      (screen.getByRole('button', { name: 'Проверить файл' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it('файл в пределах предела принимается', () => {
+    renderDialog();
+
+    const input = screen.getByLabelText('Файл') as HTMLInputElement;
+    const ok = new File(['x'], 'ok.xlsx');
+    Object.defineProperty(ok, 'size', { value: IMPORT_MAX_FILE_BYTES });
+    fireEvent.change(input, { target: { files: [ok] } });
+
+    expect(screen.queryByText(/Файл больше/)).toBeNull();
+    expect(
+      (screen.getByRole('button', { name: 'Проверить файл' }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+});
 
 describe('Диалог загрузки номенклатуры из файла', () => {
   beforeEach(() => {

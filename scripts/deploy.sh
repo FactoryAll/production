@@ -4,6 +4,11 @@ set -euo pipefail
 # ProdTrack — развёртывание на VPS (T-062).
 # Запуск: bash scripts/deploy.sh <тег-или-коммит>   (например: bash scripts/deploy.sh v2.1.1)
 #
+# НА СЕРВЕРЕ С МАЛОЙ ПАМЯТЬЮ (Timeweb, 1 ГБ) ЭТОТ СКРИПТ СОБИРАТЬ НЕ ДОЛЖЕН.
+# Измерено 03.11.2026: сборка Next.js — 740 МБ на процесс и до ~2 ГБ на дерево процессов;
+# на 1 ГБ рядом с postgres и nginx это OOM. Поэтому скрипт сам проверяет память и при
+# MemTotal < 2 ГБ отказывается собирать (см. `--no-build` ниже и docs/deploy_timeweb.md).
+#
 # ПОЧЕМУ ТЕГ — АРГУМЕНТ, А НЕ КОНСТАНТА В СКРИПТЕ.
 # Раньше здесь было `GIT_TAG="v1.2.0"` и `git checkout "${GIT_TAG}"`. Документ
 # (`docs/deploy_vps.md`, раздел «Обновление на конкретный тег») предлагал этот скрипт как
@@ -14,12 +19,41 @@ set -euo pipefail
 APP_DIR="${PRODTRACK_DIR:-/opt/prodtrack}"
 COMPOSE_PROJECT_NAME="prodtrack"
 
-TARGET="${1:-}"
+TARGET=""
+NO_BUILD=0
+for arg in "$@"; do
+    case "${arg}" in
+        --no-build) NO_BUILD=1 ;;
+        -*) echo "[deploy] ОТКАЗ: неизвестный флаг ${arg}. Допустимо: --no-build." >&2; exit 1 ;;
+        *) TARGET="${arg}" ;;
+    esac
+done
 
 if [ -z "${TARGET}" ]; then
     echo "[deploy] ОТКАЗ: не указан тег или коммит." >&2
-    echo "         Использование: bash scripts/deploy.sh <тег-или-коммит>" >&2
+    echo "         Использование: bash scripts/deploy.sh <тег-или-коммит> [--no-build]" >&2
     echo "         Например:      bash scripts/deploy.sh v2.1.1" >&2
+    echo "         На малом сервере (1 ГБ): --no-build с заранее перенесённым образом." >&2
+    exit 1
+fi
+
+# Память сервера: сборка на слабой машине убьёт и приложение, и базу.
+# Файл можно подменить через PRODTRACK_MEMINFO_FILE — это нужно для проверки самой проверки.
+MEMINFO="${PRODTRACK_MEMINFO_FILE:-/proc/meminfo}"
+MEM_TOTAL_MB=0
+if [ -r "${MEMINFO}" ]; then
+    MEM_TOTAL_MB="$(awk '/^MemTotal:/ {printf "%d", $2/1024}' "${MEMINFO}" 2>/dev/null || echo 0)"
+fi
+
+if [ "${NO_BUILD}" -eq 0 ] && [ "${MEM_TOTAL_MB}" -gt 0 ] && [ "${MEM_TOTAL_MB}" -lt 2048 ]; then
+    echo "[deploy] ОТКАЗ: на этой машине ${MEM_TOTAL_MB} МБ памяти — сборка образа уйдёт в OOM." >&2
+    echo "         Измерено: сборка Next.js берёт 740 МБ на процесс и до ~2 ГБ на дерево." >&2
+    echo "" >&2
+    echo "         Соберите образ на рабочей машине и перенесите:" >&2
+    echo "           docker build --platform linux/amd64 -t prodtrack-web:<тег> -f apps/web/Dockerfile ." >&2
+    echo "           docker save prodtrack-web:<тег> | gzip -1 | ssh <user>@<ip> 'gunzip | docker load'" >&2
+    echo "         Затем здесь: bash scripts/deploy.sh <тег> --no-build" >&2
+    echo "         Подробно — docs/deploy_timeweb.md." >&2
     exit 1
 fi
 
@@ -62,21 +96,35 @@ else
 fi
 
 # 3. Build and start containers
-echo "[deploy] Building and starting containers..."
-docker compose up -d --build
+if [ "${NO_BUILD}" -eq 1 ]; then
+    echo "[deploy] Запуск БЕЗ сборки (--no-build): используется перенесённый образ."
+    if ! docker image inspect "prodtrack-web:${TARGET}" >/dev/null 2>&1; then
+        echo "[deploy] ОТКАЗ: образа prodtrack-web:${TARGET} нет на машине." >&2
+        echo "         Перенесите его (docs/deploy_timeweb.md, шаг 3) или уберите --no-build." >&2
+        exit 1
+    fi
+    docker compose up -d --no-build
+else
+    echo "[deploy] Building and starting containers..."
+    docker compose up -d --build
+fi
 
-# Wait for postgres to be healthy
+# Wait for postgres to be healthy (не дольше ~60 с: дальше ждать бессмысленно — если база
+# не поднялась, смотреть логи, а не ждать)
 echo "[deploy] Waiting for postgres healthy..."
-docker compose ps | grep "prodtrack_postgres" | grep "healthy" >/dev/null || {
-    echo "[deploy] Waiting for healthcheck..."
-    for i in $(seq 1 30); do
-        if docker compose ps | grep "prodtrack_postgres" | grep "healthy" >/dev/null; then
-            echo "[deploy] Postgres is healthy."
-            break
-        fi
-        sleep 2
-    done
-}
+DB_READY=0
+for i in $(seq 1 30); do
+    if docker compose ps 2>/dev/null | grep "prodtrack_postgres" | grep "healthy" >/dev/null; then
+        DB_READY=1
+        echo "[deploy] Postgres is healthy."
+        break
+    fi
+    sleep 2
+done
+if [ "${DB_READY}" -eq 0 ]; then
+    echo "[deploy] ВНИМАНИЕ: postgres не отчитался как healthy за 60 с." >&2
+    echo "          Смотрите: docker compose logs --tail=40 postgres" >&2
+fi
 
 # 4. Run migrations and seed (idempotent)
 # Важно: в standalone-образе нет pnpm-воркспейса, поэтому `pnpm --filter` не работает

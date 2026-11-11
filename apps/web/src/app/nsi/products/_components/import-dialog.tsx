@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Dialog } from '@prodtrack/ui';
 import { plural } from '@/lib/format';
+import { IMPORT_MAX_FILE_BYTES, IMPORT_MAX_FILE_LABEL } from '@/lib/nsi-import/limits';
 import {
   applyProductImportAction,
   checkProductImportAction,
@@ -122,8 +123,19 @@ export function ImportProductsDialog({ open, onClose }: ImportProductsDialogProp
             accept=".xlsx,.xlsm"
             disabled={busy}
             onChange={(event) => {
-              setFile(event.target.files?.[0] ?? null);
+              const chosen = event.target.files?.[0] ?? null;
               startOver();
+              // Проверяем размер ДО отправки: иначе сервер отвергнет запрос по лимиту тела,
+              // и человек увидит ошибку 413 без объяснения (сервер 1 ГБ, книга разбирается
+              // в памяти целиком — см. lib/nsi-import/limits.ts).
+              if (chosen && chosen.size > IMPORT_MAX_FILE_BYTES) {
+                setFile(null);
+                setError(
+                  `Файл больше ${IMPORT_MAX_FILE_LABEL}: такой не загрузится. Разделите книгу на части.`,
+                );
+                return;
+              }
+              setFile(chosen);
             }}
             className="block w-full text-base text-graphite file:mr-3 file:rounded-md file:border file:border-mist-metal file:bg-white file:px-3 file:py-1.5"
           />
