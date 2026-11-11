@@ -77,6 +77,23 @@ fi
 
 cd "${APP_DIR}"
 
+# ВЕРСИЯ В .env ДОЛЖНА СОВПАДАТЬ С ТЕГОМ.
+# 11.11.2026 деплой v2.9.9 поднял контейнер на образе v2.9.8: compose берёт имя образа
+# из ${VERSION}, а в .env осталось старое значение. Скрипт при этом отработал «успешно»
+# и выдал лишь WARNING про футер. Теперь версия синхронизируется сама.
+if [ -f .env ] && [ -n "${TARGET}" ]; then
+    if grep -q '^VERSION=' .env; then
+        CURRENT_ENV_VERSION="$(grep -m1 '^VERSION=' .env | cut -d= -f2)"
+        if [ "${CURRENT_ENV_VERSION}" != "${TARGET}" ]; then
+            sed -i "s|^VERSION=.*|VERSION=${TARGET}|" .env
+            echo "[deploy] VERSION в .env: ${CURRENT_ENV_VERSION} → ${TARGET}"
+        fi
+    else
+        echo "VERSION=${TARGET}" >> .env
+        echo "[deploy] VERSION добавлен в .env: ${TARGET}"
+    fi
+fi
+
 # 1. Репозиторий и переход на указанную версию
 echo "[deploy] Fetching origin (tags included)..."
 if [ ! -d ".git" ]; then
