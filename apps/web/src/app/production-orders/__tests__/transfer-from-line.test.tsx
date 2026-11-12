@@ -55,11 +55,11 @@ function pfFact(quantity: number) {
   return { ...gpFact(quantity), id: `fact-pf-${quantity}`, factCategory: 'PF' };
 }
 
-function makeOrder(overrides: { category?: 'MASS' | 'GP'; facts?: unknown[] } = {}) {
+function makeOrder(overrides: { category?: 'MASS' | 'GP'; facts?: unknown[]; status?: string } = {}) {
   const category = overrides.category ?? 'GP';
   return {
     id: 'po-1',
-    status: 'COMPLETED',
+    status: overrides.status ?? 'COMPLETED',
     shiftId: 'shift-1',
     createdById: 'user-1',
     createdAt: new Date(),
@@ -142,13 +142,31 @@ describe('Перемещение из строки ПЗ: кнопка и пре�
     expect(params.get('destinationWarehouseId')).toBe(FINISHED_GOODS_WAREHOUSE);
   });
 
-  it('без факта ГП количество не подставляется — поле остаётся пустым', () => {
+  it('без произведённой ГП кнопки нет: перемещать нечего (решение владельца 12.11.2026)', () => {
     renderCard({ order: makeOrder({ facts: [pfFact(10)] }) });
+
+    expect(screen.queryByRole('link', { name: /Создать перемещение/ })).toBeNull();
+  });
+
+  it('в Черновике кнопки нет: ничего не произведено (решение владельца 12.11.2026)', () => {
+    renderCard({ order: makeOrder({ status: 'DRAFT', facts: [] }) });
+
+    expect(screen.queryByRole('link', { name: /Создать перемещение/ })).toBeNull();
+  });
+
+  it('в Подтверждённом ПЗ кнопки нет: производство ещё не начиналось (решение владельца 12.11.2026)', () => {
+    renderCard({ order: makeOrder({ status: 'CONFIRMED', facts: [] }) });
+
+    expect(screen.queryByRole('link', { name: /Создать перемещение/ })).toBeNull();
+  });
+
+  it('в работе с внесённым фактом ГП кнопка есть и количество — факт (12.11.2026)', () => {
+    renderCard({ order: makeOrder({ status: 'IN_PROGRESS', facts: [gpFact(45)] }) });
 
     const link = screen.getByRole('link', { name: /Создать перемещение/ });
     const href = link.getAttribute('href') ?? '';
     const params = new URLSearchParams(href.slice(href.indexOf('?') + 1));
-    expect(params.get('quantity')).toBeNull();
+    expect(params.get('quantity')).toBe('45');
   });
 
   it('у строки Массы перемещения нет: перемещают только ГП', () => {
