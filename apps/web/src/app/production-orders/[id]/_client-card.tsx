@@ -170,6 +170,9 @@ function ConsumptionEditor({
   );
 }
 
+/** Строка ПЗ в карточке: факты и работники приходят вместе со строкой (см. `ProductionOrderCardProps`). */
+type OrderCardLine = ProductionOrderCardProps['order']['lines'][number];
+
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Черновик',
   CONFIRMED: 'Подтверждено',
@@ -416,7 +419,7 @@ export default function ProductionOrderCard({
   const canCreateTransfer = hasPermission(userRoles, 'transfer:create');
 
   /** Факт ГП по строке — количество для предзаполнения перемещения (T-103). */
-  function gpFactOfLine(line: { facts: Array<{ factCategory: string; quantity: { toString(): string } }> }): string {
+  function gpFactOfLine(line: OrderCardLine): string {
     const total = line.facts
       .filter((fact) => fact.factCategory === 'GP')
       .reduce((sum, fact) => sum + Number(fact.quantity.toString()), 0);
@@ -424,13 +427,26 @@ export default function ProductionOrderCard({
   }
 
   /**
+   * Произведённая ГП по строке — то, что вообще можно перемещать (решение владельца 12.11.2026, ОПЭ-81).
+   *
+   * Перемещают произведённое, а не запланированное. В Черновике и Подтверждённом ПЗ производство
+   * ещё не начиналось: фактов ГП нет, и активная кнопка открывала форму, которую сервер всё равно
+   * отклонял по остатку склада-источника (BR-1) — дверь в тупик. Признак «произведено» — внесённый
+   * факт ГП, а не статус ПЗ: в работе без отчёта оператора перемещать тоже нечего.
+   */
+  function hasProducedGp(line: OrderCardLine): boolean {
+    const isProductionStarted = order.status === 'IN_PROGRESS' || order.status === 'COMPLETED';
+    return isProductionStarted && gpFactOfLine(line) !== '';
+  }
+
+  /**
    * Ссылка «Создать перемещение» из строки ПЗ: номенклатура строки, количество — **факт ГП**
    * (а не план), строка ПЗ и склады по умолчанию (Производственный → Склад ГП).
    */
-  function transferCreateHref(line: ProductionOrderLine): string {
+  function transferCreateHref(line: OrderCardLine): string {
     const production = transferWarehouses.find((warehouse) => warehouse.type === 'PRODUCTION');
     const finishedGoods = transferWarehouses.find((warehouse) => warehouse.type === 'FINISHED_GOODS');
-    const quantity = gpFactOfLine(line as unknown as { facts: Array<{ factCategory: string; quantity: { toString(): string } }> });
+    const quantity = gpFactOfLine(line);
     const params = new URLSearchParams({ productId: line.productId });
     if (quantity) {
       params.set('quantity', quantity);
@@ -970,7 +986,7 @@ export default function ProductionOrderCard({
                         Ввести за Оператора
                       </Button>
                     )}
-                    {canCreateTransfer && line.product.category === 'GP' && (
+                    {canCreateTransfer && line.product.category === 'GP' && hasProducedGp(line) && (
                       <div className="space-y-1">
                         <Link href={transferCreateHref(line)}>
                           <Button variant="secondary" size="sm">
