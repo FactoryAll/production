@@ -218,4 +218,18 @@ else
     exit 1
 fi
 
+# ЧИСТКА СТАРЫХ ОБРАЗОВ. 12.11.2026 диск на 14 ГБ заполнился до 92% тремя образами
+# по 1.7 ГБ, и до порога «postgres остановится» оставалось 100 МБ. Держим текущий образ
+# и один предыдущий (для быстрого откката), остальные удаляем.
+echo "[deploy] Чистка старых образов..."
+KEEP_IMAGE="prodtrack-web:${TARGET}"
+docker images --format '{{.Repository}}:{{.Tag}}' \
+    | grep -E '^prodtrack-web:v|^ghcr.io/factoryall/production:v' \
+    | grep -v -F "${KEEP_IMAGE}" \
+    | sort -V \
+    | head -n -1 \
+    | xargs -r docker rmi -f >/dev/null 2>&1 || true
+docker image prune -f >/dev/null 2>&1 || true
+echo "[deploy] Свободно на диске: $(df -h / | awk 'NR==2 {print $4}')"
+
 echo "[deploy] Done. Дальше: bash scripts/postdeploy-check.sh"
