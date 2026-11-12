@@ -219,17 +219,35 @@ else
 fi
 
 # ЧИСТКА СТАРЫХ ОБРАЗОВ. 12.11.2026 диск на 14 ГБ заполнился до 92% тремя образами
-# по 1.7 ГБ, и до порога «postgres остановится» оставалось 100 МБ. Держим текущий образ
-# и один предыдущий (для быстрого откката), остальные удаляем.
-echo "[deploy] Чистка старых образов..."
+# по 1.7 ГБ, и до порога «postgres остановится» оставалось 100 МБ.
+#
+# Остаётся РОВНО ОДИН образ — текущий (решение главной линии 12.11.2026, по расчёту):
+#   держать ещё и предыдущий — это постоянные 1.7 ГБ на диске 14 ГБ, который делят с MES;
+#   откат от этого не ускоряется, потому что делается так же, как деплой:
+#     docker pull ghcr.io/factoryall/production:<тег> && docker tag ... prodtrack-web:<тег>
+#     bash scripts/deploy.sh <тег> --no-build
+#   Реестр хранит версии, тег никуда не денется, а скачивание — минута.
+#
+# Снимаем ОБА вида тегов, какие бывают на сервере: `prodtrack-web:v…` (имя из compose)
+# и `ghcr.io/factoryall/production:v…` (после docker pull). Второй — тот же образ,
+# поэтому удаление его тега лишь снимает ссылку и места не освобождает, но убирает путаницу
+# «какая версия лежит».
+echo "[deploy] Чистка старых образов (остаётся только prodtrack-web:${TARGET})..."
 KEEP_IMAGE="prodtrack-web:${TARGET}"
 docker images --format '{{.Repository}}:{{.Tag}}' \
-    | grep -E '^prodtrack-web:v|^ghcr.io/factoryall/production:v' \
+    | grep -E '^prodtrack-web:v[0-9]|^ghcr\.io/factoryall/production:v[0-9]' \
     | grep -v -F "${KEEP_IMAGE}" \
-    | sort -V \
-    | head -n -1 \
-    | xargs -r docker rmi -f >/dev/null 2>&1 || true
+    | xargs -r -n1 docker rmi -f >/dev/null 2>&1 || true
 docker image prune -f >/dev/null 2>&1 || true
+
+# Проверка предела: правило «один образ» проверяем, а не предполагаем.
+PRODUCT_IMAGES="$(docker images --format '{{.Repository}}:{{.Tag}}' \
+    | grep -E '^prodtrack-web:v[0-9]|^ghcr\.io/factoryall/production:v[0-9]' | wc -l | tr -d ' ')"
+echo "[deploy] Образов ProdTrack в кеше: ${PRODUCT_IMAGES} (правило: 1)"
+if [ "${PRODUCT_IMAGES}" -gt 1 ]; then
+    echo "[deploy] ВНИМАНИЕ: осталось ${PRODUCT_IMAGES} образов — чистка не сработала." >&2
+    echo "          Проверьте вручную: docker images | grep -E 'prodtrack-web|ghcr.io/factoryall'" >&2
+fi
 echo "[deploy] Свободно на диске: $(df -h / | awk 'NR==2 {print $4}')"
 
 echo "[deploy] Done. Дальше: bash scripts/postdeploy-check.sh"
