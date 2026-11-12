@@ -102,7 +102,13 @@ jobs:
         run: pnpm --filter @prodtrack/db db:migrate
 
       - name: Seed database
+        # Тестовые учётные записи нужны e2e: сценарии ищут test_multi_role и других по логину.
+        # Сид создаёт их только по явному флагу (ОПЭ-79: чистая база прода не должна подниматься
+        # с известными паролями), поэтому флаг задаётся здесь — база в CI своя и одноразовая.
+        # Без него e2e падал с «NotFoundError: No User found» с 03.11.2026.
         run: pnpm --filter @prodtrack/db db:seed
+        env:
+          SEED_TEST_USERS: 'true'
 
       - name: Install Playwright browsers
         run: pnpm --filter @prodtrack/web exec playwright install --with-deps chromium
