@@ -28,7 +28,7 @@ interface UserRow extends User {
 interface UsersTableProps {
   users: UserRow[];
   searchParams: UsersSearchParams;
-  /** Кто смотрит список: у своей строки действие другое (12.11.2026). */
+  /** Кто смотрит список: у своей строки действие другое (ОПЭ-80). */
   currentUserId?: string | null;
 }
 
@@ -108,7 +108,7 @@ export function UsersTable({ users, searchParams, currentUserId = null }: UsersT
           </Link>
           {/*
             Своя строка: «сбросить» свой пароль нельзя — сброс завершает сессии и выбросил бы
-            администратора из системы. Вместо отказа здесь форма смены СВОЕГО пароля:
+            администратора из системы. Вместо отказа здесь форма смены СВОЕГО пароля (ОПЭ-80):
             человек ищет действие там, где ему отказали, а не на отдельной странице.
           */}
           {row.original.id === currentUserId ? (
