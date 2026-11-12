@@ -6,6 +6,7 @@ export const dynamic = 'force-dynamic';
 
 import { AccessDenied } from '@/components/access-denied';
 import { checkPageAccess } from '@/lib/auth/page-guard';
+import { getSession } from '@/lib/auth/session';
 
 export default async function UsersPage({ searchParams }: { searchParams: UsersSearchParams }) {
   const access = await checkPageAccess('users:manage');
@@ -16,6 +17,10 @@ export default async function UsersPage({ searchParams }: { searchParams: UsersS
   const activeFilter =
     searchParams.active === 'true' ? true : searchParams.active === 'false' ? false : undefined;
   const users = await listUsers(q, activeFilter);
+  // Своя строка в списке: у неё другое действие — не «сбросить», а «сменить свой пароль»
+  // (сброс своего пароля завершил бы собственные сессии администратора, ОПЭ-82).
+  const session = await getSession();
+  const currentUserId = session?.userId ?? null;
 
   return (
     <main className="p-6">
@@ -28,7 +33,7 @@ export default async function UsersPage({ searchParams }: { searchParams: UsersS
           Создать пользователя
         </Link>
       </div>
-      <UsersTable users={users} searchParams={searchParams} />
+      <UsersTable users={users} searchParams={searchParams} currentUserId={currentUserId} />
     </main>
   );
 }

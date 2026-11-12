@@ -13,6 +13,7 @@ import {
 import type { User, Employee, Role } from '@prisma/client';
 import { toggleUserActiveAction } from '../actions';
 import { ResetPasswordButton } from './reset-password-button';
+import { ChangeOwnPasswordButton } from './change-own-password-button';
 
 export interface UsersSearchParams {
   q?: string;
@@ -27,6 +28,8 @@ interface UserRow extends User {
 interface UsersTableProps {
   users: UserRow[];
   searchParams: UsersSearchParams;
+  /** Кто смотрит список: у своей строки действие другое (ОПЭ-82). */
+  currentUserId?: string | null;
 }
 
 function StatusCell({ active }: { active: boolean }) {
@@ -57,7 +60,7 @@ function ToggleButton({ user }: { user: UserRow }) {
   );
 }
 
-export function UsersTable({ users, searchParams }: UsersTableProps) {
+export function UsersTable({ users, searchParams, currentUserId = null }: UsersTableProps) {
   const router = useRouter();
 
   // Колонки мемоизированы: без этого при обновлении страницы react-table пересоздаёт ячейки,
@@ -103,13 +106,22 @@ export function UsersTable({ users, searchParams }: UsersTableProps) {
           >
             Редактировать
           </Link>
-          <ResetPasswordButton userId={row.original.id} login={row.original.login} />
+          {/*
+            Своя строка: «сбросить» свой пароль нельзя — сброс завершает сессии и выбросил бы
+            администратора из системы. Вместо отказа здесь форма смены СВОЕГО пароля (ОПЭ-82):
+            человек ищет действие там, где ему отказали, а не на отдельной странице.
+          */}
+          {row.original.id === currentUserId ? (
+            <ChangeOwnPasswordButton login={row.original.login} />
+          ) : (
+            <ResetPasswordButton userId={row.original.id} login={row.original.login} />
+          )}
           <ToggleButton user={row.original} />
         </div>
       ),
     },
     ],
-    [],
+    [currentUserId],
   );
 
   const table = useReactTable({
