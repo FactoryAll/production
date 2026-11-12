@@ -96,19 +96,6 @@ export function Header({ user, unreadCount = 0 }: HeaderProps) {
           <span className="hidden text-sm text-neutral-300 lg:inline">
             {user.login}
           </span>
-          {/*
-            Вход на смену пароля. До 12.11.2026 его не было НИГДЕ: сброс своего пароля через
-            «Пользователи» намеренно запрещён и отвечает «смените на экране «Смена пароля»»,
-            а попасть на этот экран можно было, только набрав адрес руками. Владелец упёрся
-            в это в первый же день работы. Ссылка видна в шапке всем авторизованным ролям —
-            потому что сменить свой пароль может любой, а не только администратор.
-          */}
-          <Link
-            href="/change-password"
-            className="hidden h-[var(--button-height-sm)] items-center whitespace-nowrap rounded-md border border-white/20 px-4 text-base font-medium text-white transition-colors hover:bg-white/10 sm:inline-flex"
-          >
-            Смена пароля
-          </Link>
           <LogoutButton className="h-[var(--button-height-sm)] rounded-md border border-white/20 bg-transparent px-4 text-base font-medium text-white transition-colors hover:bg-white/10" />
         </div>
       </div>
