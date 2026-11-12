@@ -169,6 +169,22 @@ describe('Перемещение из строки ПЗ: кнопка и пре�
     expect(params.get('quantity')).toBe('45');
   });
 
+  it('кнопки действия стоят столбиком одинаковой ширины (замечание владельца 12.11.2026)', () => {
+    // jsdom не считает пиксели, поэтому проверяем контракт разметки: обе кнопки в одном
+    // flex-столбце и растянуты до его ширины — это и даёт одинаковую ширину на экране.
+    renderCard({ order: makeOrder({ facts: [gpFact(45)] }) });
+
+    const transfer = screen.getByRole('link', { name: /Создать перемещение/ });
+    const correct = screen.getByRole('button', { name: /Корректировать/ });
+
+    const column = transfer.parentElement;
+    expect(column?.className).toContain('flex-col');
+    expect(column).toBe(correct.parentElement);
+    expect(transfer.className).toContain('block');
+    expect(transfer.querySelector('button')?.className).toContain('w-full');
+    expect(correct.className).toContain('w-full');
+  });
+
   it('у строки Массы перемещения нет: перемещают только ГП', () => {
     renderCard({ order: makeOrder({ category: 'MASS' }) });
 

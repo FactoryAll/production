@@ -976,42 +976,47 @@ export default function ProductionOrderCard({
                       : '—'}
                   </td>
                   <td className="border-b border-mist-metal px-4 py-3 text-graphite">
-                    {canSubstitute && (line.status === 'ASSIGNED' || line.status === 'ACCEPTED') && (
-                      <Button
-                        variant="cta"
-                        size="sm"
-                        disabled={isPending}
-                        onClick={() => openSubstituteDialog(line.id)}
-                      >
-                        Ввести за Оператора
-                      </Button>
-                    )}
-                    {canCreateTransfer && line.product.category === 'GP' && hasProducedGp(line) && (
-                      <div className="space-y-1">
-                        <Link href={transferCreateHref(line)}>
-                          <Button variant="secondary" size="sm">
+                    {/* Кнопки действия — один столбик одинаковой ширины (замечание владельца 12.11.2026):
+                        «Создать перемещение» и «Корректировать ГП» выходили разной ширины, потому что
+                        каждая кнопка была по своему тексту. Колонка растягивает всех до самой широкой. */}
+                    <div className="flex flex-col items-stretch gap-2">
+                      {canSubstitute && (line.status === 'ASSIGNED' || line.status === 'ACCEPTED') && (
+                        <Button
+                          variant="cta"
+                          size="sm"
+                          disabled={isPending}
+                          onClick={() => openSubstituteDialog(line.id)}
+                          className="w-full"
+                        >
+                          Ввести за Оператора
+                        </Button>
+                      )}
+                      {canCreateTransfer && line.product.category === 'GP' && hasProducedGp(line) && (
+                        <Link href={transferCreateHref(line)} className="block">
+                          <Button variant="secondary" size="sm" className="w-full">
                             Создать перемещение
                           </Button>
                         </Link>
-                      </div>
-                    )}
-                    {canCorrectFact && line.facts.length > 0 && (
-                      <div className="space-y-2">
-                        {line.facts.map((fact) => (
-                          <Button
-                            key={fact.id}
-                            variant="cta"
-                            size="sm"
-                            disabled={isPending}
-                            onClick={() => openCorrectFactDialog(fact, line.id)}
-                          >
-                            {/* ОПЭ-57: при двух фактах (ГП и ПФ) кнопки без подписи неразличимы,
-                                а на широком экране они встают в одну строку — категория обязательна. */}
-                            Корректировать {factCategoryLabel(fact.factCategory as 'MASS' | 'GP' | 'PF')}
-                          </Button>
-                        ))}
-                      </div>
-                    )}
+                      )}
+                      {canCorrectFact && line.facts.length > 0 && (
+                        <>
+                          {line.facts.map((fact) => (
+                            <Button
+                              key={fact.id}
+                              variant="cta"
+                              size="sm"
+                              disabled={isPending}
+                              onClick={() => openCorrectFactDialog(fact, line.id)}
+                              className="w-full"
+                            >
+                              {/* ОПЭ-57: при двух фактах (ГП и ПФ) кнопки без подписи неразличимы,
+                                  а на широком экране они встают в одну строку — категория обязательна. */}
+                              Корректировать {factCategoryLabel(fact.factCategory as 'MASS' | 'GP' | 'PF')}
+                            </Button>
+                          ))}
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
