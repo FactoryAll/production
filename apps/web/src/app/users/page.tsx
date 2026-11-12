@@ -18,7 +18,7 @@ export default async function UsersPage({ searchParams }: { searchParams: UsersS
     searchParams.active === 'true' ? true : searchParams.active === 'false' ? false : undefined;
   const users = await listUsers(q, activeFilter);
   // Своя строка в списке: у неё другое действие — не «сбросить», а «сменить свой пароль»
-  // (сброс своего пароля завершил бы собственные сессии администратора, ОПЭ-82).
+  // (сброс своего пароля завершил бы собственные сессии администратора, 12.11.2026).
   const session = await getSession();
   const currentUserId = session?.userId ?? null;
 
