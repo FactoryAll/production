@@ -582,7 +582,7 @@ function allowedCategoriesForProduct(productCategory: 'MASS' | 'GP' | 'PF'): Sub
  * не для красоты — без него спор «я вводил другое» нечем закончить. Если сырое значение
  * из формы не совпало с разобранным, это уже дефект разбора, и он обязан орать, а не молчать.
  */
-export function assertSubmittedValuesMatch(
+function assertSubmittedValuesMatch(
   raw: Partial<Record<'MASS' | 'GP' | 'PF', string>> | undefined,
   parsed: Partial<Record<'MASS' | 'GP' | 'PF', Prisma.Decimal>>,
 ): void {
