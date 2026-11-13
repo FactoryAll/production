@@ -73,6 +73,44 @@ cd /opt/prodtrack && git pull origin main && docker compose -f docker-compose.de
 Дев-сид создаёт те же учётные записи (в том числе `admin`), но в **своей** базе: данные
 пользователей прода и дева не пересекаются.
 
+## Локальный стенд (проверки владельца)
+
+Проверяем всё **здесь**, а не на сервере (решение владельца 14.11.2026, правило 16).
+
+**Поднять (две команды, проверено 14.11.2026):**
+
+```bash
+export PATH=/usr/lib/postgresql/16/bin:$PATH
+pg_ctl -D /home/user/projects/work/production/.local/pgdata \
+       -l /home/user/projects/work/production/.local/pgdata.log \
+       -o "-p 55432 -k /tmp" start
+
+cd /home/user/projects/work/production/.worktrees/dev
+DATABASE_URL="postgresql://prodtrack@127.0.0.1:55432/prodtrack_local?schema=public" \
+VERSION=local-check \
+  pnpm --filter @prodtrack/web exec next dev -p 3100
+```
+
+**Проверить, что поднялся:** `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3100/login` → `200`.
+
+**Что выдать владельцу вместе с заданием:** адрес `http://localhost:3100`, логин, пароль.
+
+| Логин | Пароль | Роли |
+|---|---|---|
+| `admin` | задаётся линией при подъёме (см. ниже) | АДМ |
+| `test_multi_role` | `test1234` (из `seed.ts`, публично) | НП + ОПР |
+
+Пароль `admin` при сиде генерируется случайно и в логах не сохраняется. Если входной пароль неизвестен —
+пересчитать хеш и записать в базу стенда (только стенд!):
+
+```bash
+cd apps/web && node -e "require('bcryptjs').hash('Prodtrack2026!',10).then(h=>console.log(h))"
+psql -h 127.0.0.1 -p 55432 -U prodtrack -d prodtrack_local \
+  -c "UPDATE users SET \"passwordHash\"='<хеш>', \"mustChangePassword\"=false WHERE login='admin';"
+```
+
+Проверять вход надо сверкой хеша (`bcrypt.compare`), а не «на глаз»: 14.11.2026 так и делалось.
+
 ## Прод: развёртывание
 
 Только после успешного дева — процедура из `docs/deploy_vps.md`:
