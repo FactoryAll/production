@@ -760,6 +760,8 @@ export default function ProductionOrderCard({
         return;
       }
       formData.set('outputByCategory', JSON.stringify(outputByCategory));
+      // Сырые строки из полей — сервер сверит их с разобранными (13.11.2026, ПЗ f4f8d4a6).
+      formData.set('outputByCategoryRaw', JSON.stringify({ GP: substituteOutput, PF: substituteOutputPF }));
     }
 
     if (substituteDefectQuantity) formData.set('defectQuantity', substituteDefectQuantity);
