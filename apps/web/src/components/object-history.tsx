@@ -6,6 +6,7 @@
 import { Card } from '@prodtrack/ui';
 import { auditActionLabel, auditChangeLabel, auditObjectLabel, auditRoleLabel } from '@/app/audit/labels';
 import { getObjectHistory, type AuditRecordItem } from '@/app/audit/queries';
+import { buildAuditNameMap } from '@/app/audit/names';
 
 interface ObjectHistoryProps {
   objectType: string;
@@ -15,7 +16,14 @@ interface ObjectHistoryProps {
 }
 
 /** Презентационная часть: список аудит-записей по объекту. */
-export function ObjectHistoryList({ records }: { records: AuditRecordItem[] }) {
+export function ObjectHistoryList({
+  records,
+  names = {},
+}: {
+  records: AuditRecordItem[];
+  /** Идентификаторы → человеческие названия (см. `buildAuditNameMap`). */
+  names?: Record<string, string>;
+}) {
   if (records.length === 0) {
     return (
       <Card className="p-6 text-sm text-machine-gray">
@@ -46,7 +54,7 @@ export function ObjectHistoryList({ records }: { records: AuditRecordItem[] }) {
               <td className="px-4 py-2 text-steel-graphite">{auditRoleLabel(record.role)}</td>
               <td className="px-4 py-2 text-graphite">{auditActionLabel(record.action)}</td>
               <td className="px-4 py-2 text-steel-graphite">
-                {auditChangeLabel(record.field, record.oldValue, record.newValue)}
+                {auditChangeLabel(record.field, record.oldValue, record.newValue, names)}
                 {record.archived && (
                   <span className="ml-2 rounded-sm bg-cold-white-gray px-1 text-xs text-machine-gray">
                     архив
@@ -68,13 +76,15 @@ export async function ObjectHistory({
   canShowArchived = false,
 }: ObjectHistoryProps) {
   const records = await getObjectHistory(objectType, objectId, canShowArchived);
+  // Идентификаторы в значениях заменяем названиями: дамп GUID человеку ничего не говорит.
+  const auditNames = await buildAuditNameMap(records);
 
   return (
     <section className="mt-8">
       <h2 className="mb-3 text-lg font-semibold text-graphite">
         История изменений ({auditObjectLabel(objectType)})
       </h2>
-      <ObjectHistoryList records={records} />
+      <ObjectHistoryList records={records} names={auditNames} />
     </section>
   );
 }

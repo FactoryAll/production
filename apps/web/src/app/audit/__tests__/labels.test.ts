@@ -34,12 +34,12 @@ describe('подписи экрана «Аудит» (M13 §8)', () => {
   });
 
   it('показывает изменение «поле: старое → новое» (Р-09)', () => {
-    expect(auditChangeLabel('status', 'DRAFT', 'CONFIRMED')).toBe('status: DRAFT → CONFIRMED');
-    expect(auditChangeLabel('quantity', '10', '8')).toBe('quantity: 10 → 8');
+    expect(auditChangeLabel('status', 'DRAFT', 'CONFIRMED')).toBe('статус: Черновик → Подтверждено');
+    expect(auditChangeLabel('quantity', '10', '8')).toBe('количество: 10 → 8');
   });
 
   it('показывает только новое значение, если старого нет', () => {
-    expect(auditChangeLabel(null, null, '{"shiftId":"s-1"}')).toBe('{"shiftId":"s-1"}');
+    expect(auditChangeLabel(null, null, '{"shiftId":"s-1"}')).toBe('смена: s-1');
   });
 
   it('показывает прочерк, если значений нет', () => {

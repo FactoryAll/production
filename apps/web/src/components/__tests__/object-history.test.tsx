@@ -28,7 +28,7 @@ describe('История изменений объекта (M13 §8)', () => {
     expect(screen.getByText('ivanov')).toBeTruthy();
     expect(screen.getByText('NP')).toBeTruthy();
     expect(screen.getByText('изменение')).toBeTruthy();
-    expect(screen.getByText('status: DRAFT → CONFIRMED')).toBeTruthy();
+    expect(screen.getByText('статус: Черновик → Подтверждено')).toBeTruthy();
   });
 
   it('помечает архивные записи (Р-16)', () => {

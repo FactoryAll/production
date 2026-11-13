@@ -80,8 +80,16 @@ interface ProductionOrderCardProps {
 interface ConsumptionRowState {
   productId: string;
   quantity: string;
-  /** Категория остатка, с которой списываем (ОПЭ-34/44). */
+  /** Категория остатка, с которой списываем (ОПЭ-34/44) — без неё ключ опции не совпадает. */
   stockCategory?: 'MASS' | 'PF' | 'GP';
+  /**
+   * Подпись продукта для строки, восстановленной из факта (14.11.2026).
+   *
+   * Список опций строится из остатков Производственного склада: если позицию уже списали,
+   * её в списке нет — и поле выглядело пустым, хотя потребление в факте есть. Запоминаем
+   * название и единицу из факта, чтобы строка всегда читалась человеком.
+   */
+  productLabel?: string;
 }
 
 /**
@@ -113,6 +121,15 @@ function ConsumptionEditor({
     // В подписи кода нет, но искать по нему нужно.
     keywords: product.code,
   }));
+  // 14.11.2026: строка из факта может ссылаться на позицию, которой уже нет в остатках.
+  // Без опции SearchSelect показывает пустое поле — добавляем вариант с подписью из факта.
+  for (const row of rows) {
+    if (!row.productId || !row.productLabel) continue;
+    const value = row.stockCategory ? `${row.productId}|${row.stockCategory}` : row.productId;
+    if (!options.some((option) => option.value === value)) {
+      options.push({ value, label: row.productLabel, keywords: '' });
+    }
+  }
 
   return (
     <div className="space-y-2">
@@ -513,7 +530,7 @@ export default function ProductionOrderCard({
   }
 
   function openCorrectFactDialog(
-    fact: ProductionFact & { consumptions: FactConsumption[] },
+    fact: ProductionFact & { consumptions: Array<FactConsumption & { product: Product }> },
     lineId: string,
   ) {
     setCorrectFactId(fact.id);
@@ -528,6 +545,9 @@ export default function ProductionOrderCard({
       fact.consumptions.map((item) => ({
         productId: item.productId,
         quantity: item.quantity.toString(),
+        // Категория остатка — часть ключа опции (ОПЭ-34/44): без неё поле потребления пустое.
+        stockCategory: item.stockCategory as 'MASS' | 'PF' | 'GP',
+        productLabel: `${item.product.name} (${item.product.unit})`,
       })),
     );
     // T-093: прошлый фактический состав строки — основа для подтверждения состава.
