@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button, Card, Dialog, SearchSelect, Select, Label } from '@prodtrack/ui';
@@ -386,6 +386,14 @@ export default function ProductionOrderCard({
   const [substituteComment, setSubstituteComment] = useState('');
   const [substituteOutput, setSubstituteOutput] = useState('');
   const [substituteOutputPF, setSubstituteOutputPF] = useState('');
+  /**
+   * Что поле выпуска проходило по ходу ввода (13.11.2026).
+   *
+   * Пользователи видят на проде «ввёл 1224 — вижу 1223», и по факту отправки этого не различить:
+   * ушло ровно то, что было в поле. Журнал изменений показывает, набирали ли 1224 и когда
+   * значение сменилось — до нажатия кнопки или в момент. Хранится последние 40 изменений.
+   */
+  const substituteOutputHistory = useRef<Array<{ field: string; value: string }>>([]);
   const [substituteDefectQuantity, setSubstituteDefectQuantity] = useState('');
   const [substituteDefectReasonId, setSubstituteDefectReasonId] = useState('');
   const [substituteStopsCount, setSubstituteStopsCount] = useState('');
@@ -707,6 +715,7 @@ export default function ProductionOrderCard({
     setSubstituteComment('');
     setSubstituteOutput('');
     setSubstituteOutputPF('');
+    substituteOutputHistory.current = [];
     setSubstituteDefectQuantity('');
     setSubstituteDefectReasonId('');
     setSubstituteStopsCount('');
@@ -762,6 +771,7 @@ export default function ProductionOrderCard({
       formData.set('outputByCategory', JSON.stringify(outputByCategory));
       // Сырые строки из полей — сервер сверит их с разобранными (13.11.2026, ПЗ f4f8d4a6).
       formData.set('outputByCategoryRaw', JSON.stringify({ GP: substituteOutput, PF: substituteOutputPF }));
+      formData.set('outputHistory', JSON.stringify(substituteOutputHistory.current));
     }
 
     if (substituteDefectQuantity) formData.set('defectQuantity', substituteDefectQuantity);
@@ -1228,7 +1238,13 @@ export default function ProductionOrderCard({
               min="0"
               step="1"
               value={substituteOutput}
-              onChange={(e) => setSubstituteOutput(e.target.value)}
+              onChange={(e) => {
+                setSubstituteOutput(e.target.value);
+                substituteOutputHistory.current = [
+                  ...substituteOutputHistory.current,
+                  { field: 'GP', value: e.target.value },
+                ].slice(-40);
+              }}
               required={productCategoryForSubstituteLine() === 'MASS'}
               placeholder="Укажите фактический выпуск"
               className="flex h-10 w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
@@ -1244,7 +1260,13 @@ export default function ProductionOrderCard({
                 min="0"
                 step="1"
                 value={substituteOutputPF}
-                onChange={(e) => setSubstituteOutputPF(e.target.value)}
+                onChange={(e) => {
+                setSubstituteOutputPF(e.target.value);
+                substituteOutputHistory.current = [
+                  ...substituteOutputHistory.current,
+                  { field: 'PF', value: e.target.value },
+                ].slice(-40);
+              }}
                 placeholder="Полуфабрикат (необязательно)"
                 className="flex h-10 w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
               />
