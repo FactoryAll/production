@@ -1330,6 +1330,66 @@ describe('substituteOperator', () => {
     expect(deps.writeTiming).toHaveBeenCalledTimes(1);
   });
 
+  it('отказывает, если сырое значение из поля расходится с отправленным (13.11.2026)', async () => {
+    // Повод: по ПЗ f4f8d4a6 в поле было 1224, а в базу попало 1223. Если такое расхождение
+    // возникает на разборе, оно обязано падать с внятной ошибкой, а не сохраняться молча.
+    const line = buildSubstitutableLine('ASSIGNED');
+    const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
+    const deps = buildSubstituteDeps(line, order);
+
+    await expect(
+      substituteOperator(
+        'line-1',
+        {
+          reasonCode: 'ILLNESS',
+          comment: 'Заболевание',
+          outputByCategory: { MASS: 1223 },
+          outputRaw: { MASS: '1224' },
+        },
+        {
+          prisma: deps.prisma,
+          requirePermission: deps.requirePermission,
+          writeAudit: deps.writeAudit,
+          writeTiming: deps.writeTiming,
+          applyStockMovements: deps.applyStockMovements,
+          updateShiftSummary: deps.updateShiftSummary,
+        },
+      ),
+    ).rejects.toThrow(/Выпуск изменился при отправке/);
+
+    expect(deps.applyStockMovements).not.toHaveBeenCalled();
+  });
+
+  it('пишет сырое значение из поля в аудит вместе с разобранным (13.11.2026)', async () => {
+    const line = buildSubstitutableLine('ASSIGNED');
+    const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
+    const deps = buildSubstituteDeps(line, order);
+
+    await substituteOperator(
+      'line-1',
+      {
+        reasonCode: 'ILLNESS',
+        comment: 'Заболевание',
+        outputByCategory: { MASS: 50 },
+        outputRaw: { MASS: '50' },
+      },
+      {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+        applyStockMovements: deps.applyStockMovements,
+        updateShiftSummary: deps.updateShiftSummary,
+      },
+    );
+
+    const factAudit = deps.writeAudit.mock.calls
+      .map((call: unknown[]) => call[1] as { objectType?: string; newValue?: string })
+      .find((entry) => entry?.objectType === 'ProductionFact');
+    expect(factAudit?.newValue).toBeDefined();
+    expect(JSON.parse(factAudit?.newValue as string).outputRaw).toEqual({ MASS: '50' });
+  });
+
   it('reports ACCEPTED line', async () => {
     const line = buildSubstitutableLine('ACCEPTED');
     const order = buildSubstitutableOrder('IN_PROGRESS', [line as MockOrderLine]);

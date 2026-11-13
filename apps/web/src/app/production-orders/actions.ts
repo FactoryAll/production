@@ -575,8 +575,35 @@ function allowedCategoriesForProduct(productCategory: 'MASS' | 'GP' | 'PF'): Sub
   throw new Error('Неизвестная категория продукта');
 }
 
-function parseSubstitutionOutput(
-  productCategory: 'MASS' | 'GP' | 'PF',
+/**
+ * Сверка «что видел браузер» с «что разобрали на сервере» (13.11.2026).
+ *
+ * Зачем: по ПЗ `f4f8d4a6` в поле было 1224, а в аудит легло 1223. След расхождения нужен
+ * не для красоты — без него спор «я вводил другое» нечем закончить. Если сырое значение
+ * из формы не совпало с разобранным, это уже дефект разбора, и он обязан орать, а не молчать.
+ */
+export function assertSubmittedValuesMatch(
+  raw: Partial<Record<'MASS' | 'GP' | 'PF', string>> | undefined,
+  parsed: Partial<Record<'MASS' | 'GP' | 'PF', Prisma.Decimal>>,
+): void {
+  if (!raw) {
+    return;
+  }
+  for (const [key, value] of Object.entries(raw) as Array<['MASS' | 'GP' | 'PF', string]>) {
+    const submitted = Number(value);
+    if (value === '' || Number.isNaN(submitted)) {
+      continue;
+    }
+    const stored = parsed[key]?.toNumber() ?? 0;
+    if (submitted !== stored) {
+      throw new Error(
+        `Выпуск изменился при отправке: в поле было ${value}, отправлено ${stored}. Повторите ввод`,
+      );
+    }
+  }
+}
+
+function parseSubstitutionOutput(  productCategory: 'MASS' | 'GP' | 'PF',
   outputByCategory: unknown,
   legacyQuantity: number | undefined,
   legacyFactCategory: SubstitutionFactCategory | undefined,
@@ -660,6 +687,8 @@ async function validateSubstitutionInput(
     throw new Error('Укажите выпуск');
   }
 
+  assertSubmittedValuesMatch(input.outputRaw, outputByCategory);
+
   const defectQuantity = parseNonNegativeDecimal(input.defectQuantity);
   const stopsCount = parseNonNegativeInteger(input.stopsCount);
   const stopsDurationMinutes = parseNonNegativeInteger(input.stopsDurationMinutes);
@@ -716,6 +745,15 @@ export interface SubstitutionInput {
   /** @deprecated Use outputByCategory instead. */
   factCategory?: 'MASS' | 'GP' | 'PF';
   outputByCategory?: Partial<Record<'MASS' | 'GP' | 'PF', number>>;
+  /**
+   * Сырые строки из полей формы, как их видел браузер (13.11.2026).
+   *
+   * Повод: по ПЗ `f4f8d4a6` аудит хранит отправленное `quantity:"1223"`, а оператор говорит,
+   * что в поле было 1224. Ни клиент, ни сервер это число не меняют, поэтому нужен след того,
+   * что именно ушло из формы: пара «сырое + разобранное» в записи аудита отвечает на вопрос,
+   * расходились ли они, и следующий такой случай будет доказуем, а не спорным.
+   */
+  outputRaw?: Partial<Record<'MASS' | 'GP' | 'PF', string>>;
   defectQuantity?: number;
   defectReasonId?: string;
   stopsCount?: number;
@@ -900,6 +938,9 @@ export async function substituteOperator(
           consumption,
           reasonCode,
           comment,
+          // 13.11.2026: рядом с разобранным значением храним сырое из поля формы —
+          // по нему видно, расходились ли «что набрали» и «что ушло».
+          outputRaw: input.outputRaw ?? null,
         }),
         userId,
         userRoles: roles,
@@ -1025,6 +1066,10 @@ export async function substituteOperatorAction(
 
     if (rawOutputByCategory) {
       input.outputByCategory = JSON.parse(rawOutputByCategory);
+      const rawOutputByCategoryRaw = formData.get('outputByCategoryRaw')?.toString();
+      if (rawOutputByCategoryRaw) {
+        input.outputRaw = JSON.parse(rawOutputByCategoryRaw);
+      }
     } else {
       input.output = Number(formData.get('output'));
       input.factCategory = formData.get('factCategory') as 'MASS' | 'GP' | 'PF';
