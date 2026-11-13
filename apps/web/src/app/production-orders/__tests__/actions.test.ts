@@ -1360,6 +1360,41 @@ describe('substituteOperator', () => {
     expect(deps.applyStockMovements).not.toHaveBeenCalled();
   });
 
+  it('пишет журнал ввода поля в аудит: видно, что набирали и когда сменилось (13.11.2026)', async () => {
+    const line = buildSubstitutableLine('ASSIGNED');
+    const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
+    const deps = buildSubstituteDeps(line, order);
+
+    await substituteOperator(
+      'line-1',
+      {
+        reasonCode: 'ILLNESS',
+        comment: 'Заболевание',
+        outputByCategory: { MASS: 1223 },
+        outputRaw: { MASS: '1223' },
+        outputHistory: [
+          { field: 'GP', value: '1' },
+          { field: 'GP', value: '1224' },
+          { field: 'GP', value: '1223' },
+        ],
+      },
+      {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+        applyStockMovements: deps.applyStockMovements,
+        updateShiftSummary: deps.updateShiftSummary,
+      },
+    );
+
+    const factAudit = deps.writeAudit.mock.calls
+      .map((call: unknown[]) => call[1] as { objectType?: string; newValue?: string })
+      .find((entry) => entry?.objectType === 'ProductionFact');
+    const parsed = JSON.parse(factAudit?.newValue as string);
+    expect(parsed.outputHistory.map((e: { value: string }) => e.value)).toEqual(['1', '1224', '1223']);
+  });
+
   it('пишет сырое значение из поля в аудит вместе с разобранным (13.11.2026)', async () => {
     const line = buildSubstitutableLine('ASSIGNED');
     const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);

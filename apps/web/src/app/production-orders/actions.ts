@@ -754,6 +754,11 @@ export interface SubstitutionInput {
    * расходились ли они, и следующий такой случай будет доказуем, а не спорным.
    */
   outputRaw?: Partial<Record<'MASS' | 'GP' | 'PF', string>>;
+  /**
+   * Журнал изменений поля выпуска по ходу ввода (13.11.2026): что набирали и в каком порядке.
+   * Нужен, чтобы отличить «человек набрал 1223» от «браузер подменил 1224 на 1223».
+   */
+  outputHistory?: Array<{ field?: string; value?: string }>;
   defectQuantity?: number;
   defectReasonId?: string;
   stopsCount?: number;
@@ -941,6 +946,11 @@ export async function substituteOperator(
           // 13.11.2026: рядом с разобранным значением храним сырое из поля формы —
           // по нему видно, расходились ли «что набрали» и «что ушло».
           outputRaw: input.outputRaw ?? null,
+          // Журнал ввода — последние 40 изменений; обрезаем строки, чтобы аудит не пух.
+          outputHistory: (input.outputHistory ?? []).slice(-40).map((entry) => ({
+            field: String(entry?.field ?? '').slice(0, 8),
+            value: String(entry?.value ?? '').slice(0, 24),
+          })),
         }),
         userId,
         userRoles: roles,
@@ -1069,6 +1079,10 @@ export async function substituteOperatorAction(
       const rawOutputByCategoryRaw = formData.get('outputByCategoryRaw')?.toString();
       if (rawOutputByCategoryRaw) {
         input.outputRaw = JSON.parse(rawOutputByCategoryRaw);
+      }
+      const rawOutputHistory = formData.get('outputHistory')?.toString();
+      if (rawOutputHistory) {
+        input.outputHistory = JSON.parse(rawOutputHistory);
       }
     } else {
       input.output = Number(formData.get('output'));
