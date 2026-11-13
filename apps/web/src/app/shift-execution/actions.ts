@@ -81,6 +81,12 @@ export interface ReportFactInput {
   /** @deprecated Use outputByCategory instead. */
   factCategory?: FactCategoryInput;
   outputByCategory?: Partial<Record<FactCategoryInput, number>>;
+  /**
+   * Сырые строки полей и журнал ввода (13.11.2026) — то же, что в «Ввести за Оператора».
+   * Аудит хранит их рядом с разобранным значением: без этого спор «я вводил 1224» нечем закрыть.
+   */
+  outputRaw?: Partial<Record<FactCategoryInput, string>>;
+  outputHistory?: Array<{ field?: string; value?: string }>;
   defectQuantity?: number;
   defectReasonId?: string;
   stopsCount?: number;
@@ -94,6 +100,28 @@ export interface ReportFactInput {
 }
 
 export interface CorrectFactInput extends ReportFactInput {}
+
+/** Сверка «что видел браузер» с «что разобрали» (13.11.2026). Не экспортируется: `'use server'`. */
+function assertSubmittedValuesMatch(
+  raw: Partial<Record<FactCategoryInput, string>> | undefined,
+  parsed: Partial<Record<FactCategoryInput, Prisma.Decimal>>,
+): void {
+  if (!raw) {
+    return;
+  }
+  for (const [key, value] of Object.entries(raw) as Array<[FactCategoryInput, string]>) {
+    const submitted = Number(value);
+    if (value === '' || Number.isNaN(submitted)) {
+      continue;
+    }
+    const stored = parsed[key]?.toNumber() ?? 0;
+    if (submitted !== stored) {
+      throw new Error(
+        `Выпуск изменился при отправке: в поле было ${value}, отправлено ${stored}. Повторите ввод`,
+      );
+    }
+  }
+}
 
 function assertStatusTransitionAllowed(
   line: ProductionOrderLine & { order: { id: string; status: string } },
@@ -214,6 +242,7 @@ async function validateReportLikeInput(
   );
 
   const totalOutput = Object.values(outputByCategory).reduce((sum, q) => sum.plus(q ?? new Prisma.Decimal(0)), new Prisma.Decimal(0));
+  assertSubmittedValuesMatch(input.outputRaw, outputByCategory);
   if (totalOutput.lessThanOrEqualTo(0)) {
     throw new Error('Укажите выпуск');
   }
@@ -572,6 +601,11 @@ export async function reportProductionFact(
           stopsCount,
           stopsDurationMinutes,
           consumption,
+          outputRaw: input.outputRaw ?? null,
+          outputHistory: (input.outputHistory ?? []).slice(-40).map((entry) => ({
+            field: String(entry?.field ?? '').slice(0, 8),
+            value: String(entry?.value ?? '').slice(0, 24),
+          })),
         }),
         userId: session.userId,
         userRoles,
@@ -673,6 +707,14 @@ export async function reportProductionFactAction(lineId: string, formData: FormD
 
     if (rawOutputByCategory) {
       input.outputByCategory = JSON.parse(rawOutputByCategory);
+      const rawOutputByCategoryRaw = formData.get('outputByCategoryRaw')?.toString();
+      if (rawOutputByCategoryRaw) {
+        input.outputRaw = JSON.parse(rawOutputByCategoryRaw);
+      }
+      const rawOutputHistory = formData.get('outputHistory')?.toString();
+      if (rawOutputHistory) {
+        input.outputHistory = JSON.parse(rawOutputHistory);
+      }
     } else {
       input.quantity = Number(formData.get('quantity'));
       input.factCategory = parseFactCategory(formData.get('factCategory'));
