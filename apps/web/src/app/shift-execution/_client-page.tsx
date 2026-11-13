@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Card, Dialog, Input, SearchSelect, Select } from '@prodtrack/ui';
 import { formatQuantity } from '@/lib/quantity';
@@ -168,6 +168,15 @@ export default function ShiftExecutionPage({
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState(emptyReportForm());
+  /**
+   * Что поля выпуска проходили по ходу ввода (13.11.2026) — то же, что сделано в карточке ПЗ
+   * для «Ввести за Оператора». Пользователи видят «ввёл 1224 — вижу 1223» только на проде,
+   * поэтому журнал ввода нужен и здесь: по нему видно, набирали ли 1224 и когда значение сменилось.
+   */
+  const outputHistory = useRef<Array<{ field: string; value: string }>>([]);
+  function trackOutput(field: string, value: string) {
+    outputHistory.current = [...outputHistory.current, { field, value }].slice(-40);
+  }
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof typeof form, string>>>({});
   const [balances, setBalances] = useState<Record<string, BalanceInfo | null>>({});
   const [warnings, setWarnings] = useState<string[] | null>(null);
@@ -230,6 +239,7 @@ export default function ShiftExecutionPage({
     }
     base.workers = buildWorkerRows(line);
     setForm(base);
+    outputHistory.current = [];
     setError(null);
     setFieldErrors({});
     setBalances({});
@@ -263,6 +273,7 @@ export default function ShiftExecutionPage({
     // Прошлый фактический состав, а если его не было — назначение (T-093, §5 постановки).
     base.workers = buildWorkerRows(line);
     setForm(base);
+    outputHistory.current = [];
     if (fact?.consumptions) {
       fact.consumptions.forEach((c) => void fetchBalance(c.productId));
     }
@@ -443,6 +454,9 @@ export default function ShiftExecutionPage({
         if (!Number.isNaN(gp) && gp > 0) outputByCategory.GP = gp;
         if (!Number.isNaN(pf) && pf > 0) outputByCategory.PF = pf;
         formData.set('outputByCategory', JSON.stringify(outputByCategory));
+        // Сырые строки полей и журнал ввода — сервер сверит и запишет в аудит (13.11.2026).
+        formData.set('outputByCategoryRaw', JSON.stringify({ GP: form.outputGP, PF: form.outputPF }));
+        formData.set('outputHistory', JSON.stringify(outputHistory.current));
       }
       if (form.defectQuantity) formData.set('defectQuantity', form.defectQuantity);
       if (form.defectReasonId) formData.set('defectReasonId', form.defectReasonId);
@@ -505,6 +519,9 @@ export default function ShiftExecutionPage({
         if (!Number.isNaN(gp) && gp > 0) outputByCategory.GP = gp;
         if (!Number.isNaN(pf) && pf > 0) outputByCategory.PF = pf;
         formData.set('outputByCategory', JSON.stringify(outputByCategory));
+        // Сырые строки полей и журнал ввода — сервер сверит и запишет в аудит (13.11.2026).
+        formData.set('outputByCategoryRaw', JSON.stringify({ GP: form.outputGP, PF: form.outputPF }));
+        formData.set('outputHistory', JSON.stringify(outputHistory.current));
       }
       if (form.defectQuantity) formData.set('defectQuantity', form.defectQuantity);
       if (form.defectReasonId) formData.set('defectReasonId', form.defectReasonId);
@@ -710,7 +727,10 @@ const result: CorrectFactResult = await correctFactByOperatorAction(dialogState.
                     min={0}
                     step="1"
                     value={form.outputGP}
-                    onChange={(e) => setForm((f) => ({ ...f, outputGP: e.target.value }))}
+                    onChange={(e) => {
+                      trackOutput('GP', e.target.value);
+                      setForm((f) => ({ ...f, outputGP: e.target.value }));
+                    }}
                   />
                   {fieldErrors.outputGP && <p className="text-sm text-signal-amber">{fieldErrors.outputGP}</p>}
                 </div>
@@ -721,7 +741,10 @@ const result: CorrectFactResult = await correctFactByOperatorAction(dialogState.
                     min={0}
                     step="1"
                     value={form.outputPF}
-                    onChange={(e) => setForm((f) => ({ ...f, outputPF: e.target.value }))}
+                    onChange={(e) => {
+                      trackOutput('PF', e.target.value);
+                      setForm((f) => ({ ...f, outputPF: e.target.value }));
+                    }}
                   />
                   {fieldErrors.outputPF && <p className="text-sm text-signal-amber">{fieldErrors.outputPF}</p>}
                 </div>

@@ -547,6 +547,75 @@ describe('reportProductionFact', () => {
     vi.clearAllMocks();
   });
 
+  // 13.11.2026: прибор для формы Оператора — тот же, что в «Ввести за Оператора».
+  it('отказывает, если сырое значение из поля расходится с отправленным (13.11.2026)', async () => {
+    const line = makeLine({ status: 'ACCEPTED', productId: 'gp-1' });
+    const deps = buildMockPrisma({
+      line,
+      product: gpProduct,
+      workCenter: { id: 'wc-01', code: 'WC-01', name: 'РЦ 01', active: true, producesMass: false },
+    });
+
+    await expect(
+      reportProductionFact(
+        'line-1',
+        { outputByCategory: { GP: 1223 }, outputRaw: { GP: '1224' } },
+        {
+          prisma: deps.prisma,
+          writeAudit: vi.fn(),
+          writeTiming: vi.fn(),
+          requireShiftWindow: vi.fn().mockResolvedValue(baseSession),
+          getAvailableBalance: deps.getAvailableBalance,
+          applyStockMovements: deps.applyStockMovements,
+          updateShiftSummary: deps.updateShiftSummary,
+          syncOneCTask: vi.fn().mockResolvedValue('created'),
+        },
+      ),
+    ).rejects.toThrow(/Выпуск изменился при отправке/);
+
+    expect(deps.applyStockMovements).not.toHaveBeenCalled();
+  });
+
+  it('пишет сырое значение и журнал ввода в аудит (13.11.2026)', async () => {
+    const line = makeLine({ status: 'ACCEPTED', productId: 'gp-1' });
+    const deps = buildMockPrisma({
+      line,
+      product: gpProduct,
+      workCenter: { id: 'wc-01', code: 'WC-01', name: 'РЦ 01', active: true, producesMass: false },
+    });
+    const writeAudit = vi.fn();
+
+    await reportProductionFact(
+      'line-1',
+      {
+        outputByCategory: { GP: 1223 },
+        outputRaw: { GP: '1223' },
+        outputHistory: [
+          { field: 'GP', value: '12' },
+          { field: 'GP', value: '1224' },
+          { field: 'GP', value: '1223' },
+        ],
+      },
+      {
+        prisma: deps.prisma,
+        writeAudit,
+        writeTiming: vi.fn(),
+        requireShiftWindow: vi.fn().mockResolvedValue(baseSession),
+        getAvailableBalance: deps.getAvailableBalance,
+        applyStockMovements: deps.applyStockMovements,
+        updateShiftSummary: deps.updateShiftSummary,
+        syncOneCTask: vi.fn().mockResolvedValue('created'),
+      },
+    );
+
+    const factAudit = writeAudit.mock.calls
+      .map((call: unknown[]) => call[1] as { objectType?: string; newValue?: string })
+      .find((entry) => entry?.objectType === 'ProductionFact');
+    const parsed = JSON.parse(factAudit?.newValue as string);
+    expect(parsed.outputRaw).toEqual({ GP: '1223' });
+    expect(parsed.outputHistory.map((e: { value: string }) => e.value)).toEqual(['12', '1224', '1223']);
+  });
+
   // ОПЭ-34 (решение владельца 23.10.2026): ПФ — отдельный остаток той же номенклатуры.
   // До правки списание шло по категории продукта (GP) и уменьшало не тот остаток.
   it('списывает потребление с категории остатка, выбранной оператором (ПФ)', async () => {
