@@ -57,6 +57,8 @@ const fact = {
       productId: 'mass-1',
       // Номенклатура нужна для показа состава потребления в карточке (Р-10).
       product: massProduct,
+      // Категория остатка — часть ключа списка (ОПЭ-34/44); без неё поле выглядит пустым.
+      stockCategory: 'MASS',
       quantity: new Decimal(30),
       createdAt: new Date(),
     },
@@ -158,6 +160,26 @@ describe('Корректировка факта: потребление (T-073, 
     expect(screen.getAllByLabelText('Количество потребления')).toHaveLength(2);
   });
 
+  it('в окне корректировки видно номенклатуру потребления, а не пустое поле (14.11.2026)', async () => {
+    // Замечание владельца: в строке потребления было только количество, номенклатура — пустая.
+    // Причина: строка не несла категорию остатка, и ключ опции не совпадал с ключом строки.
+    render(
+      <ProductionOrderCard
+        order={makeOrder()}
+        defectReasons={[]}
+        consumableProducts={[massProduct] as never}
+        absenceReasons={[]}
+        workerCandidates={[]}
+        transferWarehouses={[]}
+        userRoles={['NP']}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^Корректировать (ГП|ПФ|Масса)$/ }));
+
+    const productField = await screen.findByLabelText('Потребление');
+    expect((productField as HTMLInputElement).value).toContain('Масса базовая');
+  });
+
   it('отправляет потребление вместе с корректировкой факта', async () => {
     correctProductionFactAction.mockResolvedValue({ success: true });
 
@@ -187,7 +209,9 @@ describe('Корректировка факта: потребление (T-073, 
     });
 
     const formData = correctProductionFactAction.mock.calls[0][1] as FormData;
-    expect(formData.get('consumption')).toBe(JSON.stringify([{ productId: 'mass-1', quantity: 20 }]));
+    expect(formData.get('consumption')).toBe(
+      JSON.stringify([{ productId: 'mass-1', quantity: 20, stockCategory: 'MASS' }]),
+    );
   });
 
   it('удаление всех строк потребления отправляет пустой список (T-073)', async () => {

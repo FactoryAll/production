@@ -1,6 +1,7 @@
 // Чистые хелперы экрана «Аудит» (M13 §8).
 
 import { AuditAction } from '@prodtrack/contracts';
+import { AUDIT_VALUE_LABELS, auditKeyLabel, humanizeAuditValue } from '@/lib/audit/humanize';
 
 export const AUDIT_ACTION_LABELS: Record<string, string> = {
   [AuditAction.CREATE]: 'создание',
@@ -65,21 +66,38 @@ export function auditRoleLabel(role: string | null): string {
 }
 
 /** Значение «старое → новое» для таблицы аудита (Р-09). */
+/**
+ * Подпись изменения для журнала.
+ *
+ * 14.11.2026: значения-объекты раскладываются по полям, а идентификаторы подменяются
+ * названиями из `names` — раньше в журнал попадал дамп вида `{"id":"b35b2488-…"}`, и
+ * читать его было нельзя. Если словаря нет, поведение прежнее (значение как есть),
+ * поэтому старые экраны и тесты не меняются.
+ */
 export function auditChangeLabel(
   field: string | null,
   oldValue: string | null,
   newValue: string | null,
+  names: Record<string, string> = {},
 ): string {
   const parts: string[] = [];
   if (field) {
-    parts.push(field);
+    parts.push(auditKeyLabel(field));
   }
+  const printable = (value: string): string => {
+    const asJson = humanizeAuditValue(value, names);
+    if (asJson !== null) {
+      return asJson;
+    }
+    // Статусы и категории читаются лучше по-русски: «Черновик → Подтверждено».
+    return names[value] ?? AUDIT_VALUE_LABELS[value] ?? value;
+  };
   if (oldValue !== null && newValue !== null) {
-    parts.push(oldValue + ' → ' + newValue);
+    parts.push(printable(oldValue) + ' → ' + printable(newValue));
   } else if (newValue !== null) {
-    parts.push(newValue);
+    parts.push(printable(newValue));
   } else if (oldValue !== null) {
-    parts.push(oldValue);
+    parts.push(printable(oldValue));
   }
   return parts.length > 0 ? parts.join(': ') : '—';
 }

@@ -1062,7 +1062,14 @@ export async function correctFactByOperator(
       objectId: existingFacts[0].id,
       field: 'fact',
       oldValue,
-      newValue,
+      newValue: JSON.stringify({
+        facts: JSON.parse(newValue),
+        outputRaw: input.outputRaw ?? null,
+        outputHistory: (input.outputHistory ?? []).slice(-40).map((entry) => ({
+          field: String(entry?.field ?? '').slice(0, 8),
+          value: String(entry?.value ?? '').slice(0, 24),
+        })),
+      }),
       userId: session.userId,
       userRoles,
       permission: 'production_order:report',
@@ -1098,6 +1105,7 @@ export async function correctFactByOperatorAction(lineId: string, formData: Form
   try {
     const rawConsumption = formData.get('consumption')?.toString();
     const rawWorkers = formData.get('workers')?.toString();
+    const rawOutputByCategory = formData.get('outputByCategory')?.toString();
     const input: CorrectFactInput = {
       quantity: Number(formData.get('quantity')),
       factCategory: parseFactCategory(formData.get('factCategory')),
@@ -1108,6 +1116,21 @@ export async function correctFactByOperatorAction(lineId: string, formData: Form
       consumption: rawConsumption ? JSON.parse(rawConsumption) : undefined,
       workers: rawWorkers ? (JSON.parse(rawWorkers) as WorkerCompositionInput[]) : undefined,
     };
+
+    // 14.11.2026: форма корректировки присылает выпуск по категориям (`outputByCategory`), как и
+    // ввод итога, а действие читало только `quantity`. На ГП-строке это разные поля: количество
+    // приходило пустым, и корректировка ГП у оператора не могла сохраниться.
+    if (rawOutputByCategory) {
+      input.outputByCategory = JSON.parse(rawOutputByCategory);
+      const rawOutputByCategoryRaw = formData.get('outputByCategoryRaw')?.toString();
+      if (rawOutputByCategoryRaw) {
+        input.outputRaw = JSON.parse(rawOutputByCategoryRaw);
+      }
+      const rawOutputHistory = formData.get('outputHistory')?.toString();
+      if (rawOutputHistory) {
+        input.outputHistory = JSON.parse(rawOutputHistory);
+      }
+    }
 
     const { warnings } = await correctFactByOperator(lineId, input);
     return { success: true, warnings };

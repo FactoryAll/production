@@ -13,6 +13,7 @@ import {
   auditObjectLabel,
   auditRoleLabel,
 } from './labels';
+import { buildAuditNameMap } from '@/app/audit/names';
 import { getAuditPage, type AuditFilter } from './queries';
 
 interface AuditPageProps {
@@ -61,6 +62,8 @@ export default async function AuditServerPage({ searchParams }: AuditPageProps) 
 
   const result = await getAuditPage(filter, canShowArchived, searchParams.page);
   const records = result.items;
+  // 14.11.2026: идентификаторы в значениях показываем названиями, а не дампом GUID.
+  const auditNames = await buildAuditNameMap(records);
 
   return (
     <main className="p-6">
@@ -191,7 +194,7 @@ export default async function AuditServerPage({ searchParams }: AuditPageProps) 
                   )}
                 </td>
                 <td className="py-2 pr-4 text-steel-graphite">
-                  {auditChangeLabel(record.field, record.oldValue, record.newValue)}
+                  {auditChangeLabel(record.field, record.oldValue, record.newValue, auditNames)}
                 </td>
               </tr>
             ))}
