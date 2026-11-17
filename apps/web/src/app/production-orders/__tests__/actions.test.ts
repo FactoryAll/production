@@ -2183,6 +2183,29 @@ describe('correctProductionFact', () => {
     ).rejects.toThrow('уже проведён в 1С');
   });
 
+  // 14.11.2026 (фидбэк НП): проверка итогов и правка до закрытия ПЗ — одна работа.
+  it('даёт НП править факт в статусе «Ожидает закрытия НП»', async () => {
+    const fact = buildMockProductionFact();
+    // ПЗ ждёт закрытия НП — правка должна быть доступна именно в этом статусе.
+    (fact.line.order as { status: string }).status = 'READY_FOR_CLOSE';
+    const deps = buildCorrectFactDeps(fact);
+
+    const result = await correctProductionFact('fact-1', {
+      quantity: 14500,
+      correctionReason: 'НП уточнил выпуск до закрытия',
+    }, {
+      prisma: deps.prisma,
+      requirePermission: deps.requirePermission,
+      writeAudit: deps.writeAudit,
+      writeTiming: deps.writeTiming,
+      applyStockMovements: deps.applyStockMovements,
+      updateShiftSummary: deps.updateShiftSummary,
+      syncOneCTask: deps.syncOneCTask,
+    });
+
+    expect(result.quantity.toString()).toBe('14500');
+  });
+
   it('corrects fact for COMPLETED order and marks postCompletionCorrection', async () => {
     const fact = buildMockProductionFact();
     const deps = buildCorrectFactDeps(fact);
