@@ -46,6 +46,7 @@ import {
 } from '@/lib/validation/correct-fact';
 import {
   checkAndCloseProductionOrder,
+  closeProductionOrderByNP,
   transitionToInProgress,
 } from '@/lib/production-order-closing';
 import { pickPrimaryFact, saveWorkerComposition } from '@/lib/fact-worker-composition';
@@ -355,6 +356,61 @@ export async function confirmProductionOrder(
   revalidatePath('/production-orders');
   revalidatePath('/production-orders/' + orderId);
   return result;
+}
+
+export type CloseProductionOrderResult = { success: true } | { success: false; error: string };
+
+/**
+ * Закрытие ПЗ начальником производства (14.11.2026, фидбэк НП).
+ *
+ * Операторы внесли итоги → ПЗ ждало этой команды. Здесь: закрытие, итог смены и только
+ * теперь уведомление специалистам 1С (EV-03) — по каждой отчитанной строке.
+ */
+export async function closeProductionOrderByNPAction(
+  orderId: string,
+): Promise<CloseProductionOrderResult> {
+  try {
+    const session = await requirePermission('production_order:confirm');
+
+    await prisma.$transaction(async (tx) => {
+      await closeProductionOrderByNP(
+        orderId,
+        tx as unknown as PrismaLike,
+        session,
+        'production_order:confirm',
+      );
+
+      const lines = await tx.productionOrderLine.findMany({
+        where: { orderId },
+        include: { facts: true },
+      });
+      for (const line of lines) {
+        if (line.facts.length === 0) {
+          continue;
+        }
+        await notifyEvent(
+          tx,
+          'EV-03',
+          {
+            orderId,
+            lineId: line.id,
+            factIds: line.facts.map((fact) => fact.id),
+            workCenterId: line.workCenterId,
+            ...(line.operatorId ? { operatorId: line.operatorId } : {}),
+          },
+          { context: { productCategory: notificationCategoryOfFacts(line.facts) } },
+        );
+      }
+    });
+
+    revalidatePath(`/production-orders/${orderId}`);
+    revalidatePath('/production-orders');
+    revalidatePath('/dashboard');
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Не удалось закрыть ПЗ';
+    return { success: false, error: message };
+  }
 }
 
 export async function confirmProductionOrderAction(orderId: string): Promise<ConfirmProductionOrderResult> {
@@ -1019,12 +1075,16 @@ export async function substituteOperator(
     });
 
     await transitionToInProgress(orderId, tx as unknown as PrismaLike, session, 'production_order:confirm');
-    await checkAndCloseProductionOrder(
+    // 14.11.2026: ПЗ само не закрывается — ждёт НП. Уведомляем НП, когда отчитались все РЦ.
+    const closing = await checkAndCloseProductionOrder(
       orderId,
       tx as unknown as PrismaLike,
       session,
       'production_order:confirm',
     );
+    if (closing.readyForClose) {
+      await notifyEvent(tx, 'EV-12', { orderId });
+    }
 
     const factIds = createdFacts.map((f) => f.id);
 

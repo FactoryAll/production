@@ -627,22 +627,19 @@ export async function reportProductionFact(
       initiatorId: session.userId,
     });
 
-    // EV-03: уведомление С1С об итоге смены (адресат и deep-link — из каталога, 00 §5).
-    // Категория продукции — для фильтра «направление уведомлений» специалиста 1С (ОПЭ, 13.10.2026).
-    await notifyEvent(
+    // 14.11.2026 (фидбэк НП): при вводе итога специалистам 1С ничего не уходит.
+    // ПЗ не закрывается само: когда отчитались все РЦ, о готовности узнаёт НП (EV-12),
+    // а уведомление 1С (EV-03) отправит закрытие ПЗ начальником производства.
+    const closing = await checkAndCloseProductionOrder(
+      line.order.id,
       tx,
-      'EV-03',
-      {
-        orderId: line.order.id,
-        lineId,
-        factIds: createdFacts.map((f) => f.id),
-        workCenterId: line.workCenterId,
-        operatorId: line.operatorId,
-      },
-      { context: { productCategory: notificationCategoryOfFacts(createdFacts) } },
+      session,
+      'production_order:report',
     );
 
-    await checkAndCloseProductionOrder(line.order.id, tx, session, 'production_order:report');
+    if (closing.readyForClose) {
+      await notifyEvent(tx, 'EV-12', { orderId: line.order.id });
+    }
 
     return { facts: createdFacts, line: updatedLine };
   });

@@ -84,10 +84,8 @@ describe('каталог событий M09 (00 §5, M09 §7)', () => {
       { kind: 'ROLE', role: 'S1C' },
       { kind: 'RECEIVING_ROLE' },
     ]);
-    expect(EVENT_CATALOG['EV-08'].recipients).toEqual([
-      { kind: 'LINE_OPERATOR' },
-      { kind: 'ROLE', role: 'S1C' },
-    ]);
+    // 14.11.2026: С1С убран из адресатов — 1С узнаёт об итоге только при закрытии ПЗ (EV-03).
+    expect(EVENT_CATALOG['EV-08'].recipients).toEqual([{ kind: 'LINE_OPERATOR' }]);
     expect(EVENT_CATALOG['EV-09'].recipients).toEqual([{ kind: 'ORDER_OPERATORS' }]);
     expect(EVENT_CATALOG['EV-10'].recipients).toEqual([
       { kind: 'ROLE', role: 'KSGP' },

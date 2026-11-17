@@ -500,7 +500,9 @@ export const EVENT_CATALOG: { [K in EventCodeValue]: NotificationEventDefinition
     dbCode: 'EV_08',
     name: 'Смена закрыта за Оператора',
     title: 'Смена закрыта за Оператора',
-    recipients: [{ kind: 'LINE_OPERATOR' }, { kind: 'ROLE', role: 'S1C' }],
+    // 14.11.2026: С1С из адресатов убран — по решению владельца специалисты 1С получают
+    // уведомление (EV-03) только после того, как НП проверил итоги и закрыл ПЗ.
+    recipients: [{ kind: 'LINE_OPERATOR' }],
     // Ввод за Оператора — ведём на конкретную строку РЦ (M09 §7).
     deepLink: orderLineLink,
     validatePayload: (raw) => {
