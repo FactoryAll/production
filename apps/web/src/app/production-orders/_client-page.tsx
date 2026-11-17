@@ -37,6 +37,7 @@ const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Черновик',
   CONFIRMED: 'Подтверждено',
   IN_PROGRESS: 'В работе',
+  READY_FOR_CLOSE: 'Ожидает закрытия НП',
   COMPLETED: 'Завершено',
   CANCELLED: 'Отменено',
 };

@@ -7,6 +7,9 @@ import type { SessionWithUser } from '@/lib/auth/session-token';
 
 const EDITABLE_BEFORE_CLOSED: ProductionOrderStatus[] = ['CONFIRMED', 'IN_PROGRESS'];
 
+/** Статусы, из которых начальник производства закрывает ПЗ (14.11.2026). */
+const CLOSABLE: ProductionOrderStatus[] = ['IN_PROGRESS', 'READY_FOR_CLOSE'];
+
 function getOrderStatus(prismaOrder: { status: ProductionOrderStatus }) {
   return prismaOrder.status;
 }
@@ -98,12 +101,22 @@ export async function checkAndCloseProductionOrder(
   }
 
   const allReported = order.lines.every((line) => line.status === 'REPORTED');
+  if (!allReported) {
+    return { closed: false, status, readyForClose: false };
+  }
 
   // 14.11.2026, решение владельца по фидбэку НП: ПЗ больше НЕ закрывается само.
-  // Операторы внесли итоги → ПЗ ждёт проверки НП; закрывает НП своей командой
+  // Все РЦ отчитались → видимый статус «Ожидает закрытия НП»; закрывает НП своей командой
   // (`closeProductionOrderByNP`), и только тогда формируется итог смены, задача для 1С
-  // и уведомление специалистам. До этого 1С узнавал о смене в момент ввода итога.
-  return { closed: false, status, readyForClose: allReported };
+  // и уведомление специалистам.
+  if (status === 'IN_PROGRESS') {
+    await prisma.productionOrder.update({
+      where: { id: orderId },
+      data: { status: 'READY_FOR_CLOSE' },
+    });
+  }
+
+  return { closed: false, status: 'READY_FOR_CLOSE', readyForClose: status === 'IN_PROGRESS' };
 }
 
 /**
@@ -132,7 +145,7 @@ export async function closeProductionOrderByNP(
   }
 
   const status = getOrderStatus(order);
-  if (!EDITABLE_BEFORE_CLOSED.includes(status)) {
+  if (!CLOSABLE.includes(status)) {
     throw new Error('ПЗ уже закрыто или отменено');
   }
 

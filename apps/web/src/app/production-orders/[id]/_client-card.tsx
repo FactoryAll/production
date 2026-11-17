@@ -177,6 +177,7 @@ const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Черновик',
   CONFIRMED: 'Подтверждено',
   IN_PROGRESS: 'В работе',
+  READY_FOR_CLOSE: 'Ожидает закрытия НП',
   COMPLETED: 'Завершено',
   CANCELLED: 'Отменено',
 };
@@ -185,6 +186,7 @@ const STATUS_BADGE_CLASS: Record<string, string> = {
   DRAFT: 'bg-neutral-200 text-graphite',
   CONFIRMED: 'bg-deep-industry-blue text-white',
   IN_PROGRESS: 'bg-blue-100 text-graphite',
+  READY_FOR_CLOSE: 'bg-signal-amber text-graphite',
   COMPLETED: 'bg-green-100 text-graphite',
   CANCELLED: 'bg-signal-amber text-graphite',
 };
@@ -474,7 +476,9 @@ export default function ProductionOrderCard({
   const allLinesReported =
     order.lines.length > 0 && order.lines.every((line) => line.status === 'REPORTED');
   const canCloseOrder =
-    allLinesReported && order.status === 'IN_PROGRESS' && hasPermission(userRoles, 'production_order:confirm');  const canViewShiftReport = isCompleted && hasPermission(userRoles, 'production_order:read');
+    allLinesReported &&
+    (order.status === 'IN_PROGRESS' || order.status === 'READY_FOR_CLOSE') &&
+    hasPermission(userRoles, 'production_order:confirm');  const canViewShiftReport = isCompleted && hasPermission(userRoles, 'production_order:read');
   const canCancel =
     (order.status === 'DRAFT' || order.status === 'CONFIRMED') &&
     !hasReportedLine &&
