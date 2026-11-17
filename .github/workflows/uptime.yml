@@ -1,0 +1,86 @@
+# Внешний мониторинг прода (решение владельца 17.11.2026).
+#
+# Зачем: 17.11.2026 сервер вместе с MES лежал несколько часов, и узнали мы об этом
+# от пользователей. Проверка «изнутри» (postdeploy-check) в этом случае бесполезна:
+# если лежит хост, никакой локальный скрипт не выполнится. Поэтому проверяем снаружи —
+# с раннера GitHub, который к нашему серверу не имеет никакого отношения.
+#
+# Что делает: раз в 5 минут (минимум GitHub) запрашивает страницу входа.
+# Не ответила три попытки подряд → создаёт/обновляет issue «PROD DOWN» и падает,
+# чтобы GitHub прислал владельцу письмо. Ответила → закрывает issue с комментарием.
+# Никаких секретов, кроме штатного GITHUB_TOKEN.
+
+name: Uptime
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+env:
+  URL: https://prodtrack.vegas-ai.ru/login
+  ISSUE_TITLE: 'PROD DOWN: prodtrack.vegas-ai.ru не отвечает'
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Проверка страницы входа (3 попытки)
+        id: probe
+        run: |
+          ok=0
+          for attempt in 1 2 3; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 "$URL" || echo 000)
+            echo "попытка $attempt: HTTP $code"
+            if [ "$code" = '200' ]; then ok=1; break; fi
+            sleep 20
+          done
+          if [ "$ok" = '1' ]; then
+            echo "status=up" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=down" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Открыть или обновить инцидент
+        if: steps.probe.outputs.status == 'down'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          AT: ${{ github.run_id }}
+        run: |
+          body="Проверка снаружи (раннер GitHub) не получила ответ от $URL
+          три попытки подряд.
+          Время: $(date -u '+%Y-%m-%d %H:%M UTC')
+          Прогон: https://github.com/$REPO/actions/runs/$AT
+
+          Что смотреть по порядку:
+          1. Панель хостинга — жив ли сервер 129.101.102.193 (17.11.2026 был сбой Timeweb).
+          2. Если сервер жив — nginx, docker ps, диск (`df -h`).
+          3. Соседний проект (MES) отвечает так же? Если нет — лежит весь хост, не наш стек."
+          existing=$(gh issue list --repo "$REPO" --state open --search "in:title \"$ISSUE_TITLE\"" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" --body "$body"
+            echo "обновлён инцидент #$existing"
+          else
+            gh issue create --repo "$REPO" --title "$ISSUE_TITLE" --body "$body" --label '' 2>/dev/null \
+              || gh issue create --repo "$REPO" --title "$ISSUE_TITLE" --body "$body"
+          fi
+          exit 1
+
+      - name: Закрыть инцидент, если поднялось
+        if: steps.probe.outputs.status == 'up'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          existing=$(gh issue list --repo "$REPO" --state open --search "in:title \"$ISSUE_TITLE\"" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue close "$existing" --repo "$REPO" --comment "Страница входа отвечает 200 — доступность восстановлена ($(date -u '+%Y-%m-%d %H:%M UTC'))."
+          fi
