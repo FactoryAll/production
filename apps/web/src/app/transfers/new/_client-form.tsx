@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button, SearchSelect, Select, Input, Label, Card } from '@prodtrack/ui';
@@ -65,6 +65,17 @@ export default function TransferForm({
       : [emptyLine()],
   );
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Журнал ввода по строкам (14.11.2026).
+   *
+   * Повод: USGP 17.11.2026 ввёл 31 при создании перемещения, а в базу ушло 29 — и по базе
+   * не видно, набирали ли 31 вообще. Журнал отправляется вместе с формой: он показывает,
+   * что было в поле на каждом шаге, и расхождение с отправленным становится видимым.
+   */
+  const inputHistory = useRef<Array<{ lineId: string; field: string; value: string }>>([]);
+  function trackInput(lineId: string, field: string, value: string) {
+    inputHistory.current = [...inputHistory.current, { lineId, field, value }].slice(-80);
+  }
 
   function addLine() {
     setLines((prev) => [...prev, emptyLine()]);
@@ -157,6 +168,13 @@ export default function TransferForm({
     formData.set('sourceWarehouseId', sourceWarehouseId);
     formData.set('destinationWarehouseId', destinationWarehouseId);
     formData.set('lines', JSON.stringify(payloadLines));
+    // 14.11.2026: сырые строки полей и журнал ввода — сервер сверит их с отправленными
+    // и откажет, если значение в поле расходится с тем, что уходит (случай USGP 17.11: 31 → 29).
+    formData.set(
+      'linesRaw',
+      JSON.stringify(lines.map((line) => ({ productId: line.productId, plannedQuantity: line.plannedQuantity }))),
+    );
+    formData.set('inputHistory', JSON.stringify(inputHistory.current));
 
     startTransition(async () => {
       const result = await createGoodsTransferAction(formData);
@@ -270,7 +288,10 @@ export default function TransferForm({
                       min="1"
                       step="1"
                       value={line.plannedQuantity}
-                      onChange={(e) => updateLine(line.id, { plannedQuantity: e.target.value })}
+                      onChange={(e) => {
+                        trackInput(line.id, 'plannedQuantity', e.target.value);
+                        updateLine(line.id, { plannedQuantity: e.target.value });
+                      }}
                       placeholder={showAvailable ? formatQuantity(available) : '0'}
                       aria-invalid={overflow}
                       className={overflow ? 'border-red-500 focus:ring-red-500' : ''}
