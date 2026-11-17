@@ -443,7 +443,10 @@ export default function ProductionOrderCard({
   const canEdit =
     editableStatuses.includes(order.status) && !hasReportedLine && hasPermission(userRoles, 'production_order:update');
   const canSubstitute = hasPermission(userRoles, 'production_order:confirm') && !isDraft && !isCancelled;
-  const canCorrectFact = isCompleted && hasPermission(userRoles, 'production_order:confirm');
+  // 14.11.2026: НП правит итоги и в новом статусе «Ожидает закрытия НП», а не только после завершения.
+  const canCorrectFact =
+    (isCompleted || order.status === 'READY_FOR_CLOSE') &&
+    hasPermission(userRoles, 'production_order:confirm');
   // Перемещение ГП из строки ПЗ (T-103): только тому, кто вправе его создать.
   const canCreateTransfer = hasPermission(userRoles, 'transfer:create');
 

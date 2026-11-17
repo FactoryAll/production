@@ -1291,7 +1291,14 @@ export async function cancelProductionOrderAction(
   }
 }
 
-const CORRECTABLE_STATUSES: ProductionOrderStatus[] = ['COMPLETED'];
+/**
+ * Статусы, в которых начальник производства может поправить факты.
+ *
+ * 14.11.2026 (фидбэк НП): к `COMPLETED` добавлен `READY_FOR_CLOSE` — проверка итогов
+ * и правка до закрытия ПЗ это одна работа, и без неё кнопка «Корректировать» пропадала
+ * ровно там, где НП должен был править.
+ */
+const CORRECTABLE_STATUSES: ProductionOrderStatus[] = ['COMPLETED', 'READY_FOR_CLOSE'];
 
 export async function correctProductionFact(
   factId: string,
