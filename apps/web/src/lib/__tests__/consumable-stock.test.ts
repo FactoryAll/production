@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   assertConsumptionAllowedForWorkCenter,
+  assertOutputAllowedForWorkCenter,
+  producesPf,
   consumptionCategoriesForWorkCenter,
   filterConsumableForWorkCenter,
 } from '../consumable-stock';
@@ -53,5 +55,25 @@ describe('assertConsumptionAllowedForWorkCenter (14.11.2026)', () => {
 
   it('строка без категории не блокируется: категорию подставит сервер', () => {
     expect(() => assertConsumptionAllowedForWorkCenter('13', [{}])).not.toThrow();
+  });
+});
+
+/**
+ * 14.11.2026, решение владельца: «Маркировка ЧЗ» потребляет только ПФ и **производит только ГП**,
+ * без вариантов. Правило рядом с правилом потребления — одна пара функций на обе стороны.
+ */
+describe('производство по РЦ: ЧЗ выпускает только ГП (14.11.2026)', () => {
+  it('на 13 выпуск ПФ запрещён', () => {
+    expect(producesPf('13')).toBe(false);
+    expect(() => assertOutputAllowedForWorkCenter('13', { PF: 10 })).toThrow(/только готовую продукцию/);
+  });
+
+  it('на 13 выпуск ГП разрешён', () => {
+    expect(() => assertOutputAllowedForWorkCenter('13', { GP: 100 })).not.toThrow();
+  });
+
+  it('на обычном РЦ ПФ разрешён', () => {
+    expect(producesPf('03')).toBe(true);
+    expect(() => assertOutputAllowedForWorkCenter('03', { GP: 10, PF: 5 })).not.toThrow();
   });
 });

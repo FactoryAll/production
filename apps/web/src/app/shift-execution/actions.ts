@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { Prisma, type ProductionOrderLine, type ProductionFact, type ProductCategory } from '@prisma/client';
 import { prisma, writeAudit, writeTiming } from '@prodtrack/db';
-import { assertConsumptionAllowedForWorkCenter } from '@/lib/consumable-stock';
+import { assertConsumptionAllowedForWorkCenter, assertOutputAllowedForWorkCenter } from '@/lib/consumable-stock';
 import { requireShiftWindow } from '@/lib/auth/require-shift-window';
 import { notificationCategoryOfFacts, notifyEvent } from '@/lib/events/notify';
 import { hasPermission, getAttributeRole } from '@prodtrack/contracts';
@@ -215,6 +215,8 @@ async function validateReportLikeInput(
   );
 
   const totalOutput = Object.values(outputByCategory).reduce((sum, q) => sum.plus(q ?? new Prisma.Decimal(0)), new Prisma.Decimal(0));
+  // 14.11.2026: «Маркировка ЧЗ» производит только ГП — правило то же, что для потребления.
+  assertOutputAllowedForWorkCenter(line.workCenter.code, outputByCategory);
   if (totalOutput.lessThanOrEqualTo(0)) {
     throw new Error('Укажите выпуск');
   }

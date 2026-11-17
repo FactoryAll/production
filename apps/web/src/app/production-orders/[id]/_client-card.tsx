@@ -21,7 +21,7 @@ import type {
 } from '@prisma/client';
 import { confirmProductionOrderAction, substituteOperatorAction, cancelProductionOrderAction, correctProductionFactAction, closeProductionOrderByNPAction } from '../actions';
 import { factCategoryLabel } from '@/lib/onec/labels';
-import { filterConsumableForWorkCenter } from '@/lib/consumable-stock';
+import { filterConsumableForWorkCenter, producesPf } from '@/lib/consumable-stock';
 
 interface ProductionOrderCardProps {
   order: ProductionOrder & {
@@ -564,6 +564,12 @@ export default function ProductionOrderCard({
   }
 
   /** РЦ строки, факт которой корректируется: на МАСС-РЦ потребление не указывается (Р-10). */
+  /** Производит ли РЦ строки полуфабрикат (14.11.2026: «Маркировка ЧЗ» — только ГП). */
+  function producesPfForSubstituteLine() {
+    const line = order.lines.find((item) => item.id === substituteLineId);
+    return line ? producesPf(line.workCenter.code) : true;
+  }
+
   /** Потребление для строки с учётом правил её РЦ (ОПЭ-59: «Маркировка ЧЗ» — только ПФ). */
   function consumableForLine(lineId: string | null) {
     const line = lineId ? order.lines.find((item) => item.id === lineId) : undefined;
@@ -1285,7 +1291,7 @@ export default function ProductionOrderCard({
             />
           </div>
 
-          {productCategoryForSubstituteLine() === 'GP' && (
+          {productCategoryForSubstituteLine() === 'GP' && producesPfForSubstituteLine() && (
             <div className="space-y-2">
               <Label htmlFor="substitute-output-pf">Выпуск ПФ</Label>
               <input
