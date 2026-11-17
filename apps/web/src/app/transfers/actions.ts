@@ -289,6 +289,27 @@ export async function createGoodsTransferAction(formData: FormData): Promise<Cre
     const linesRaw = formData.get('lines') as string;
     const lines: TransferLineInput[] = linesRaw ? JSON.parse(linesRaw) : [];
 
+    // 14.11.2026 (случай USGP: в поле 31, в базу ушло 29): если браузер присылает сырые
+    // значения, сверяем их с отправленными. Расхождение — отказ с внятным текстом,
+    // а не тихое сохранение чужого числа.
+    const rawLines = formData.get('linesRaw')?.toString();
+    if (rawLines) {
+      const raw = JSON.parse(rawLines) as Array<{ productId: string; plannedQuantity: string }>;
+      for (const [index, sent] of lines.entries()) {
+        const rawValue = raw[index]?.plannedQuantity;
+        if (rawValue === undefined || rawValue === '') {
+          continue;
+        }
+        const typed = Number(rawValue);
+        if (!Number.isNaN(typed) && typed !== sent.plannedQuantity) {
+          return {
+            success: false,
+            error: `Количество изменилось при отправке: в поле было ${rawValue}, отправлено ${sent.plannedQuantity}. Повторите ввод`,
+          };
+        }
+      }
+    }
+
     const transfer = await createGoodsTransfer({ sourceWarehouseId, destinationWarehouseId, lines });
     return { success: true, id: transfer.id };
   } catch (err) {
