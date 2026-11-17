@@ -581,6 +581,7 @@ enum EventCode {
   EV_09
   EV_10
   EV_11
+  EV_12
 }
 
 model Notification {

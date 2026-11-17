@@ -20,7 +20,8 @@ export type DbEventCode =
   | 'EV_08'
   | 'EV_09'
   | 'EV_10'
-  | 'EV_11';
+  | 'EV_11'
+  | 'EV_12';
 
 /** Пресет причин «ввода за Оператора» (Р-13, 00 §5). */
 export const SUBSTITUTION_REASON_CODES: readonly string[] = [
@@ -48,6 +49,14 @@ export interface Event02Payload {
   lineId: string;
   workCenterId: string;
   operatorId: string;
+}
+
+/**
+ * 14.11.2026, решение владельца по фидбэку НП: операторы внесли итоги — ПЗ ждёт проверки НП.
+ * Специалистам 1С уведомление уходит только после того, как НП закроет ПЗ.
+ */
+export interface Event12Payload {
+  orderId: string;
 }
 
 export interface Event03Payload {
@@ -120,6 +129,7 @@ export interface EventPayloads {
   'EV-01': Event01Payload;
   'EV-02': Event02Payload;
   'EV-03': Event03Payload;
+  'EV-12': Event12Payload;
   'EV-04': Event04Payload;
   'EV-05': Event05Payload;
   'EV-06': Event06Payload;
@@ -370,6 +380,24 @@ export const EVENT_CATALOG: { [K in EventCodeValue]: NotificationEventDefinition
         payload.operatorId = operatorId;
       }
       failIfIssues('EV-03', issues);
+      return payload;
+    },
+  },
+
+  'EV-12': {
+    code: 'EV-12',
+    dbCode: 'EV_12',
+    name: 'ПЗ готово к закрытию',
+    title: 'Итоги внесены: проверьте и закройте ПЗ',
+    recipients: [{ kind: 'ROLE', role: 'NP' }],
+    deepLink: orderCardLink,
+    validatePayload: (raw) => {
+      const record = asRecord(raw, 'EV-12');
+      const issues: string[] = [];
+      const payload: Event12Payload = {
+        orderId: requireString(record, 'orderId', issues),
+      };
+      failIfIssues('EV-12', issues);
       return payload;
     },
   },
