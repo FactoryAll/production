@@ -9,6 +9,7 @@ import type {
   ProductionFact,
 } from '@prisma/client';
 import { Prisma } from '@prisma/client';
+import { assertConsumptionAllowedForWorkCenter } from '@/lib/consumable-stock';
 import {
   assertShiftDateNotPast,
   currentShiftDateKey,
@@ -670,7 +671,7 @@ function parseSubstitutionConsumption(raw: unknown): SubstitutionConsumptionLine
 async function validateSubstitutionInput(
   input: SubstitutionInput,
   deps: { prisma: typeof prisma },
-  line: ProductionOrderLine & { product: { category: 'MASS' | 'GP' | 'PF'; id: string }; workCenter: { producesMass: boolean }; operator: { id: string } | null },
+  line: ProductionOrderLine & { product: { category: 'MASS' | 'GP' | 'PF'; id: string }; workCenter: { producesMass: boolean; code: string }; operator: { id: string } | null },
 ): Promise<{ outputByCategory: Partial<Record<SubstitutionFactCategory, Prisma.Decimal>>; defectQuantity: Prisma.Decimal; stopsCount: number; stopsDurationMinutes: number; consumption: SubstitutionConsumptionLine[] }> {
   const outputByCategory = parseSubstitutionOutput(
     line.product.category,
@@ -706,6 +707,9 @@ async function validateSubstitutionInput(
   if (line.workCenter.producesMass && consumption.length > 0) {
     throw new Error('Потребление указывается только на ГП/ПФ-РЦ');
   }
+
+  // ОПЭ-59 (14.11.2026): категории потребления ограничивает РЦ — правило одно на все пути.
+  assertConsumptionAllowedForWorkCenter(line.workCenter.code, consumption);
 
   const seenProducts = new Set<string>();
   for (const item of consumption) {
@@ -811,7 +815,7 @@ export async function substituteOperator(
   }
 
   const { outputByCategory, defectQuantity, stopsCount, stopsDurationMinutes, consumption } =
-    await validateSubstitutionInput(input, deps, line as unknown as ProductionOrderLine & { product: { category: 'MASS' | 'GP' | 'PF'; id: string }; workCenter: { producesMass: boolean }; operator: { id: string } | null });
+    await validateSubstitutionInput(input, deps, line as unknown as ProductionOrderLine & { product: { category: 'MASS' | 'GP' | 'PF'; id: string }; workCenter: { producesMass: boolean; code: string }; operator: { id: string } | null });
 
   const operatorId = line.operatorId;
   const orderId = line.orderId;
@@ -1301,6 +1305,9 @@ export async function correctProductionFact(
   if (fact.line.workCenter.producesMass && consumption.length > 0) {
     throw new Error('Потребление указывается только на ГП/ПФ-РЦ');
   }
+
+  // ОПЭ-59 (14.11.2026): и в корректировке — иначе сохранённая ранее Масса вернётся на ЧЗ.
+  assertConsumptionAllowedForWorkCenter(fact.line.workCenter.code, consumption);
 
   // Номенклатура нужна и для нового состава, и для прежнего: движения считаются по разнице,
   // а категория остатка берётся у потребляемой позиции.

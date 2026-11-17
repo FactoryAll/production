@@ -79,3 +79,28 @@ export async function getConsumableStock(client: StockReader): Promise<Consumabl
     available: Number(balance.quantity),
   }));
 }
+
+/**
+ * Проверка «что можно в потребление этому РЦ» для серверных путей (14.11.2026).
+ *
+ * Повод: правило «Маркировка ЧЗ (код 13) — только ПФ» стояло в одном серверном файле
+ * (`shift-execution/actions.ts`), а пути карточки ПЗ — «Ввести за Оператора» и корректировка
+ * НП — его не проверяли. Интерфейс список скрывал, но сервер принимал Массу, если строка
+ * пришла из уже сохранённого факта. Теперь правило одно и применяется везде, где пишется
+ * потребление (ОПЭ-59, урок ОПЭ-70/71: правило должно жить в одном месте).
+ */
+export function assertConsumptionAllowedForWorkCenter(
+  workCenterCode: string,
+  consumption: Array<{ stockCategory?: 'MASS' | 'PF' | 'GP' }>,
+): void {
+  const allowed = consumptionCategoriesForWorkCenter(workCenterCode);
+  const forbidden = consumption.find(
+    (item) => item.stockCategory !== undefined && !allowed.includes(item.stockCategory as 'MASS' | 'PF'),
+  );
+  if (forbidden) {
+    if (allowed.length === 1 && allowed[0] === 'PF') {
+      throw new Error('РЦ «Маркировка ЧЗ» потребляет только полуфабрикат (ПФ)');
+    }
+    throw new Error('Эта категория остатка недоступна в потреблении для данного РЦ');
+  }
+}

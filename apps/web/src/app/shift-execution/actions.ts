@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { Prisma, type ProductionOrderLine, type ProductionFact, type ProductCategory } from '@prisma/client';
 import { prisma, writeAudit, writeTiming } from '@prodtrack/db';
+import { assertConsumptionAllowedForWorkCenter } from '@/lib/consumable-stock';
 import { requireShiftWindow } from '@/lib/auth/require-shift-window';
 import { notificationCategoryOfFacts, notifyEvent } from '@/lib/events/notify';
 import { hasPermission, getAttributeRole } from '@prodtrack/contracts';
@@ -236,14 +237,9 @@ async function validateReportLikeInput(
     throw new Error('Потребление указывается только на ГП/ПФ-РЦ');
   }
 
-  // ОПЭ-59: «Маркировка ЧЗ» (код 13) потребляет только полуфабрикат. Массу ей давать нельзя —
-  // проверка на сервере, а не только скрытие в интерфейсе.
-  if (line.workCenter.code === '13') {
-    const notPf = consumption.find((item) => item.stockCategory && item.stockCategory !== 'PF');
-    if (notPf) {
-      throw new Error('РЦ «Маркировка ЧЗ» потребляет только полуфабрикат (ПФ)');
-    }
-  }
+  // ОПЭ-59: доступные категории потребления решает правило РЦ, и оно одно для всех путей
+  // (14.11.2026 вынесено в `lib/consumable-stock`, чтобы карточка ПЗ не расходилась с исполнением).
+  assertConsumptionAllowedForWorkCenter(line.workCenter.code, consumption);
 
   const seenProducts = new Set<string>();
   for (const item of consumption) {
