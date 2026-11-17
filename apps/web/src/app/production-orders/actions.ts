@@ -1634,6 +1634,106 @@ export async function correctProductionFact(
   return result;
 }
 
+export type AddPfFactResult = { success: true } | { success: false; error: string };
+
+/**
+ * Добавить ПФ к ГП-строке, если оператор его не заявлял (14.11.2026, фидбэк НП).
+ *
+ * Область намеренно узкая: **только создание** отсутствующего ПФ-факта. Правка уже
+ * существующего ПФ идёт своей кнопкой («Корректировать ПФ») — там нужен пересчёт
+ * списаний, а здесь достаточно одного прихода, и это безопасно.
+ *
+ * Правила: линия ГП, РЦ производит ПФ (на «Маркировке ЧЗ» — нельзя), ПФ-факта ещё нет.
+ */
+export async function addPfFactAction(
+  lineId: string,
+  quantityRaw: string,
+): Promise<AddPfFactResult> {
+  try {
+    const session = await requirePermission('production_order:confirm');
+    const userId = session.userId;
+    const roles = session.user.roles.map((ur) => ur.role.code);
+    const quantity = parseNonNegativeDecimal(quantityRaw);
+    if (quantity.lessThanOrEqualTo(0)) {
+      return { success: false, error: 'Укажите количество ПФ больше нуля' };
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const line = await tx.productionOrderLine.findUnique({
+        where: { id: lineId },
+        include: {
+          order: true,
+          product: true,
+          workCenter: true,
+          facts: true,
+        },
+      });
+      if (!line) {
+        throw new Error('Строка ПЗ не найдена');
+      }
+      if (!['IN_PROGRESS', 'READY_FOR_CLOSE'].includes(line.order.status)) {
+        throw new Error('Добавить ПФ можно только до закрытия ПЗ');
+      }
+      if (line.product.category !== 'GP') {
+        throw new Error('ПФ добавляется только к строке готовой продукции');
+      }
+      // Правило РЦ: «Маркировка ЧЗ» выпускает только ГП.
+      assertOutputAllowedForWorkCenter(line.workCenter.code, { PF: quantity.toString() });
+      if (line.facts.some((fact) => fact.factCategory === 'PF')) {
+        throw new Error('По строке уже есть ПФ — правьте его кнопкой «Корректировать ПФ»');
+      }
+
+      const warehouse = await tx.warehouse.findFirstOrThrow({ where: { type: 'PRODUCTION' } });
+      const now = new Date();
+      const fact = await tx.productionFact.create({
+        data: {
+          lineId,
+          productId: line.productId,
+          factCategory: 'PF',
+          quantity,
+          defectQuantity: new Prisma.Decimal(0),
+          stopsCount: 0,
+          stopsDurationMinutes: 0,
+          recordedAt: now,
+          reportedAt: now,
+          createdById: userId,
+        },
+      });
+
+      await applyStockMovements(tx as unknown as PrismaLike, buildProductionFactMovements({
+        factId: fact.id,
+        productId: line.productId,
+        factCategory: 'PF',
+        quantity,
+        warehouseId: warehouse.id,
+        sourceType: 'PRODUCTION_FACT',
+      }));
+
+      await writeAudit(tx, {
+        action: 'CREATE',
+        objectType: 'ProductionFact',
+        objectId: fact.id,
+        newValue: JSON.stringify({
+          lineId,
+          productId: line.productId,
+          factCategory: 'PF',
+          quantity: quantity.toString(),
+          addedByNP: true,
+        }),
+        userId,
+        userRoles: roles,
+        permission: 'production_order:confirm',
+      });
+    });
+
+    revalidatePath(`/production-orders`);
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Не удалось добавить ПФ';
+    return { success: false, error: message };
+  }
+}
+
 export async function correctProductionFactAction(
   factId: string,
   formData: FormData,

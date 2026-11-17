@@ -19,7 +19,7 @@ import type {
   FactConsumption,
   DefectReason,
 } from '@prisma/client';
-import { confirmProductionOrderAction, substituteOperatorAction, cancelProductionOrderAction, correctProductionFactAction, closeProductionOrderByNPAction } from '../actions';
+import { confirmProductionOrderAction, substituteOperatorAction, cancelProductionOrderAction, correctProductionFactAction, closeProductionOrderByNPAction, addPfFactAction } from '../actions';
 import { factCategoryLabel } from '@/lib/onec/labels';
 import { filterConsumableForWorkCenter, producesPf } from '@/lib/consumable-stock';
 
@@ -403,6 +403,8 @@ export default function ProductionOrderCard({
   const [substituteError, setSubstituteError] = useState<string | null>(null);
   const [showCorrectFactDialog, setShowCorrectFactDialog] = useState(false);
   const [correctFactId, setCorrectFactId] = useState<string | null>(null);
+  /** Выпуск ПФ, которого у линии не было: НП может добавить его в корректировке (14.11.2026). */
+  const [correctPfQuantity, setCorrectPfQuantity] = useState('');
   /** Категория правимого факта (ГП, ПФ, Масса) — её видно и в кнопке, и в модалке (ОПЭ-57). */
   const [correctFactCategory, setCorrectFactCategory] = useState<'MASS' | 'GP' | 'PF' | null>(null);
   const [correctQuantity, setCorrectQuantity] = useState('');
@@ -560,10 +562,19 @@ export default function ProductionOrderCard({
     setCorrectWorkers(buildCardWorkerRows(lineId));
     setCorrectReason('');
     setCorrectError(null);
+    setCorrectPfQuantity('');
     setShowCorrectFactDialog(true);
   }
 
   /** РЦ строки, факт которой корректируется: на МАСС-РЦ потребление не указывается (Р-10). */
+  /** ПФ по строке ещё не заявлен, линия ГП и РЦ производит ПФ (14.11.2026). */
+  function canAddPfForLine(lineId: string): boolean {
+    const line = order.lines.find((item) => item.id === lineId);
+    if (!line || line.product.category !== 'GP') return false;
+    if (!producesPf(line.workCenter.code)) return false;
+    return !line.facts.some((fact) => fact.factCategory === 'PF');
+  }
+
   /** Производит ли РЦ строки полуфабрикат (14.11.2026: «Маркировка ЧЗ» — только ГП). */
   function producesPfForSubstituteLine() {
     const line = order.lines.find((item) => item.id === substituteLineId);
@@ -656,12 +667,23 @@ export default function ProductionOrderCard({
 
     startTransition(async () => {
       const result = await correctProductionFactAction(correctFactId, formData);
-      if (result.success) {
-        setShowCorrectFactDialog(false);
-        router.refresh();
-      } else {
+      if (!result.success) {
         setCorrectError(result.error ?? 'Не удалось скорректировать факт');
+        return;
       }
+
+      // 14.11.2026: если оператор не заявлял ПФ, НП может добавить его здесь.
+      const pf = correctPfQuantity.trim();
+      if (pf && correctLineId && canAddPfForLine(correctLineId)) {
+        const pfResult = await addPfFactAction(correctLineId, pf);
+        if (!pfResult.success) {
+          setCorrectError(pfResult.error ?? 'Факт скорректирован, но ПФ добавить не удалось');
+          return;
+        }
+      }
+
+      setShowCorrectFactDialog(false);
+      router.refresh();
     });
   }
 
@@ -1152,6 +1174,22 @@ export default function ProductionOrderCard({
               className="flex h-10 w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
             />
           </div>
+          {/* 14.11.2026: НП добавляет ПФ, если оператор его не заявлял. На «Маркировке ЧЗ» — нельзя. */}
+          {correctLineId && canAddPfForLine(correctLineId) && (
+            <div className="space-y-2">
+              <Label htmlFor="correct-pf-quantity">Выпуск ПФ (оператор не заявлял)</Label>
+              <input
+                id="correct-pf-quantity"
+                type="number"
+                min="0"
+                step="1"
+                value={correctPfQuantity}
+                onChange={(e) => setCorrectPfQuantity(e.target.value)}
+                placeholder="Добавить ПФ, если он был"
+                className="flex h-10 w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
+              />
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="correct-defect-quantity">Брак</Label>
             <input
