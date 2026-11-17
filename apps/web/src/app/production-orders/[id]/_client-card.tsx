@@ -19,7 +19,7 @@ import type {
   FactConsumption,
   DefectReason,
 } from '@prisma/client';
-import { confirmProductionOrderAction, substituteOperatorAction, cancelProductionOrderAction, correctProductionFactAction } from '../actions';
+import { confirmProductionOrderAction, substituteOperatorAction, cancelProductionOrderAction, correctProductionFactAction, closeProductionOrderByNPAction } from '../actions';
 import { factCategoryLabel } from '@/lib/onec/labels';
 import { filterConsumableForWorkCenter } from '@/lib/consumable-stock';
 
@@ -194,6 +194,7 @@ const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Черновик',
   CONFIRMED: 'Подтверждено',
   IN_PROGRESS: 'В работе',
+  READY_FOR_CLOSE: 'Ожидает закрытия НП',
   COMPLETED: 'Завершено',
   CANCELLED: 'Отменено',
 };
@@ -202,6 +203,7 @@ const STATUS_BADGE_CLASS: Record<string, string> = {
   DRAFT: 'bg-neutral-200 text-graphite',
   CONFIRMED: 'bg-deep-industry-blue text-white',
   IN_PROGRESS: 'bg-blue-100 text-graphite',
+  READY_FOR_CLOSE: 'bg-signal-amber text-graphite',
   COMPLETED: 'bg-green-100 text-graphite',
   CANCELLED: 'bg-signal-amber text-graphite',
 };
@@ -426,6 +428,8 @@ export default function ProductionOrderCard({
   const [correctStops, setCorrectStops] = useState('');
   const [correctReason, setCorrectReason] = useState('');
   const [correctConsumption, setCorrectConsumption] = useState<ConsumptionRowState[]>([]);
+  /** Ошибка закрытия ПЗ начальником производства (14.11.2026). */
+  const [closeError, setCloseError] = useState<string | null>(null);
   const [correctLineId, setCorrectLineId] = useState<string | null>(null);
   const [correctError, setCorrectError] = useState<string | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
@@ -484,13 +488,32 @@ export default function ProductionOrderCard({
     }
     return `/transfers/new?${params.toString()}`;
   }
-  const canViewShiftReport = isCompleted && hasPermission(userRoles, 'production_order:read');
+  // 14.11.2026 (фидбэк НП): ПЗ закрывает начальник производства своей командой.
+  // Показываем кнопку, когда все РЦ внесли итоги и ПЗ ещё не закрыто.
+  const allLinesReported =
+    order.lines.length > 0 && order.lines.every((line) => line.status === 'REPORTED');
+  const canCloseOrder =
+    allLinesReported &&
+    (order.status === 'IN_PROGRESS' || order.status === 'READY_FOR_CLOSE') &&
+    hasPermission(userRoles, 'production_order:confirm');  const canViewShiftReport = isCompleted && hasPermission(userRoles, 'production_order:read');
   const canCancel =
     (order.status === 'DRAFT' || order.status === 'CONFIRMED') &&
     !hasReportedLine &&
     hasPermission(userRoles, 'production_order:confirm');
   const reportedCount = order.lines.filter((line) => line.status === 'REPORTED').length;
   const totalCount = order.lines.length;
+
+  function handleCloseOrder() {
+    setCloseError(null);
+    startTransition(async () => {
+      const result = await closeProductionOrderByNPAction(order.id);
+      if (!result.success) {
+        setCloseError(result.error ?? 'Не удалось закрыть ПЗ');
+        return;
+      }
+      router.refresh();
+    });
+  }
 
   function handleConfirm() {
     setConfirmError(null);
@@ -842,6 +865,11 @@ export default function ProductionOrderCard({
               Подтвердить ПЗ
             </Button>
           )}
+          {canCloseOrder && (
+            <Button variant="cta" onClick={handleCloseOrder} disabled={isPending}>
+              {isPending ? 'Закрываем...' : 'Закрыть ПЗ'}
+            </Button>
+          )}
           {canViewShiftReport && (
             <Link href={`/shift-reports/${order.id}`}>
               <Button variant="secondary" disabled={isPending}>
@@ -865,6 +893,9 @@ export default function ProductionOrderCard({
         <span className={"rounded px-3 py-1 text-sm font-medium " + (STATUS_BADGE_CLASS[order.status] ?? 'bg-neutral-100 text-graphite')}>
           {STATUS_LABELS[order.status] ?? order.status}
         </span>
+        {closeError && (
+          <span className="rounded bg-signal-amber px-2 py-1 text-sm text-graphite">{closeError}</span>
+        )}
         {isInProgress && (
           <span className="text-sm text-neutral-500">
             {reportedCount} из {totalCount} РЦ завершили

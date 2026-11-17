@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { consumptionCategoriesForWorkCenter, filterConsumableForWorkCenter } from '../consumable-stock';
+import {
+  assertConsumptionAllowedForWorkCenter,
+  consumptionCategoriesForWorkCenter,
+  filterConsumableForWorkCenter,
+} from '../consumable-stock';
 
 /**
  * ОПЭ-59 (решение владельца 26.10.2026): РЦ «Маркировка ЧЗ» (код 13) получает
@@ -20,5 +24,34 @@ describe('правила потребления по РЦ', () => {
   it('«Маркировка ЧЗ» получает только ПФ', () => {
     expect(consumptionCategoriesForWorkCenter('13')).toEqual(['PF']);
     expect(filterConsumableForWorkCenter(items, '13').map((item) => item.id)).toEqual(['p2']);
+  });
+});
+
+/**
+ * 14.11.2026: правило «Маркировка ЧЗ — только ПФ» должно жить в одном месте и применяться
+ * на сервере во всех путях. Раньше оно было только в экране исполнения, и карточка ПЗ
+ * («Ввести за Оператора», корректировка НП) принимала Массу, если строка пришла из факта.
+ */
+describe('assertConsumptionAllowedForWorkCenter (14.11.2026)', () => {
+  it('на «Маркировке ЧЗ» (13) Масса в потреблении запрещена', () => {
+    expect(() =>
+      assertConsumptionAllowedForWorkCenter('13', [{ stockCategory: 'MASS' }]),
+    ).toThrow(/только полуфабрикат/);
+  });
+
+  it('на «Маркировке ЧЗ» полуфабрикат разрешён', () => {
+    expect(() =>
+      assertConsumptionAllowedForWorkCenter('13', [{ stockCategory: 'PF' }, { stockCategory: 'PF' }]),
+    ).not.toThrow();
+  });
+
+  it('на обычном РЦ Масса и ПФ разрешены', () => {
+    expect(() =>
+      assertConsumptionAllowedForWorkCenter('03', [{ stockCategory: 'MASS' }, { stockCategory: 'PF' }]),
+    ).not.toThrow();
+  });
+
+  it('строка без категории не блокируется: категорию подставит сервер', () => {
+    expect(() => assertConsumptionAllowedForWorkCenter('13', [{}])).not.toThrow();
   });
 });

@@ -14,9 +14,10 @@ import {
 const ALL_CODES = EVENT_CODES as readonly string[];
 
 describe('каталог событий M09 (00 §5, M09 §7)', () => {
-  // 11 с ОПЭ-29: добавлено событие «Итог смены скорректирован» (EV-11).
-  it('содержит все 11 событий каталога', () => {
-    expect(Object.keys(EVENT_CATALOG)).toHaveLength(11);
+  // 11 с ОПЭ-29 («Итог смены скорректирован», EV-11), 12 с 14.11.2026
+  // («ПЗ готово к закрытию», EV-12 — уведомление НП до отправки данных в 1С).
+  it('содержит все 12 событий каталога', () => {
+    expect(Object.keys(EVENT_CATALOG)).toHaveLength(12);
     expect(Object.keys(EVENT_CATALOG).sort()).toEqual([...ALL_CODES].sort());
   });
 
@@ -44,6 +45,7 @@ describe('каталог событий M09 (00 §5, M09 §7)', () => {
       'EV-10': 'Перемещение отменено',
       // ОПЭ-29: правка итога смены оператором до обработки задачи в 1С.
       'EV-11': 'Итог смены скорректирован',
+      'EV-12': 'ПЗ готово к закрытию',
     });
   });
 
@@ -82,10 +84,8 @@ describe('каталог событий M09 (00 §5, M09 §7)', () => {
       { kind: 'ROLE', role: 'S1C' },
       { kind: 'RECEIVING_ROLE' },
     ]);
-    expect(EVENT_CATALOG['EV-08'].recipients).toEqual([
-      { kind: 'LINE_OPERATOR' },
-      { kind: 'ROLE', role: 'S1C' },
-    ]);
+    // 14.11.2026: С1С убран из адресатов — 1С узнаёт об итоге только при закрытии ПЗ (EV-03).
+    expect(EVENT_CATALOG['EV-08'].recipients).toEqual([{ kind: 'LINE_OPERATOR' }]);
     expect(EVENT_CATALOG['EV-09'].recipients).toEqual([{ kind: 'ORDER_OPERATORS' }]);
     expect(EVENT_CATALOG['EV-10'].recipients).toEqual([
       { kind: 'ROLE', role: 'KSGP' },

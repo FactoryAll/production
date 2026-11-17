@@ -7,6 +7,9 @@ import type { SessionWithUser } from '@/lib/auth/session-token';
 
 const EDITABLE_BEFORE_CLOSED: ProductionOrderStatus[] = ['CONFIRMED', 'IN_PROGRESS'];
 
+/** Статусы, из которых начальник производства закрывает ПЗ (14.11.2026). */
+const CLOSABLE: ProductionOrderStatus[] = ['IN_PROGRESS', 'READY_FOR_CLOSE'];
+
 function getOrderStatus(prismaOrder: { status: ProductionOrderStatus }) {
   return prismaOrder.status;
 }
@@ -77,7 +80,7 @@ export async function checkAndCloseProductionOrder(
     tx: Prisma.TransactionClient,
     orderId: string,
   ) => Promise<unknown> = syncProductionOrderTask,
-): Promise<{ closed: boolean; status: ProductionOrderStatus }> {
+): Promise<{ closed: boolean; status: ProductionOrderStatus; readyForClose: boolean }> {
   const order = await prisma.productionOrder.findUnique({
     where: { id: orderId },
     include: { lines: true },
@@ -89,23 +92,65 @@ export async function checkAndCloseProductionOrder(
 
   const status = getOrderStatus(order);
   if (!EDITABLE_BEFORE_CLOSED.includes(status)) {
-    return { closed: false, status };
+    return { closed: false, status, readyForClose: false };
   }
 
   const totalLines = order.lines.length;
   if (totalLines === 0) {
-    return { closed: false, status };
+    return { closed: false, status, readyForClose: false };
   }
 
   const allReported = order.lines.every((line) => line.status === 'REPORTED');
-
   if (!allReported) {
-    return { closed: false, status };
+    return { closed: false, status, readyForClose: false };
   }
 
-  const allAcceptedOrReported = order.lines.every((line) => line.status === 'ACCEPTED' || line.status === 'REPORTED');
-  if (!allAcceptedOrReported) {
-    return { closed: false, status };
+  // 14.11.2026, решение владельца по фидбэку НП: ПЗ больше НЕ закрывается само.
+  // Все РЦ отчитались → видимый статус «Ожидает закрытия НП»; закрывает НП своей командой
+  // (`closeProductionOrderByNP`), и только тогда формируется итог смены, задача для 1С
+  // и уведомление специалистам.
+  if (status === 'IN_PROGRESS') {
+    await prisma.productionOrder.update({
+      where: { id: orderId },
+      data: { status: 'READY_FOR_CLOSE' },
+    });
+  }
+
+  return { closed: false, status: 'READY_FOR_CLOSE', readyForClose: status === 'IN_PROGRESS' };
+}
+
+/**
+ * Закрытие ПЗ начальником производства (14.11.2026).
+ *
+ * Проверяет, что все строки отчитаны, закрывает ПЗ, формирует итог смены и только здесь
+ * ставит задачу для 1С. Право — то же, что у подтверждения ПЗ (`production_order:confirm`).
+ */
+export async function closeProductionOrderByNP(
+  orderId: string,
+  prisma: PrismaClient | TxClient,
+  session: SessionWithUser,
+  permission: PermissionCode,
+  syncTask: (
+    tx: Prisma.TransactionClient,
+    orderId: string,
+  ) => Promise<unknown> = syncProductionOrderTask,
+): Promise<{ closed: boolean; status: ProductionOrderStatus }> {
+  const order = await prisma.productionOrder.findUnique({
+    where: { id: orderId },
+    include: { lines: true },
+  });
+
+  if (!order) {
+    throw new Error('ПЗ не найдено');
+  }
+
+  const status = getOrderStatus(order);
+  if (!CLOSABLE.includes(status)) {
+    throw new Error('ПЗ уже закрыто или отменено');
+  }
+
+  if (order.lines.length === 0 || !order.lines.every((line) => line.status === 'REPORTED')) {
+    throw new Error('Закрыть ПЗ можно только когда все РЦ внесли итоги');
   }
 
   const updated = await prisma.productionOrder.update({
@@ -123,7 +168,7 @@ export async function checkAndCloseProductionOrder(
 
   await buildShiftSummary(orderId, prisma as PrismaClient);
 
-  // M12 (T-050): итог смены сформирован → задача типа PRODUCTION для рабочего места С1С.
+  // Только здесь: итог смены сформирован → задача для рабочего места С1С (M12, T-050).
   await syncTask(prisma as Prisma.TransactionClient, orderId);
 
   return { closed: true, status: updated.status };

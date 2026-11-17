@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Prisma, type ProductionOrder, type ProductionOrderLine } from '@prisma/client';
 const Decimal = Prisma.Decimal;
-import { checkAndCloseProductionOrder, transitionToInProgress } from './production-order-closing';
+import {
+  checkAndCloseProductionOrder,
+  closeProductionOrderByNP,
+  transitionToInProgress,
+} from './production-order-closing';
 import { writeAudit, writeTiming } from '@prodtrack/db';
 import { buildShiftSummary } from '@/lib/shift-summary-service';
 import { syncProductionOrderTask } from '@/lib/onec/tasks';
@@ -101,15 +105,22 @@ describe('checkAndCloseProductionOrder', () => {
     vi.clearAllMocks();
   });
 
-  it('closes 1-RC order when single line is REPORTED', async () => {
-    const order = makeOrder({ status: 'CONFIRMED', lines: [makeLine({ status: 'REPORTED' })] });
+  // 14.11.2026, фидбэк НП: ПЗ больше не закрывается само — ставится «Ожидает закрытия НП».
+  it('ставит «Ожидает закрытия НП», когда единственная строка отчитана', async () => {
+    const order = makeOrder({ status: 'IN_PROGRESS', lines: [makeLine({ status: 'REPORTED' })] });
     const prisma = makeMockPrisma(order);
-    const result = await checkAndCloseProductionOrder('po-1', prisma, baseSession, 'production_order:confirm');
+    const result = await checkAndCloseProductionOrder('po-1', prisma, baseSession, 'production_order:report');
 
-    expect(result.closed).toBe(true);
-    expect(result.status).toBe('COMPLETED');
-    expect(writeAudit).toHaveBeenCalled();
-    expect(writeTiming).toHaveBeenCalled();
+    expect(result.closed).toBe(false);
+    expect(result.readyForClose).toBe(true);
+    expect(result.status).toBe('READY_FOR_CLOSE');
+    expect(prisma.productionOrder.update).toHaveBeenCalledWith({
+      where: { id: 'po-1' },
+      data: { status: 'READY_FOR_CLOSE' },
+    });
+    // Автозакрытия нет: ни итог смены, ни задача 1С здесь не формируются.
+    expect(buildShiftSummary).not.toHaveBeenCalled();
+    expect(syncProductionOrderTask).not.toHaveBeenCalled();
   });
 
   it('does not close 1-RC order when single line is only ACCEPTED', async () => {
@@ -122,7 +133,7 @@ describe('checkAndCloseProductionOrder', () => {
     expect(writeAudit).not.toHaveBeenCalled();
   });
 
-  it('closes multi-RC order when all lines are REPORTED', async () => {
+  it('ставит «Ожидает закрытия НП» по многоРЦ-ПЗ, когда отчитались все строки', async () => {
     const order = makeOrder({
       status: 'IN_PROGRESS',
       lines: [
@@ -132,19 +143,36 @@ describe('checkAndCloseProductionOrder', () => {
       ],
     });
     const prisma = makeMockPrisma(order);
-    const result = await checkAndCloseProductionOrder('po-1', prisma, baseSession, 'production_order:confirm');
+    const result = await checkAndCloseProductionOrder('po-1', prisma, baseSession, 'production_order:report');
+
+    expect(result.closed).toBe(false);
+    expect(result.readyForClose).toBe(true);
+    expect(result.status).toBe('READY_FOR_CLOSE');
+    expect(buildShiftSummary).not.toHaveBeenCalled();
+  });
+
+  it('формирует задачу 1С при закрытии начальником производства (T-050, UC-M12-1)', async () => {
+    const order = makeOrder({ status: 'READY_FOR_CLOSE', lines: [makeLine({ status: 'REPORTED' })] });
+    const prisma = makeMockPrisma(order);
+    const result = await closeProductionOrderByNP('po-1', prisma, baseSession, 'production_order:confirm');
 
     expect(result.closed).toBe(true);
     expect(result.status).toBe('COMPLETED');
     expect(buildShiftSummary).toHaveBeenCalledWith('po-1', prisma);
+    expect(syncProductionOrderTask).toHaveBeenCalledWith(prisma, 'po-1');
   });
 
-  it('forms the PRODUCTION task for 1С when the order closes (T-050, UC-M12-1)', async () => {
-    const order = makeOrder({ status: 'IN_PROGRESS', lines: [makeLine({ status: 'REPORTED' })] });
+  it('не закрывает ПЗ, если не все РЦ отчитались', async () => {
+    const order = makeOrder({
+      status: 'IN_PROGRESS',
+      lines: [makeLine({ id: 'l1', status: 'REPORTED' }), makeLine({ id: 'l2', status: 'ACCEPTED' })],
+    });
     const prisma = makeMockPrisma(order);
-    await checkAndCloseProductionOrder('po-1', prisma, baseSession, 'production_order:report');
 
-    expect(syncProductionOrderTask).toHaveBeenCalledWith(prisma, 'po-1');
+    await expect(
+      closeProductionOrderByNP('po-1', prisma, baseSession, 'production_order:confirm'),
+    ).rejects.toThrow(/все РЦ внесли итоги/);
+    expect(syncProductionOrderTask).not.toHaveBeenCalled();
   });
 
   it('does not form the 1С task when the order did not close', async () => {
@@ -293,15 +321,18 @@ describe('transitionToInProgress', () => {
     );
   });
 
-  it('регресс: закрытие ПЗ по итогу смены атрибутируется правом report', async () => {
-    const order = makeOrder({ status: 'IN_PROGRESS', lines: [makeLine({ status: 'REPORTED' })] });
+  it('регресс: закрытие ПЗ атрибутируется правом начальника производства (14.11.2026)', async () => {
+    // Автозакрытия больше нет: аудит перехода в COMPLETED пишется при закрытии НП и несёт
+    // право `production_order:confirm`, а не `report` — иначе след в журнале врал бы о том,
+    // кто закрыл смену.
+    const order = makeOrder({ status: 'READY_FOR_CLOSE', lines: [makeLine({ status: 'REPORTED' })] });
     const prisma = makeMockPrisma(order);
 
-    await checkAndCloseProductionOrder('po-1', prisma, baseSession, 'production_order:report');
+    await closeProductionOrderByNP('po-1', prisma, baseSession, 'production_order:confirm');
 
     expect(writeAudit).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ permission: 'production_order:report' }),
+      expect.objectContaining({ permission: 'production_order:confirm' }),
     );
   });
 });

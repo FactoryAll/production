@@ -9,6 +9,7 @@ import type {
   ProductionFact,
 } from '@prisma/client';
 import { Prisma } from '@prisma/client';
+import { assertConsumptionAllowedForWorkCenter } from '@/lib/consumable-stock';
 import {
   assertShiftDateNotPast,
   currentShiftDateKey,
@@ -45,6 +46,7 @@ import {
 } from '@/lib/validation/correct-fact';
 import {
   checkAndCloseProductionOrder,
+  closeProductionOrderByNP,
   transitionToInProgress,
 } from '@/lib/production-order-closing';
 import { pickPrimaryFact, saveWorkerComposition } from '@/lib/fact-worker-composition';
@@ -354,6 +356,61 @@ export async function confirmProductionOrder(
   revalidatePath('/production-orders');
   revalidatePath('/production-orders/' + orderId);
   return result;
+}
+
+export type CloseProductionOrderResult = { success: true } | { success: false; error: string };
+
+/**
+ * Закрытие ПЗ начальником производства (14.11.2026, фидбэк НП).
+ *
+ * Операторы внесли итоги → ПЗ ждало этой команды. Здесь: закрытие, итог смены и только
+ * теперь уведомление специалистам 1С (EV-03) — по каждой отчитанной строке.
+ */
+export async function closeProductionOrderByNPAction(
+  orderId: string,
+): Promise<CloseProductionOrderResult> {
+  try {
+    const session = await requirePermission('production_order:confirm');
+
+    await prisma.$transaction(async (tx) => {
+      await closeProductionOrderByNP(
+        orderId,
+        tx as unknown as PrismaLike,
+        session,
+        'production_order:confirm',
+      );
+
+      const lines = await tx.productionOrderLine.findMany({
+        where: { orderId },
+        include: { facts: true },
+      });
+      for (const line of lines) {
+        if (line.facts.length === 0) {
+          continue;
+        }
+        await notifyEvent(
+          tx,
+          'EV-03',
+          {
+            orderId,
+            lineId: line.id,
+            factIds: line.facts.map((fact) => fact.id),
+            workCenterId: line.workCenterId,
+            ...(line.operatorId ? { operatorId: line.operatorId } : {}),
+          },
+          { context: { productCategory: notificationCategoryOfFacts(line.facts) } },
+        );
+      }
+    });
+
+    revalidatePath(`/production-orders/${orderId}`);
+    revalidatePath('/production-orders');
+    revalidatePath('/dashboard');
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Не удалось закрыть ПЗ';
+    return { success: false, error: message };
+  }
 }
 
 export async function confirmProductionOrderAction(orderId: string): Promise<ConfirmProductionOrderResult> {
@@ -670,7 +727,7 @@ function parseSubstitutionConsumption(raw: unknown): SubstitutionConsumptionLine
 async function validateSubstitutionInput(
   input: SubstitutionInput,
   deps: { prisma: typeof prisma },
-  line: ProductionOrderLine & { product: { category: 'MASS' | 'GP' | 'PF'; id: string }; workCenter: { producesMass: boolean }; operator: { id: string } | null },
+  line: ProductionOrderLine & { product: { category: 'MASS' | 'GP' | 'PF'; id: string }; workCenter: { producesMass: boolean; code: string }; operator: { id: string } | null },
 ): Promise<{ outputByCategory: Partial<Record<SubstitutionFactCategory, Prisma.Decimal>>; defectQuantity: Prisma.Decimal; stopsCount: number; stopsDurationMinutes: number; consumption: SubstitutionConsumptionLine[] }> {
   const outputByCategory = parseSubstitutionOutput(
     line.product.category,
@@ -706,6 +763,9 @@ async function validateSubstitutionInput(
   if (line.workCenter.producesMass && consumption.length > 0) {
     throw new Error('Потребление указывается только на ГП/ПФ-РЦ');
   }
+
+  // ОПЭ-59 (14.11.2026): категории потребления ограничивает РЦ — правило одно на все пути.
+  assertConsumptionAllowedForWorkCenter(line.workCenter.code, consumption);
 
   const seenProducts = new Set<string>();
   for (const item of consumption) {
@@ -811,7 +871,7 @@ export async function substituteOperator(
   }
 
   const { outputByCategory, defectQuantity, stopsCount, stopsDurationMinutes, consumption } =
-    await validateSubstitutionInput(input, deps, line as unknown as ProductionOrderLine & { product: { category: 'MASS' | 'GP' | 'PF'; id: string }; workCenter: { producesMass: boolean }; operator: { id: string } | null });
+    await validateSubstitutionInput(input, deps, line as unknown as ProductionOrderLine & { product: { category: 'MASS' | 'GP' | 'PF'; id: string }; workCenter: { producesMass: boolean; code: string }; operator: { id: string } | null });
 
   const operatorId = line.operatorId;
   const orderId = line.orderId;
@@ -1015,12 +1075,16 @@ export async function substituteOperator(
     });
 
     await transitionToInProgress(orderId, tx as unknown as PrismaLike, session, 'production_order:confirm');
-    await checkAndCloseProductionOrder(
+    // 14.11.2026: ПЗ само не закрывается — ждёт НП. Уведомляем НП, когда отчитались все РЦ.
+    const closing = await checkAndCloseProductionOrder(
       orderId,
       tx as unknown as PrismaLike,
       session,
       'production_order:confirm',
     );
+    if (closing.readyForClose) {
+      await notifyEvent(tx, 'EV-12', { orderId });
+    }
 
     const factIds = createdFacts.map((f) => f.id);
 
@@ -1301,6 +1365,9 @@ export async function correctProductionFact(
   if (fact.line.workCenter.producesMass && consumption.length > 0) {
     throw new Error('Потребление указывается только на ГП/ПФ-РЦ');
   }
+
+  // ОПЭ-59 (14.11.2026): и в корректировке — иначе сохранённая ранее Масса вернётся на ЧЗ.
+  assertConsumptionAllowedForWorkCenter(fact.line.workCenter.code, consumption);
 
   // Номенклатура нужна и для нового состава, и для прежнего: движения считаются по разнице,
   // а категория остатка берётся у потребляемой позиции.

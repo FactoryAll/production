@@ -229,6 +229,9 @@ enum ProductionOrderStatus {
   DRAFT
   CONFIRMED
   IN_PROGRESS
+  /// 14.11.2026, фидбэк НП: все РЦ внесли итоги, ПЗ ждёт проверки и закрытия начальником
+  /// производства. Только после закрытия формируется итог смены и уходит уведомление в 1С.
+  READY_FOR_CLOSE
   COMPLETED
   CANCELLED
 }
@@ -581,6 +584,7 @@ enum EventCode {
   EV_09
   EV_10
   EV_11
+  EV_12
 }
 
 model Notification {

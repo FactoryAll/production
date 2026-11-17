@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { Prisma, type ProductionOrderLine, type ProductionFact, type ProductCategory } from '@prisma/client';
 import { prisma, writeAudit, writeTiming } from '@prodtrack/db';
+import { assertConsumptionAllowedForWorkCenter } from '@/lib/consumable-stock';
 import { requireShiftWindow } from '@/lib/auth/require-shift-window';
 import { notificationCategoryOfFacts, notifyEvent } from '@/lib/events/notify';
 import { hasPermission, getAttributeRole } from '@prodtrack/contracts';
@@ -265,14 +266,9 @@ async function validateReportLikeInput(
     throw new Error('Потребление указывается только на ГП/ПФ-РЦ');
   }
 
-  // ОПЭ-59: «Маркировка ЧЗ» (код 13) потребляет только полуфабрикат. Массу ей давать нельзя —
-  // проверка на сервере, а не только скрытие в интерфейсе.
-  if (line.workCenter.code === '13') {
-    const notPf = consumption.find((item) => item.stockCategory && item.stockCategory !== 'PF');
-    if (notPf) {
-      throw new Error('РЦ «Маркировка ЧЗ» потребляет только полуфабрикат (ПФ)');
-    }
-  }
+  // ОПЭ-59: доступные категории потребления решает правило РЦ, и оно одно для всех путей
+  // (14.11.2026 вынесено в `lib/consumable-stock`, чтобы карточка ПЗ не расходилась с исполнением).
+  assertConsumptionAllowedForWorkCenter(line.workCenter.code, consumption);
 
   const seenProducts = new Set<string>();
   for (const item of consumption) {
@@ -665,22 +661,19 @@ export async function reportProductionFact(
       initiatorId: session.userId,
     });
 
-    // EV-03: уведомление С1С об итоге смены (адресат и deep-link — из каталога, 00 §5).
-    // Категория продукции — для фильтра «направление уведомлений» специалиста 1С (ОПЭ, 13.10.2026).
-    await notifyEvent(
+    // 14.11.2026 (фидбэк НП): при вводе итога специалистам 1С ничего не уходит.
+    // ПЗ не закрывается само: когда отчитались все РЦ, о готовности узнаёт НП (EV-12),
+    // а уведомление 1С (EV-03) отправит закрытие ПЗ начальником производства.
+    const closing = await checkAndCloseProductionOrder(
+      line.order.id,
       tx,
-      'EV-03',
-      {
-        orderId: line.order.id,
-        lineId,
-        factIds: createdFacts.map((f) => f.id),
-        workCenterId: line.workCenterId,
-        operatorId: line.operatorId,
-      },
-      { context: { productCategory: notificationCategoryOfFacts(createdFacts) } },
+      session,
+      'production_order:report',
     );
 
-    await checkAndCloseProductionOrder(line.order.id, tx, session, 'production_order:report');
+    if (closing.readyForClose) {
+      await notifyEvent(tx, 'EV-12', { orderId: line.order.id });
+    }
 
     return { facts: createdFacts, line: updatedLine };
   });
