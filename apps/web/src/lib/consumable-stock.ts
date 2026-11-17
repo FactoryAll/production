@@ -104,3 +104,36 @@ export function assertConsumptionAllowedForWorkCenter(
     throw new Error('Эта категория остатка недоступна в потреблении для данного РЦ');
   }
 }
+
+/**
+ * Какие категории РЦ ПРОИЗВОДИТ (14.11.2026, решение владельца).
+ *
+ * «Маркировка ЧЗ» (код 13) без вариантов: потребляет только ПФ, **производит только ГП**.
+ * Обычный ГП/ПФ-РЦ производит обе категории — оператор сам решает, что заявить.
+ *
+ * Правило по коду РЦ, рядом с правилом потребления: обе стороны («что можно списать»
+ * и «что можно заявить») должны читаться в одном месте, иначе форма и сервер разойдутся.
+ */
+export function productionCategoriesForWorkCenter(
+  workCenterCode: string,
+): Array<'GP' | 'PF'> {
+  return workCenterCode === '13' ? ['GP'] : ['GP', 'PF'];
+}
+
+/** Разрешён ли выпуск ПФ на этом РЦ. */
+export function producesPf(workCenterCode: string): boolean {
+  return productionCategoriesForWorkCenter(workCenterCode).includes('PF');
+}
+
+/**
+ * Проверка «что этот РЦ может заявить в выпуске» для серверных путей.
+ * Симметрична `assertConsumptionAllowedForWorkCenter`.
+ */
+export function assertOutputAllowedForWorkCenter(
+  workCenterCode: string,
+  outputByCategory: Partial<Record<'GP' | 'PF' | 'MASS', unknown>>,
+): void {
+  if (!producesPf(workCenterCode) && outputByCategory.PF !== undefined && outputByCategory.PF !== null) {
+    throw new Error('РЦ «Маркировка ЧЗ» выпускает только готовую продукцию (ГП)');
+  }
+}

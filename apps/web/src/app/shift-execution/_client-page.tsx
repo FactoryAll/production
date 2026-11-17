@@ -4,7 +4,7 @@ import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Card, Dialog, Input, SearchSelect, Select } from '@prodtrack/ui';
 import { formatQuantity } from '@/lib/quantity';
-import { filterConsumableForWorkCenter } from '@/lib/consumable-stock';
+import { filterConsumableForWorkCenter, producesPf } from '@/lib/consumable-stock';
 import {
   acceptProductionOrderLineAction,
   reportProductionFactAction,
@@ -146,6 +146,12 @@ export default function ShiftExecutionPage({
     const code = dialogState?.line.workCenter.code;
     return code ? filterConsumableForWorkCenter(consumableProducts, code) : consumableProducts;
   }
+  /** Производит ли РЦ полуфабрикат (14.11.2026: «Маркировка ЧЗ» — только ГП). */
+  function producesPfForLine() {
+    const code = dialogState?.line.workCenter.code;
+    return code ? producesPf(code) : true;
+  }
+
   function productCategory() {
     if (!dialogState) return undefined;
     const line = lines.find((l) => l.id === dialogState.line.id);
@@ -734,20 +740,20 @@ const result: CorrectFactResult = await correctFactByOperatorAction(dialogState.
                   />
                   {fieldErrors.outputGP && <p className="text-sm text-signal-amber">{fieldErrors.outputGP}</p>}
                 </div>
-                <div>
-                  <label className="mb-1 block text-sm text-graphite">Выпуск ПФ, шт</label>
-                  <Input
-                    type="number"
-                    min={0}
-                    step="1"
-                    value={form.outputPF}
-                    onChange={(e) => {
-                      trackOutput('PF', e.target.value);
-                      setForm((f) => ({ ...f, outputPF: e.target.value }));
-                    }}
-                  />
-                  {fieldErrors.outputPF && <p className="text-sm text-signal-amber">{fieldErrors.outputPF}</p>}
-                </div>
+                {/* 14.11.2026: «Маркировка ЧЗ» выпускает только ГП — поля ПФ у неё нет. */}
+                {producesPfForLine() && (
+                  <div>
+                    <label className="mb-1 block text-sm text-graphite">Выпуск ПФ, шт</label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="1"
+                      value={form.outputPF}
+                      onChange={(e) => setForm((f) => ({ ...f, outputPF: e.target.value }))}
+                    />
+                    {fieldErrors.outputPF && <p className="text-sm text-signal-amber">{fieldErrors.outputPF}</p>}
+                  </div>
+                )}
               </div>
             )}
 

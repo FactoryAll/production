@@ -9,7 +9,7 @@ import type {
   ProductionFact,
 } from '@prisma/client';
 import { Prisma } from '@prisma/client';
-import { assertConsumptionAllowedForWorkCenter } from '@/lib/consumable-stock';
+import { assertConsumptionAllowedForWorkCenter, assertOutputAllowedForWorkCenter } from '@/lib/consumable-stock';
 import {
   assertShiftDateNotPast,
   currentShiftDateKey,
@@ -745,6 +745,9 @@ async function validateSubstitutionInput(
   }
 
   assertSubmittedValuesMatch(input.outputRaw, outputByCategory);
+
+  // 14.11.2026: «Маркировка ЧЗ» выпускает только ГП.
+  assertOutputAllowedForWorkCenter(line.workCenter.code, outputByCategory);
 
   const defectQuantity = parseNonNegativeDecimal(input.defectQuantity);
   const stopsCount = parseNonNegativeInteger(input.stopsCount);
