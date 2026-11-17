@@ -127,7 +127,8 @@ describe('resolveRecipients — адресация по каталогу (M09 BR
     });
   });
 
-  it('EV-08 адресует уведомление оператору строки и С1С', async () => {
+  // 14.11.2026: С1С из адресатов убран — 1С получает уведомление только при закрытии ПЗ.
+  it('EV-08 адресует уведомление оператору строки', async () => {
     const { tx, findFirst, findMany } = buildTx({
       lineOperatorUser: { id: 'user-opr-1' },
       roleUsers: [{ id: 's1c-1' }],
@@ -142,9 +143,8 @@ describe('resolveRecipients — адресация по каталогу (M09 BR
       factIds: [],
     });
 
-    expect(ids).toEqual(['s1c-1', 'user-opr-1']);
+    expect(ids).toEqual(['user-opr-1']);
     expect(findFirst).toHaveBeenCalledWith({ where: { employeeId: 'emp-1' }, select: { id: true } });
-    expect(findMany).toHaveBeenCalledTimes(1);
   });
 
   it('направление «Масса» получает только события с Массой (ОПЭ, 13.10.2026)', async () => {

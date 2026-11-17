@@ -658,25 +658,20 @@ describe('reportProductionFact', () => {
     );
   });
 
-  it('emits EV-03 to S1C users', async () => {
+  // 14.11.2026, фидбэк НП: при вводе итога специалистам 1С НИЧЕГО не уходит — они получают
+  // уведомление только после закрытия ПЗ начальником производства.
+  it('не уведомляет С1С при вводе итога (14.11.2026)', async () => {
     const line = makeLine({ status: 'ACCEPTED', productId: 'gp-1' });
     const deps = buildMockPrisma({ line, product: gpProduct });
-    const writeAudit = vi.fn();
-    const writeTiming = vi.fn();
-    const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
 
     await reportProductionFact(
       'line-1',
       { quantity: 5, factCategory: 'GP' },
-      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements, updateShiftSummary: deps.updateShiftSummary, syncOneCTask: vi.fn().mockResolvedValue('created') },
+      { prisma: deps.prisma, writeAudit: vi.fn(), writeTiming: vi.fn(), requireShiftWindow: vi.fn().mockResolvedValue(baseSession), getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements, updateShiftSummary: deps.updateShiftSummary, syncOneCTask: vi.fn().mockResolvedValue('created') },
     );
 
-    expect(deps.notificationCreateMany).toHaveBeenCalled();
-    const data = deps.notificationCreateMany.mock.calls[0][0].data;
-    expect(data).toHaveLength(1);
-    expect(data[0].eventCode).toBe('EV_03');
-    expect(data[0].recipientId).toBe('s1c-user-1');
-    expect(data[0].deepLink).toBe('/production-orders/po-1');
+    const sent = deps.notificationCreateMany.mock.calls.flatMap((call: any[]) => call[0].data as Array<{ eventCode: string }>);
+    expect(sent.some((item) => item.eventCode === 'EV_03')).toBe(false);
   });
 
   it('reports MASS line always as MASS', async () => {

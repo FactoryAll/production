@@ -1513,8 +1513,10 @@ describe('substituteOperator', () => {
 
     expect(ev08Call).toBeDefined();
     const ev08Data = ev08Call![0].data;
-    expect(ev08Data).toHaveLength(3); // operator user + 2 S1C
-    expect(ev08Data.map((item: { recipientId: string }) => item.recipientId).sort()).toEqual(['s1c-user-1', 's1c-user-2', 'user-opr-1']);
+    // 14.11.2026: С1С из адресатов убран — специалисты 1С получают уведомление только
+    // после закрытия ПЗ начальником производства (EV-03 при закрытии).
+    expect(ev08Data).toHaveLength(1);
+    expect(ev08Data.map((item: { recipientId: string }) => item.recipientId)).toEqual(['user-opr-1']);
     const ev08Payload = JSON.parse(ev08Data[0].body);
     expect(ev08Payload).toMatchObject({ orderId: 'po-1', lineId: 'line-1', operatorId: 'emp-1', reasonCode: 'LEFT_SHIFT', comment: 'Ушёл' });
 
