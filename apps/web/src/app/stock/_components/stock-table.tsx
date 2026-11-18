@@ -9,8 +9,9 @@ import {
   flexRender,
   type ColumnDef,
 } from '@tanstack/react-table';
-import { Card, Input } from '@prodtrack/ui';
+import { Button, Card, Input } from '@prodtrack/ui';
 import type { StockBalanceRow } from '@/lib/stock-service';
+import { AdjustStockDialog, type AdjustDialogTarget } from './adjust-stock-dialog';
 import type { StockCategory, WarehouseType } from '@prisma/client';
 
 function categoryLabel(category: StockCategory): string {
@@ -32,10 +33,13 @@ function warehouseLabel(type: WarehouseType): string {
 
 interface StockTableProps {
   balances: StockBalanceRow[];
+  /** Право `stock:adjust`: только НП и АДМ видят кнопку корректировки (18.11.2026). */
+  canAdjust?: boolean;
 }
 
-export function StockTable({ balances }: StockTableProps) {
+export function StockTable({ balances, canAdjust = false }: StockTableProps) {
   const [activeTab, setActiveTab] = useState<WarehouseType>('PRODUCTION');
+  const [adjustTarget, setAdjustTarget] = useState<AdjustDialogTarget | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<'ALL' | StockCategory>('ALL');
   const [search, setSearch] = useState('');
 
@@ -90,8 +94,39 @@ export function StockTable({ balances }: StockTableProps) {
           );
         },
       },
+      ...(canAdjust
+        ? [
+            {
+              id: 'actions',
+              header: '',
+              cell: ({ row }: { row: { original: StockBalanceRow } }) => {
+                const item = row.original;
+                return (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() =>
+                      setAdjustTarget({
+                        warehouseId: item.warehouseId,
+                        warehouseName: warehouseLabel(item.warehouse.type),
+                        productId: item.productId,
+                        productCode: item.product.code,
+                        productName: item.product.name,
+                        unit: item.product.unit,
+                        stockCategory: item.stockCategory,
+                        available: Number(item.quantity),
+                      })
+                    }
+                  >
+                    Скорректировать
+                  </Button>
+                );
+              },
+            } satisfies ColumnDef<StockBalanceRow>,
+          ]
+        : []),
     ],
-    [],
+    [canAdjust],
   );
 
   const table = useReactTable({
@@ -185,6 +220,17 @@ export function StockTable({ balances }: StockTableProps) {
           </table>
         </div>
       </Card>
+
+      {/* key по позиции: иначе количество из прошлой строки остаётся в поле,
+          потому что состояние диалога живёт между открытиями. */}
+      {adjustTarget && (
+        <AdjustStockDialog
+          key={`${adjustTarget.warehouseId}:${adjustTarget.productId}:${adjustTarget.stockCategory}`}
+          target={adjustTarget}
+          open
+          onClose={() => setAdjustTarget(null)}
+        />
+      )}
     </div>
   );
 }

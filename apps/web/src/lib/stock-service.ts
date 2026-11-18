@@ -8,6 +8,7 @@ import type {
   PrismaClient,
 } from '@prisma/client';
 import { type TxClient } from '@prodtrack/db';
+import { formatQuantity } from './quantity';
 
 export interface NewMovement {
   warehouseId: string;
@@ -222,6 +223,121 @@ export async function getAvailableBalance(
     unit: product.unit,
     stockCategory,
   };
+}
+
+/**
+ * «Потребление больше остатка — запрещено»: одна точка сравнения на все пути ввода (18.11.2026).
+ *
+ * Повод (прод, 18.11.2026). Запрет был поставлен в исполнении смены, но «Ввод за Оператора»
+ * и корректировка факта НП писали те же движения без проверки. За один день на проде
+ * появились две минусовые позиции Массы:
+ *   `БП-00000178` — списали 330 при остатке 17 (стало −313);
+ *   `БП-00000370` — списали 671 при остатке 556 (стало −115).
+ * Оба ввода сделаны из карточки ПЗ (аудит: `ProductionFact/CREATE`, роль НП). Это ровно тот
+ * урок ОПЭ-70/71, что и с правилом «Маркировка ЧЗ потребляет только ПФ»: правило, живущее
+ * в одном пути из трёх, через день заводит новый дефект в двух других.
+ *
+ * Поэтому сравнение «сколько просят» с «сколько доступно» живёт здесь, а не в экшенах:
+ * и исполнение смены, и «Ввод за Оператора», и корректировка НП зовут одну функцию,
+ * и сообщение «Недостаточно остатка: доступно N» не может разойтись между экранами.
+ *
+ * Что можно потреблять вообще (категории РЦ, «только ПФ номенклатуры строки») — правило
+ * `lib/consumable-stock`, здесь только склад: сколько реально лежит.
+ */
+export interface ConsumptionStockLine {
+  productId: string;
+  quantity: Prisma.Decimal | number | string;
+  /**
+   * Категория остатка, выбранная в потреблении (Масса или ПФ). Не задана или `GP`
+   * (значение по умолчанию у старых строк) — берём категорию самой номенклатуры.
+   */
+  stockCategory?: StockCategory;
+}
+
+export interface ConsumptionAvailabilityOptions {
+  /**
+   * Что вернуть в «доступно» перед проверкой. При корректировке факта его прежнее
+   * потребление уже списано этим же фактом — без возврата исправить введённое
+   * количество невозможно: строка упиралась бы в ноль (ОПЭ, 18.11.2026).
+   */
+  credited?: Array<{ productId: string; quantity: Prisma.Decimal | number | string }>;
+}
+
+/**
+ * Сравнение «просят больше, чем есть» с человеческим текстом ошибки.
+ * Отдельно, чтобы исполнение смены (оно берёт готовый остаток другим путём) говорило
+ * теми же словами, что и остальные пути.
+ */
+export function assertEnoughStock(
+  available: Prisma.Decimal | number | string,
+  unit: string,
+  requested: Prisma.Decimal | number | string,
+): void {
+  if (toDecimal(requested).minus(toDecimal(available)).greaterThan(0)) {
+    throw new Error(
+      `Недостаточно остатка: доступно ${formatQuantity(available)} ${unit}. Укажите не больше доступного`,
+    );
+  }
+}
+
+/**
+ * Проверяет каждую строку потребления против остатка Производственного склада
+ * и бросает ошибку «доступно N», если просят больше.
+ */
+export async function assertConsumptionWithinStock(
+  client: PrismaClient | TxClient,
+  lines: ConsumptionStockLine[],
+  options: ConsumptionAvailabilityOptions = {},
+): Promise<void> {
+  if (lines.length === 0) return;
+
+  // Возвраты собираем по номенклатуре: правка факта возвращает в «доступно» то,
+  // что списал сам правимый факт.
+  const creditedByProduct = new Map<string, Prisma.Decimal>();
+  for (const credit of options.credited ?? []) {
+    const previous = creditedByProduct.get(credit.productId) ?? new Prisma.Decimal(0);
+    creditedByProduct.set(credit.productId, previous.plus(toDecimal(credit.quantity)));
+  }
+
+  const productIds = [...new Set([...lines.map((line) => line.productId), ...creditedByProduct.keys()])];
+  const products = await client.product.findMany({
+    where: { id: { in: productIds } },
+    select: { id: true, category: true, unit: true },
+  });
+  const productById = new Map(products.map((product) => [product.id, product]));
+
+  const warehouse = await client.warehouse.findFirst({
+    where: { type: 'PRODUCTION' },
+    select: { id: true },
+  });
+  if (!warehouse) {
+    throw new Error('Производственный склад не найден');
+  }
+
+  const balances = await client.stockBalance.findMany({
+    where: { warehouseId: warehouse.id, productId: { in: productIds } },
+    select: { productId: true, stockCategory: true, quantity: true },
+  });
+  const balanceByKey = new Map(
+    balances.map((balance) => [`${balance.productId}:${balance.stockCategory}`, balance.quantity]),
+  );
+
+  for (const line of lines) {
+    const product = productById.get(line.productId);
+    if (!product) {
+      throw new Error('Позиция потребления не найдена');
+    }
+    // `GP` у строки потребления — не категория остатка, а значение по умолчанию у записей,
+    // заведённых до ОПЭ-34: настоящая категория берётся у номенклатуры.
+    const stockCategory =
+      line.stockCategory && line.stockCategory !== 'GP'
+        ? line.stockCategory
+        : consumptionProductCategoryToStockCategory(product.category);
+    const balance = balanceByKey.get(`${line.productId}:${stockCategory}`);
+    const credited = creditedByProduct.get(line.productId) ?? new Prisma.Decimal(0);
+    const available = (balance ? toDecimal(balance) : new Prisma.Decimal(0)).plus(credited);
+    assertEnoughStock(available, product.unit, line.quantity);
+  }
 }
 
 /**

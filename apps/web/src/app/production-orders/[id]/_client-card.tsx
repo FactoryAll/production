@@ -21,7 +21,7 @@ import type {
 } from '@prisma/client';
 import { confirmProductionOrderAction, substituteOperatorAction, cancelProductionOrderAction, correctProductionFactAction, closeProductionOrderByNPAction, addPfFactAction } from '../actions';
 import { factCategoryLabel } from '@/lib/onec/labels';
-import { filterConsumableForWorkCenter, producesPf } from '@/lib/consumable-stock';
+import { filterConsumableForWorkCenter, isConsumptionOptionAllowed, producesPf } from '@/lib/consumable-stock';
 
 interface ProductionOrderCardProps {
   order: ProductionOrder & {
@@ -574,7 +574,12 @@ export default function ProductionOrderCard({
         productId: item.productId,
         quantity: item.quantity.toString(),
         // Категория остатка — часть ключа опции (ОПЭ-34/44): без неё поле потребления пустое.
-        stockCategory: item.stockCategory as 'MASS' | 'PF' | 'GP',
+        // 18.11.2026: у старых строк категория записана как GP (значение по умолчанию) —
+        // такой строки нет в списке опций, поле выглядело пустым. Восстанавливаем по продукту.
+        stockCategory:
+          (item.stockCategory as 'MASS' | 'PF' | 'GP') === 'GP'
+            ? ((item.product.category as 'MASS' | 'PF' | 'GP') === 'MASS' ? 'MASS' : 'PF')
+            : (item.stockCategory as 'MASS' | 'PF'),
         productLabel: `${item.product.name} (${item.product.unit})`,
       })),
     );
@@ -601,11 +606,30 @@ export default function ProductionOrderCard({
     return line ? producesPf(line.workCenter.code) : true;
   }
 
+  /**
+   * 18.11.2026: для корректировки «доступно» = остаток + то, что списал сам этот факт.
+   * Иначе повторное сохранение того же количества упиралось в ноль: расход уже списан им же.
+   */
+  function consumableForCorrection(lineId: string | null) {
+    const credit = new Map<string, number>();
+    for (const row of correctConsumption) {
+      if (!row.productId) continue;
+      credit.set(row.productId, (credit.get(row.productId) ?? 0) + Number(row.quantity || 0));
+    }
+    return consumableForLine(lineId).map((product) => {
+      const own = credit.get(product.id) ?? 0;
+      return own > 0 ? { ...product, available: product.available + own } : product;
+    });
+  }
+
   /** Потребление для строки с учётом правил её РЦ (ОПЭ-59: «Маркировка ЧЗ» — только ПФ). */
   function consumableForLine(lineId: string | null) {
     const line = lineId ? order.lines.find((item) => item.id === lineId) : undefined;
     return line
-      ? filterConsumableForWorkCenter(consumableProducts, line.workCenter.code)
+      ? filterConsumableForWorkCenter(consumableProducts, line.workCenter.code).filter((item) =>
+          // 18.11.2026: ПФ предлагаем только по номенклатуре строки (иначе списывался чужой полуфабрикат).
+          isConsumptionOptionAllowed(line.workCenter.code, line.productId, item.id, item.category),
+        )
       : consumableProducts;
   }
 
@@ -1248,7 +1272,7 @@ export default function ProductionOrderCard({
             <ConsumptionEditor
               idPrefix="correct"
               rows={correctConsumption}
-              products={consumableForLine(correctLineId)}
+              products={consumableForCorrection(correctLineId)}
               onChange={setCorrectConsumption}
             />
           )}

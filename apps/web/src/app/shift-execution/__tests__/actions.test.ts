@@ -666,6 +666,8 @@ describe('reportProductionFact', () => {
       workCenter: { id: 'wc-01', code: 'WC-01', name: 'РЦ 01', active: true, producesMass: false },
     });
     const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
+    // 18.11.2026: расход больше остатка теперь запрещён — тест про ОПЭ-38 не должен падать на остатке.
+    deps.getAvailableBalance.mockResolvedValue({ available: 5000, unit: 'шт' });
 
     await reportProductionFact(
       'line-1',
@@ -1342,7 +1344,8 @@ describe('fact consumption', () => {
     });
   });
 
-  it('returns warnings when consumption exceeds available balance', async () => {
+  // 18.11.2026: расход больше остатка — отказ, а не предупреждение (по разбору минусов на проде).
+  it('отказывает, когда потребление превышает остаток', async () => {
     const line = makeLine({ status: 'ACCEPTED', productId: 'gp-1', workCenterId: 'wc-03' });
     const deps = buildMockPrisma({
       line,
@@ -1355,7 +1358,7 @@ describe('fact consumption', () => {
     const writeTiming = vi.fn();
     const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
 
-    const { warnings } = await reportProductionFact(
+    await expect(reportProductionFact(
       'line-1',
       {
         quantity: 5,
@@ -1363,10 +1366,7 @@ describe('fact consumption', () => {
         consumption: [{ productId: 'mass-1', quantity: 2 }],
       },
       { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements, updateShiftSummary: deps.updateShiftSummary, syncOneCTask: vi.fn().mockResolvedValue('created') },
-    );
-
-    expect(warnings.length).toBeGreaterThan(0);
-    expect(warnings[0]).toContain('превышает остаток');
+    )).rejects.toThrow(/Недостаточно остатка/);
   });
 
   it('succeeds without consumption on mass-producing work center', async () => {
@@ -1726,7 +1726,7 @@ describe('correctFactByOperator', () => {
     expect(facts[0].factCategory).toBe('PF');
   });
 
-  it('replaces consumption set and warns on overconsumption', async () => {
+  it('отказывает, когда корректировка превышает остаток', async () => {
     const deps = buildMockPrisma({
       line: makeLine({ status: 'REPORTED', productId: 'gp-1' }),
       order: makeOrder(),
@@ -1739,24 +1739,35 @@ describe('correctFactByOperator', () => {
     const requireShiftWindow = vi.fn().mockResolvedValue(baseSession);
     deps.getAvailableBalance.mockResolvedValue({ available: 0, unit: 'кг' });
 
-    const { warnings, facts } = await correctFactByOperator(
+    // 18.11.2026: расход больше остатка — отказ. Свой расход факта (2) возвращается в доступное,
+    // поэтому 5 при доступном 0+2 — уже превышение и сохранять нельзя.
+    await expect(
+      correctFactByOperator(
+        'line-1',
+        { quantity: 5, factCategory: 'GP', consumption: [{ productId: 'mass-1', quantity: 5 }] },
+        { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements, updateShiftSummary: deps.updateShiftSummary, syncOneCTask: vi.fn().mockResolvedValue('created') },
+      ),
+    ).rejects.toThrow(/Недостаточно остатка/);
+  });
+
+  it('в корректировке свой расход факта возвращается в доступное (18.11.2026)', async () => {
+    const deps = buildMockPrisma({
+      line: makeLine({ status: 'REPORTED', productId: 'gp-1' }),
+      order: makeOrder(),
+      product: gpProduct,
+      existingFact: { id: 'fact-old', quantity: 5, factCategory: 'GP', consumptions: [{ productId: 'mass-1', quantity: 2 }] },
+      workCenter: { id: 'wc-02', code: 'WC-02', name: 'РЦ 02', active: true, producesMass: false },
+    });
+    // Остаток на складе ноль, но этот же факт списал 2 — значит 2 доступны повторно.
+    deps.getAvailableBalance.mockResolvedValue({ available: 0, unit: 'кг' });
+
+    await correctFactByOperator(
       'line-1',
-      { quantity: 5, factCategory: 'GP', consumption: [{ productId: 'mass-1', quantity: 5 }] },
-      { prisma: deps.prisma, writeAudit, writeTiming, requireShiftWindow, getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements, updateShiftSummary: deps.updateShiftSummary, syncOneCTask: vi.fn().mockResolvedValue('created') },
+      { quantity: 5, factCategory: 'GP', consumption: [{ productId: 'mass-1', quantity: 2 }] },
+      { prisma: deps.prisma, writeAudit: vi.fn(), writeTiming: vi.fn(), requireShiftWindow: vi.fn().mockResolvedValue(baseSession), getAvailableBalance: deps.getAvailableBalance, applyStockMovements: deps.applyStockMovements, updateShiftSummary: deps.updateShiftSummary, syncOneCTask: vi.fn().mockResolvedValue('created') },
     );
 
-    expect(facts).toHaveLength(1);
-    expect(deps.factConsumptionDeleteMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { productionFactId: { in: ['fact-old'] } } }),
-    );
-    expect(deps.factConsumptionCreateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.arrayContaining([
-          expect.objectContaining({ productId: 'mass-1', quantity: expect.any(Decimal) }),
-        ]),
-      }),
-    );
-    expect(warnings.length).toBeGreaterThan(0);
+    expect(deps.factConsumptionCreateMany).toHaveBeenCalled();
   });
 
   it('fails when order is COMPLETED (mentions NP)', async () => {

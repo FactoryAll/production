@@ -3,7 +3,11 @@
 import { revalidatePath } from 'next/cache';
 import { Prisma, type ProductionOrderLine, type ProductionFact, type ProductCategory } from '@prisma/client';
 import { prisma, writeAudit, writeTiming } from '@prodtrack/db';
-import { assertConsumptionAllowedForWorkCenter, assertOutputAllowedForWorkCenter } from '@/lib/consumable-stock';
+import {
+  assertConsumptionAllowedForWorkCenter,
+  assertConsumptionMatchesLineProduct,
+  assertOutputAllowedForWorkCenter,
+} from '@/lib/consumable-stock';
 import { requireShiftWindow } from '@/lib/auth/require-shift-window';
 import { notificationCategoryOfFacts, notifyEvent } from '@/lib/events/notify';
 import { hasPermission, getAttributeRole } from '@prodtrack/contracts';
@@ -13,6 +17,7 @@ import {
 } from '@/lib/production-order-closing';
 import {
   applyStockMovements,
+  assertEnoughStock,
   getAvailableBalance,
   buildProductionFactMovements,
   consumptionProductCategoryToStockCategory,
@@ -20,7 +25,6 @@ import {
 } from '@/lib/stock-service';
 import { updateShiftSummary } from '@/lib/shift-summary-service';
 import { syncProductionOrderTask } from '@/lib/onec/tasks';
-import { formatQuantity } from '@/lib/quantity';
 import {
   resolveWorkerComposition,
   type WorkerCompositionInput,
@@ -93,6 +97,11 @@ export interface ReportFactInput {
   stopsCount?: number;
   stopsDurationMinutes?: number;
   consumption?: ConsumptionInput[];
+  /**
+   * Что уже списал правимый факт (только для корректировки): это количество возвращается
+   * в «доступно», иначе повторное сохранение того же числа упирается в ноль.
+   */
+  creditedConsumption?: Array<{ productId: string; quantity: number }>;
   /**
    * Фактический состав работников (T-093). Не задан — состав не трогаем (так работают
    * пути, которые ещё не научились его подтверждать: этап 4 постановки).
@@ -271,6 +280,8 @@ async function validateReportLikeInput(
   // ОПЭ-59: доступные категории потребления решает правило РЦ, и оно одно для всех путей
   // (14.11.2026 вынесено в `lib/consumable-stock`, чтобы карточка ПЗ не расходилась с исполнением).
   assertConsumptionAllowedForWorkCenter(line.workCenter.code, consumption);
+  // 18.11.2026: ПФ — только номенклатура строки (иначе списывался чужой полуфабрикат).
+  assertConsumptionMatchesLineProduct(line.workCenter.code, line.productId, consumption);
 
   const seenProducts = new Set<string>();
   for (const item of consumption) {
@@ -299,15 +310,20 @@ async function validateReportLikeInput(
     }
   }
 
+  // 18.11.2026 (по разбору минусов на проде): расход больше остатка — ЗАПРЕЩЁН, а не
+  // «записан с предупреждением». Раньше так появлялись отрицательные остатки.
+  // При корректировке к доступному прибавляется то, что списал сам правимый факт:
+  // иначе исправить уже введённое количество невозможно — остаток-то уже списан им же.
+  // Сравнение и текст ошибки — `assertEnoughStock` в `lib/stock-service`: то же правило
+  // проверяют «Ввод за Оператора» и корректировка НП, и сообщение обязано совпадать.
   const warnings: string[] = [];
   for (const item of consumption) {
     const balance = await deps.getAvailableBalance(deps.prisma, item.productId);
-    const diff = new Prisma.Decimal(item.quantity).minus(balance.available);
-    if (diff.greaterThan(0)) {
-      warnings.push(
-        `Потребление ${item.productId} превышает остаток на ${formatQuantity(diff)} ${balance.unit}; записано с предупреждением`,
-      );
-    }
+    const credited = (input.creditedConsumption ?? [])
+      .filter((credit) => credit.productId === item.productId)
+      .reduce((sum, credit) => sum + credit.quantity, 0);
+    const available = new Prisma.Decimal(balance.available).plus(credited);
+    assertEnoughStock(available, balance.unit, item.quantity);
   }
 
   return { outputByCategory, defectQuantity, stopsCount, stopsDurationMinutes, consumption, warnings };
@@ -335,6 +351,9 @@ function parseConsumptionInput(raw: unknown): ConsumptionInput[] {
     }
     // ОПЭ-34: оператор выбирает не только позицию, но и категорию остатка (Масса, ПФ).
     const rawCategory = (item as Record<string, unknown>).stockCategory;
+    // 18.11.2026: у старых строк потребления в базе стоит `GP` (значение по умолчанию),
+    // хотя Масса и ПФ — это MASS и PF. Из-за этого строка не находила свою опцию и поле
+    // выглядело пустым при корректировке. `GP` больше не считается категорией остатка.
     const stockCategory =
       rawCategory === 'MASS' || rawCategory === 'PF' || rawCategory === 'GP' ? rawCategory : undefined;
     return { productId, quantity, stockCategory };
@@ -808,8 +827,12 @@ export async function correctFactByOperator(
     );
   }
 
+  // 18.11.2026: при корректировке в «доступно» возвращаем то, что списал сам правимый факт.
+  const credited = line.facts.flatMap((fact) =>
+    fact.consumptions.map((c) => ({ productId: c.productId, quantity: Number(c.quantity.toString()) })),
+  );
   const { outputByCategory, defectQuantity, stopsCount, stopsDurationMinutes, consumption, warnings } =
-    await validateReportLikeInput(input, deps, line as unknown as ProductionOrderLine & { product: { category: ProductCategory }; workCenter: { producesMass: boolean; code: string } });
+    await validateReportLikeInput({ ...input, creditedConsumption: credited }, deps, line as unknown as ProductionOrderLine & { product: { category: ProductCategory }; workCenter: { producesMass: boolean; code: string } });
 
   const attributedRole = getAttributeRole(userRoles, 'production_order:report') ?? undefined;
   const now = new Date();
@@ -1103,7 +1126,12 @@ export async function correctFactByOperatorAction(lineId: string, formData: Form
     const rawOutputByCategory = formData.get('outputByCategory')?.toString();
     const input: CorrectFactInput = {
       quantity: Number(formData.get('quantity')),
-      factCategory: parseFactCategory(formData.get('factCategory')),
+      // 18.11.2026: форма корректировки для ГП-строки не присылает `factCategory` (выпуск идёт
+      // по категориям). Раньше разбор вызывался всегда и падал с «Недопустимая категория факта»
+      // ещё до чтения outputByCategory — сохранение не проходило вообще.
+      factCategory: formData.get('factCategory')
+        ? parseFactCategory(formData.get('factCategory'))
+        : undefined,
       defectQuantity: formData.get('defectQuantity') ? Number(formData.get('defectQuantity')) : undefined,
       defectReasonId: formData.get('defectReasonId')?.toString() || undefined,
       stopsCount: formData.get('stopsCount') ? Number(formData.get('stopsCount')) : undefined,

@@ -9,7 +9,11 @@ import type {
   ProductionFact,
 } from '@prisma/client';
 import { Prisma } from '@prisma/client';
-import { assertConsumptionAllowedForWorkCenter, assertOutputAllowedForWorkCenter } from '@/lib/consumable-stock';
+import {
+  assertConsumptionAllowedForWorkCenter,
+  assertConsumptionMatchesLineProduct,
+  assertOutputAllowedForWorkCenter,
+} from '@/lib/consumable-stock';
 import {
   assertShiftDateNotPast,
   currentShiftDateKey,
@@ -28,6 +32,7 @@ import { hasPermission, requireAnyPermission, requirePermission } from '@/lib/au
 import { getAttributeRole, RoleCode } from '@prodtrack/contracts';
 import {
   applyStockMovements,
+  assertConsumptionWithinStock,
   buildProductionFactMovements,
   consumptionProductCategoryToStockCategory,
   factCategoryToStockCategory,
@@ -769,6 +774,8 @@ async function validateSubstitutionInput(
 
   // ОПЭ-59 (14.11.2026): категории потребления ограничивает РЦ — правило одно на все пути.
   assertConsumptionAllowedForWorkCenter(line.workCenter.code, consumption);
+  // 18.11.2026: ПФ — только номенклатура строки.
+  assertConsumptionMatchesLineProduct(line.workCenter.code, line.productId, consumption);
 
   const seenProducts = new Set<string>();
   for (const item of consumption) {
@@ -796,6 +803,13 @@ async function validateSubstitutionInput(
       throw new Error('Причина брака не найдена или неактивна');
     }
   }
+
+  // 18.11.2026: расход больше остатка запрещён и здесь. «Ввод за Оператора» пишет те же
+  // движения по тем же остаткам, что и исполнение смены, но проверки в нём не было —
+  // именно из этой формы на проде появились минусы `БП-00000178` (−313) и `БП-00000370`
+  // (−115). Строка ещё не отчитана (статус ASSIGNED/ACCEPTED), прежнего расхода у неё нет,
+  // поэтому возвращать в «доступно» нечего.
+  await assertConsumptionWithinStock(deps.prisma, consumption);
 
   return { outputByCategory, defectQuantity, stopsCount, stopsDurationMinutes, consumption };
 }
@@ -861,6 +875,16 @@ export async function substituteOperator(
   const editableLineStatuses: ProductionOrderLineStatus[] = ['ASSIGNED', 'ACCEPTED'];
   if (!editableLineStatuses.includes(line.status)) {
     throw new Error('Строка уже в REPORTED');
+  }
+
+  // 18.11.2026: «Ввод за Оператора» на строке без оператора заканчивался технической ошибкой
+  // «Некорректный payload события EV-08: поле «operatorId» — обязательная непустая строка» —
+  // человек видел внутренности контракта уведомления вместо причины. Через интерфейс такую
+  // строку создать нельзя (форма требует оператора), но отказ должен называть причину.
+  if (!line.operatorId) {
+    throw new Error(
+      'За этой строкой не закреплён оператор: ввод за Оператора недоступен — назначьте оператора в ПЗ',
+    );
   }
 
   if (!isSubstitutionReasonCode(input.reasonCode)) {
@@ -1378,6 +1402,7 @@ export async function correctProductionFact(
 
   // ОПЭ-59 (14.11.2026): и в корректировке — иначе сохранённая ранее Масса вернётся на ЧЗ.
   assertConsumptionAllowedForWorkCenter(fact.line.workCenter.code, consumption);
+  assertConsumptionMatchesLineProduct(fact.line.workCenter.code, fact.line.productId, consumption);
 
   // Номенклатура нужна и для нового состава, и для прежнего: движения считаются по разнице,
   // а категория остатка берётся у потребляемой позиции.
@@ -1447,6 +1472,18 @@ export async function correctProductionFact(
   const consumptionChanged =
     consumptionProvided &&
     JSON.stringify(oldConsumptionValues) !== JSON.stringify(newConsumptionValues);
+
+  // 18.11.2026: и корректировка НП не может списать больше, чем лежит. Прежний расход этого
+  // же факта возвращается в «доступно» — иначе исправить введённое количество невозможно
+  // (движения считаются по разнице, а старое уже списано).
+  if (consumptionProvided) {
+    await assertConsumptionWithinStock(deps.prisma, consumption, {
+      credited: fact.consumptions.map((item) => ({
+        productId: item.productId,
+        quantity: item.quantity,
+      })),
+    });
+  }
 
   // Движения по разнице потребления: выросло — списание, уменьшилось — возврат в остаток (M05).
   // Если поле не передано, потребление не правится — ни строки, ни остатки.

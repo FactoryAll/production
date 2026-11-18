@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   assertConsumptionAllowedForWorkCenter,
   assertOutputAllowedForWorkCenter,
+  assertConsumptionMatchesLineProduct,
+  isConsumptionOptionAllowed,
   producesPf,
   consumptionCategoriesForWorkCenter,
   filterConsumableForWorkCenter,
@@ -82,5 +84,41 @@ describe('производство по РЦ: ЧЗ выпускает тольк
   it('на обычном РЦ ПФ разрешён', () => {
     expect(producesPf('03')).toBe(true);
     expect(() => assertOutputAllowedForWorkCenter('03', { GP: 10, PF: 5 })).not.toThrow();
+  });
+});
+
+/**
+ * 18.11.2026: ПФ в потреблении — только номенклатура строки.
+ * Повод: в ПЗ 3b9355c7 «Спрей АНТИБАКТЕР» списали ПФ 12 095, которого не производили,
+ * остаток ушёл в −11 135.
+ */
+describe('ПФ только по номенклатуре строки (18.11.2026)', () => {
+  const lineProduct = 'p-gp';
+
+  it('чужой ПФ в потреблении отбивается', () => {
+    expect(() =>
+      assertConsumptionMatchesLineProduct('06', lineProduct, [{ productId: 'p-other', stockCategory: 'PF' }]),
+    ).toThrow(/той номенклатуры/);
+  });
+
+  it('свой ПФ разрешён, Масса любой номенклатуры разрешена', () => {
+    expect(() =>
+      assertConsumptionMatchesLineProduct('06', lineProduct, [
+        { productId: lineProduct, stockCategory: 'PF' },
+        { productId: 'p-mass-any', stockCategory: 'MASS' },
+      ]),
+    ).not.toThrow();
+  });
+
+  it('на «Маркировке ЧЗ» Масса запрещена', () => {
+    expect(() =>
+      assertConsumptionMatchesLineProduct('13', lineProduct, [{ productId: 'p-mass-any', stockCategory: 'MASS' }]),
+    ).toThrow(/только полуфабрикат/);
+  });
+
+  it('опции для клиента: чужой ПФ не предлагается', () => {
+    expect(isConsumptionOptionAllowed('06', lineProduct, 'p-other', 'PF')).toBe(false);
+    expect(isConsumptionOptionAllowed('06', lineProduct, lineProduct, 'PF')).toBe(true);
+    expect(isConsumptionOptionAllowed('06', lineProduct, 'p-mass-any', 'MASS')).toBe(true);
   });
 });
