@@ -6,6 +6,7 @@ import { AccessDenied } from '@/components/access-denied';
 import { checkPageAccess } from '@/lib/auth/page-guard';
 import { formatQuantity } from '@/lib/quantity';
 import {
+  STOCK_ADJUSTMENT_CATEGORY_LABELS,
   STOCK_ADJUSTMENT_DIRECTION_LABELS,
   stockAdjustmentReasonLabel,
 } from '@/lib/stock-adjustment';
@@ -98,7 +99,7 @@ export default async function StockAdjustmentsPage() {
                       <td className="py-1">
                         {line.product.code} — {line.product.name}
                       </td>
-                      <td className="py-1">{line.stockCategory}</td>
+                      <td className="py-1">{STOCK_ADJUSTMENT_CATEGORY_LABELS[line.stockCategory]}</td>
                       <td className="py-1">
                         {STOCK_ADJUSTMENT_DIRECTION_LABELS[line.direction]}
                       </td>

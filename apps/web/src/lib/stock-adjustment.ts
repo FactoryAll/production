@@ -21,6 +21,12 @@ export function stockAdjustmentReasonLabel(code: string): string {
   return STOCK_ADJUSTMENT_REASON_OPTIONS.find((option) => option.value === code)?.label ?? code;
 }
 
+export const STOCK_ADJUSTMENT_CATEGORY_LABELS: Record<'MASS' | 'PF' | 'GP', string> = {
+  MASS: 'Масса',
+  PF: 'ПФ',
+  GP: 'ГП',
+};
+
 export const STOCK_ADJUSTMENT_DIRECTION_LABELS: Record<'RECEIPT' | 'ISSUE', string> = {
   RECEIPT: 'Приход',
   ISSUE: 'Списание',
