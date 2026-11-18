@@ -84,6 +84,7 @@ model Product {
   summaryConsumptions ShiftSummaryConsumption[]
   transferLines       TransferLine[]
   Discrepancy         Discrepancy[]
+  adjustmentLines     StockAdjustmentLine[]
 
   @@map("products")
 }
@@ -134,6 +135,7 @@ model Warehouse {
 
   movements            StockMovement[]
   balances             StockBalance[]
+  adjustmentLines      StockAdjustmentLine[]
   sourceTransfers      GoodsTransfer[] @relation("TransferSource")
   destinationTransfers GoodsTransfer[] @relation("TransferDestination")
 
@@ -206,6 +208,7 @@ model User {
   auditRecords            AuditRecord[]
   notifications           Notification[]
   reconciledDiscrepancies Discrepancy[]     @relation("DiscrepancyReconciler")
+  stockAdjustments        StockAdjustment[]
 
   @@map("users")
 }
@@ -438,6 +441,69 @@ model StockBalance {
 
   @@unique([warehouseId, productId, stockCategory])
   @@map("stock_balances")
+}
+
+// Документ корректировки остатков (решение владельца 18.11.2026).
+//
+// Повод: на проде лежали минусовые остатки Массы, а выравнивать их было нечем — история
+// движений неизменяема, ручной корректировки в системе не было вовсе (M05 BR-4).
+// Документ не правит историю: он добавляет компенсирующее движение с источником
+// STOCK_ADJUSTMENT. Создают только НП и АДМ (право stock:adjust), причина обязательна,
+// уведомления не отправляются. Постановка — docs/stock_correction_design.md.
+enum StockAdjustmentDirection {
+  RECEIPT
+  ISSUE
+}
+
+enum StockAdjustmentReason {
+  INVENTORY
+  ACCOUNTING_ERROR
+  DAMAGE
+  RESORT
+  OTHER
+}
+
+model StockAdjustment {
+  id     String @id @default(uuid())
+  /// Номер документа `КОР-2026-000123`: сквозной по системе, из последовательности базы.
+  number String @unique
+
+  reasonCode    StockAdjustmentReason
+  /// Текстовая причина: обязательная, не короче 10 символов (проверяется на сервере).
+  reason        String
+  /// Основание: «Акт инвентаризации № … от …». Необязательное.
+  basisDocument String?
+
+  createdAt   DateTime @default(now())
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  /// Заполняется у встречного документа: какая корректировка им исправляется.
+  compensatesAdjustmentId    String?
+  compensatesAdjustment      StockAdjustment?  @relation("StockAdjustmentCompensation", fields: [compensatesAdjustmentId], references: [id], onDelete: SetNull)
+  compensatedByAdjustments   StockAdjustment[] @relation("StockAdjustmentCompensation")
+
+  lines StockAdjustmentLine[]
+
+  @@index([createdAt])
+  @@map("stock_adjustments")
+}
+
+model StockAdjustmentLine {
+  id           String          @id @default(uuid())
+  adjustmentId String
+  adjustment   StockAdjustment @relation(fields: [adjustmentId], references: [id], onDelete: Cascade)
+
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id])
+
+  stockCategory StockCategory
+  direction     StockAdjustmentDirection
+  quantity      Decimal             @db.Decimal(18, 4)
+
+  @@map("stock_adjustment_lines")
 }
 
 // === M06: Shift summary ===

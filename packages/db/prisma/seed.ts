@@ -139,6 +139,8 @@ export const PERMISSIONS = [
   { code: 'transfer:reconcile', action: 'Согласование расхождений' },
   { code: 'transfer:read', action: 'Просмотр перемещений' },
   { code: 'stock:read', action: 'Просмотр остатков' },
+  // Корректировка остатков (решение владельца 18.11.2026): компенсирующее движение документом.
+  { code: 'stock:adjust', action: 'Корректировка остатков' },
   { code: 'shift_report:read', action: 'Просмотр отчётов смены' },
   { code: 'dashboard:read', action: 'Просмотр дашборда' },
   { code: 'dashboard:read_own', action: 'Просмотр своего дашборда' },
@@ -172,6 +174,8 @@ export const ROLE_PERMISSION_MAP: Record<RoleCode, string[]> = {
     'transfer:reconcile',
     'transfer:read',
     'stock:read',
+    // Корректировка остатков (18.11.2026).
+    'stock:adjust',
     'shift_report:read',
     'dashboard:read',
     'audit:read',
