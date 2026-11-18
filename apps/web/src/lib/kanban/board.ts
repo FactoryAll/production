@@ -82,6 +82,8 @@ export interface KanbanTransferCard {
   productCode: string;
   productName: string;
   productUnit: string;
+  /** Сколько строк в документе: при >1 на плитке не показываем одну номенклатуру. */
+  linesCount: number;
   /** Все номенклатуры документа: по ним работает фильтр и список опций. */
   productIds: string[];
   sourceWarehouseId: string;
@@ -388,6 +390,9 @@ export async function getKanbanBoard(
       productCode: first?.product.code ?? '—',
       productName: first?.product.name ?? 'Номенклатура не указана',
       productUnit: first?.product.unit ?? '',
+      // 18.11.2026: количество на плитке — СУММА по строкам. При нескольких позициях
+      // подпись «номенклатура + сумма» читалась как «перемещается 21530 этой позиции».
+      linesCount: transfer.lines.length,
       // Фильтр по номенклатуре смотрит ВСЕ строки документа, а на карточке видна первая.
       productIds: [...new Set(transfer.lines.map((line) => line.product.id))],
       sourceWarehouseId: transfer.sourceWarehouse.id,

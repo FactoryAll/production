@@ -69,7 +69,12 @@ function TransferCardBody({ card }: { card: KanbanTransferCard }) {
         <span className="font-normal text-steel-graphite"> · {date}</span>
       </p>
       <p className="text-steel-graphite">
-        {card.productCode} — {card.productName}
+        {/* 18.11.2026: количество на карточке — СУММА по всем строкам. При нескольких
+            позициях одна номенклатура рядом с суммой читалась как «перемещается 21530
+            этой позиции». Показываем число позиций; состав — в карточке перемещения. */}
+        {card.linesCount > 1
+          ? `${card.linesCount} позиции — состав в карточке`
+          : `${card.productCode} — ${card.productName}`}
       </p>
       {/* ОПЭ-75: количество — принятое, если приёмка была. Когда принятое отличается
           от плана, показываем оба числа: «принято 37 шт · план 40 шт». */}
