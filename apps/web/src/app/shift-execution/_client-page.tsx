@@ -870,8 +870,9 @@ const result: CorrectFactResult = await correctFactByOperatorAction(dialogState.
                         </p>
                       )}
                       {showWarning && (
-                        <p className="col-span-3 text-sm text-signal-amber">
-                          Превышение остатка на {formatQuantity(quantityNum - balance!.available)} {balance!.unit}; будет записано с предупреждением
+                        <p className="col-span-3 text-sm font-medium text-signal-amber">
+                          {/* 18.11.2026: расход больше остатка запрещён — не сохранится. */}
+                          Недостаточно остатка: доступно {formatQuantity(balance!.available)} {balance!.unit}. Укажите не больше доступного
                         </p>
                       )}
                     </div>

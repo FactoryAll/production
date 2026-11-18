@@ -98,6 +98,11 @@ export interface ReportFactInput {
   stopsDurationMinutes?: number;
   consumption?: ConsumptionInput[];
   /**
+   * Что уже списал правимый факт (только для корректировки): это количество возвращается
+   * в «доступно», иначе повторное сохранение того же числа упирается в ноль.
+   */
+  creditedConsumption?: Array<{ productId: string; quantity: number }>;
+  /**
    * Фактический состав работников (T-093). Не задан — состав не трогаем (так работают
    * пути, которые ещё не научились его подтверждать: этап 4 постановки).
    */
@@ -305,13 +310,21 @@ async function validateReportLikeInput(
     }
   }
 
+  // 18.11.2026 (по разбору минусов на проде): расход больше остатка — ЗАПРЕЩЁН, а не
+  // «записан с предупреждением». Раньше так появлялись отрицательные остатки.
+  // При корректировке к доступному прибавляется то, что списал сам правимый факт:
+  // иначе исправить уже введённое количество невозможно — остаток-то уже списан им же.
   const warnings: string[] = [];
   for (const item of consumption) {
     const balance = await deps.getAvailableBalance(deps.prisma, item.productId);
-    const diff = new Prisma.Decimal(item.quantity).minus(balance.available);
+    const credited = (input.creditedConsumption ?? [])
+      .filter((credit) => credit.productId === item.productId)
+      .reduce((sum, credit) => sum + credit.quantity, 0);
+    const available = new Prisma.Decimal(balance.available).plus(credited);
+    const diff = new Prisma.Decimal(item.quantity).minus(available);
     if (diff.greaterThan(0)) {
-      warnings.push(
-        `Потребление ${item.productId} превышает остаток на ${formatQuantity(diff)} ${balance.unit}; записано с предупреждением`,
+      throw new Error(
+        `Недостаточно остатка: доступно ${formatQuantity(available)} ${balance.unit}. Укажите не больше доступного`,
       );
     }
   }
@@ -341,6 +354,9 @@ function parseConsumptionInput(raw: unknown): ConsumptionInput[] {
     }
     // ОПЭ-34: оператор выбирает не только позицию, но и категорию остатка (Масса, ПФ).
     const rawCategory = (item as Record<string, unknown>).stockCategory;
+    // 18.11.2026: у старых строк потребления в базе стоит `GP` (значение по умолчанию),
+    // хотя Масса и ПФ — это MASS и PF. Из-за этого строка не находила свою опцию и поле
+    // выглядело пустым при корректировке. `GP` больше не считается категорией остатка.
     const stockCategory =
       rawCategory === 'MASS' || rawCategory === 'PF' || rawCategory === 'GP' ? rawCategory : undefined;
     return { productId, quantity, stockCategory };
@@ -814,8 +830,12 @@ export async function correctFactByOperator(
     );
   }
 
+  // 18.11.2026: при корректировке в «доступно» возвращаем то, что списал сам правимый факт.
+  const credited = line.facts.flatMap((fact) =>
+    fact.consumptions.map((c) => ({ productId: c.productId, quantity: Number(c.quantity.toString()) })),
+  );
   const { outputByCategory, defectQuantity, stopsCount, stopsDurationMinutes, consumption, warnings } =
-    await validateReportLikeInput(input, deps, line as unknown as ProductionOrderLine & { product: { category: ProductCategory }; workCenter: { producesMass: boolean; code: string } });
+    await validateReportLikeInput({ ...input, creditedConsumption: credited }, deps, line as unknown as ProductionOrderLine & { product: { category: ProductCategory }; workCenter: { producesMass: boolean; code: string } });
 
   const attributedRole = getAttributeRole(userRoles, 'production_order:report') ?? undefined;
   const now = new Date();
