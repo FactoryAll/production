@@ -10,12 +10,13 @@ import { resolveKanbanStage, KANBAN_COLUMNS } from '../stage';
  * в своём тесте, `current-shift.test.ts`).
  */
 describe('колонки доски', () => {
-  it('десять колонок в порядке контура, и ПЗ-колонки помечены отдельно', () => {
+  it('одиннадцать колонок в порядке контура, и ПЗ-колонки помечены отдельно', () => {
     expect(KANBAN_COLUMNS.map((column) => column.key)).toEqual([
       'DRAFT',
       'CONFIRMED',
       'IN_PROGRESS',
       'REPORTED',
+      'AWAITING_NP_CLOSE',
       'CLOSED',
       'TRANSFER_DRAFT',
       'TRANSFER_SUBMITTED',
@@ -23,16 +24,19 @@ describe('колонки доски', () => {
       'RECEIVED',
       'CANCELLED',
     ]);
-    // ОПЭ-74: однострочное ПЗ уходит сразу в «Закрыто» (авто-закрытие), поэтому колонка
-    // «Отчёт сдан» подписана как частичное закрытие смены — иначе это читалось как поломка.
+    // 18.11.2026: этапов стало два — «отчиталась часть РЦ» и «все отчитались, ждём НП».
     expect(KANBAN_COLUMNS.find((column) => column.key === 'REPORTED')?.title).toBe(
-      'Отчёт сдан (когда отчиталась часть смены)',
+      'Отчёт сдан (отчиталась часть РЦ)',
+    );
+    expect(KANBAN_COLUMNS.find((column) => column.key === 'AWAITING_NP_CLOSE')?.title).toBe(
+      'Ожидает закрытия НП',
     );
     expect(KANBAN_COLUMNS.filter((column) => column.isOrderColumn).map((column) => column.key)).toEqual([
       'DRAFT',
       'CONFIRMED',
       'IN_PROGRESS',
       'REPORTED',
+      'AWAITING_NP_CLOSE',
       'CLOSED',
     ]);
     // «Отменено» — не колонка перемещений: туда попадают и отменённые ПЗ.
@@ -72,6 +76,16 @@ describe('этап по ПЗ и строке', () => {
   });
 
   // Требование главной линии: в одном ПЗ одна строка отчиталась, другая нет.
+  it('ПЗ со статусом «Ожидает закрытия НП» идёт в свой столбец, а не в «Отчёт сдан» (18.11.2026)', () => {
+    expect(resolveKanbanStage({ orderStatus: 'READY_FOR_CLOSE', lineStatus: 'REPORTED' }).column).toBe(
+      'AWAITING_NP_CLOSE',
+    );
+    // И это не «Закрыто»: ПЗ ещё не закрыто, 1С задач не получал.
+    expect(resolveKanbanStage({ orderStatus: 'READY_FOR_CLOSE', lineStatus: 'REPORTED' }).column).toBe(
+      'AWAITING_NP_CLOSE',
+    );
+  });
+
   it('строка, которая отчиталась, идёт в «Отчёт сдан», а неотчитавшаяся — в «В работе»', () => {
     const reported = resolveKanbanStage({ orderStatus: 'IN_PROGRESS', lineStatus: 'REPORTED' });
     const accepted = resolveKanbanStage({ orderStatus: 'IN_PROGRESS', lineStatus: 'ACCEPTED' });

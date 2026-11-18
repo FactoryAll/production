@@ -14,6 +14,7 @@ export type KanbanColumnKey =
   | 'CONFIRMED'
   | 'IN_PROGRESS'
   | 'REPORTED'
+  | 'AWAITING_NP_CLOSE'
   | 'CLOSED'
   | 'TRANSFER_DRAFT'
   | 'TRANSFER_SUBMITTED'
@@ -37,19 +38,20 @@ export const KANBAN_COLUMNS: KanbanColumn[] = [
   { key: 'DRAFT', title: 'Черновик ПЗ', isOrderColumn: true, order: 1 },
   { key: 'CONFIRMED', title: 'Подтверждено', isOrderColumn: true, order: 2 },
   { key: 'IN_PROGRESS', title: 'В работе', isOrderColumn: true, order: 3 },
-  // Логика не меняется: ПЗ закрывается автоматически, когда отчиталась ПОСЛЕДНЯЯ строка,
-  // поэтому однострочное ПЗ уходит сразу в «Закрыто», а эта колонка — про часть смены
-  // (ОПЭ-74: выглядело как поломка, поэтому подпись объясняет).
-  { key: 'REPORTED', title: 'Отчёт сдан (когда отчиталась часть смены)', isOrderColumn: true, order: 4 },
-  { key: 'CLOSED', title: 'Закрыто / задача 1С', isOrderColumn: true, order: 5 },
-  { key: 'TRANSFER_DRAFT', title: 'Перемещение создано', isOrderColumn: false, order: 6 },
-  { key: 'TRANSFER_SUBMITTED', title: 'Отправлено', isOrderColumn: false, order: 7 },
+  // 18.11.2026: этап «отчиталась часть РЦ» и этап «все отчитались, ждём НП» — разные вещи.
+  // С появлением закрытия начальником производства статус READY_FOR_CLOSE перестал быть
+  // «закрытием»: ПЗ ещё не закрыто, его ждёт проверка НП. Поэтому два разных столбца.
+  { key: 'REPORTED', title: 'Отчёт сдан (отчиталась часть РЦ)', isOrderColumn: true, order: 4 },
+  { key: 'AWAITING_NP_CLOSE', title: 'Ожидает закрытия НП', isOrderColumn: true, order: 5 },
+  { key: 'CLOSED', title: 'Закрыто / задача 1С', isOrderColumn: true, order: 6 },
+  { key: 'TRANSFER_DRAFT', title: 'Перемещение создано', isOrderColumn: false, order: 7 },
+  { key: 'TRANSFER_SUBMITTED', title: 'Отправлено', isOrderColumn: false, order: 8 },
   // Расхождение стоит МЕЖДУ отправкой и приёмкой (решение владельца 31.10.2026): это этап
   // движения, а не его исход. Порядковые числа идут по новому порядку — на них опирается
   // правило «самая продвинутая колонка», и разъехавшиеся числа поставили бы карточку не туда.
-  { key: 'DISCREPANCY', title: 'Расхождение', isOrderColumn: false, order: 8 },
-  { key: 'RECEIVED', title: 'Принято складом', isOrderColumn: false, order: 9 },
-  { key: 'CANCELLED', title: 'Отменено', isOrderColumn: false, order: 10 },
+  { key: 'DISCREPANCY', title: 'Расхождение', isOrderColumn: false, order: 9 },
+  { key: 'RECEIVED', title: 'Принято складом', isOrderColumn: false, order: 10 },
+  { key: 'CANCELLED', title: 'Отменено', isOrderColumn: false, order: 11 },
 ];
 
 export const KANBAN_COLUMN_BY_KEY: Record<KanbanColumnKey, KanbanColumn> = Object.fromEntries(
@@ -84,6 +86,10 @@ function orderStage(orderStatus: string, lineStatus: string): KanbanColumnKey {
   }
   if (orderStatus === 'COMPLETED') {
     return 'CLOSED';
+  }
+  // Все РЦ отчитались → ПЗ ждёт НП (раньше уходило в «Закрыто» автоматически).
+  if (orderStatus === 'READY_FOR_CLOSE') {
+    return 'AWAITING_NP_CLOSE';
   }
   if (lineStatus === 'REPORTED') {
     return 'REPORTED';
