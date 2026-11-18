@@ -1129,7 +1129,12 @@ export async function correctFactByOperatorAction(lineId: string, formData: Form
     const rawOutputByCategory = formData.get('outputByCategory')?.toString();
     const input: CorrectFactInput = {
       quantity: Number(formData.get('quantity')),
-      factCategory: parseFactCategory(formData.get('factCategory')),
+      // 18.11.2026: форма корректировки для ГП-строки не присылает `factCategory` (выпуск идёт
+      // по категориям). Раньше разбор вызывался всегда и падал с «Недопустимая категория факта»
+      // ещё до чтения outputByCategory — сохранение не проходило вообще.
+      factCategory: formData.get('factCategory')
+        ? parseFactCategory(formData.get('factCategory'))
+        : undefined,
       defectQuantity: formData.get('defectQuantity') ? Number(formData.get('defectQuantity')) : undefined,
       defectReasonId: formData.get('defectReasonId')?.toString() || undefined,
       stopsCount: formData.get('stopsCount') ? Number(formData.get('stopsCount')) : undefined,
