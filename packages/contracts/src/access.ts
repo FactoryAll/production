@@ -14,6 +14,8 @@ export type PermissionCode =
   | 'transfer:reconcile'
   | 'transfer:read'
   | 'stock:read'
+  // Корректировка остатков (решение владельца 18.11.2026): только НП и АДМ.
+  | 'stock:adjust'
   | 'shift_report:read'
   | 'dashboard:read'
   | 'dashboard:read_own'
@@ -46,6 +48,9 @@ export const ALL_PERMISSIONS: PermissionCode[] = [
   'transfer:reconcile',
   'transfer:read',
   'stock:read',
+  // Документ корректировки остатков (18.11.2026). Право обязано быть в ALL_PERMISSIONS:
+  // администратор получает права из этого списка, а сид сверяется с ним тестом.
+  'stock:adjust',
   'shift_report:read',
   'dashboard:read',
   'dashboard:read_own',
@@ -79,6 +84,8 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     'transfer:reconcile',
     'transfer:read',
     'stock:read',
+    // Корректировка остатков: НП — вторая роль после АДМ, которой это разрешено (18.11.2026).
+    'stock:adjust',
     'shift_report:read',
     'dashboard:read',
     'audit:read',
