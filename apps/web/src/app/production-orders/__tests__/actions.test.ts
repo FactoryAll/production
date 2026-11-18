@@ -1663,6 +1663,30 @@ describe('substituteOperator', () => {
     ).rejects.toThrow('Укажите выпуск');
   });
 
+  it('называет причину, если у строки нет оператора, вместо ошибки payload EV-08 (18.11.2026)', async () => {
+    // Повод: на стенде «Вводить за Оператора» на строке без оператора падало технической
+    // ошибкой «Некорректный payload события EV-08: поле «operatorId»». Через интерфейс такую
+    // строку не создать (форма требует оператора), но отказ обязан называть причину.
+    const line = buildSubstitutableLine('ASSIGNED', { operatorId: null } as unknown as Partial<MockOrderLine>);
+    const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
+    const deps = buildSubstituteDeps(line, order);
+
+    await expect(
+      substituteOperator(
+        'line-1',
+        { reasonCode: 'ILLNESS', comment: 'Болезнь', output: 10, factCategory: 'MASS' },
+        {
+          prisma: deps.prisma,
+          requirePermission: deps.requirePermission,
+          writeAudit: deps.writeAudit,
+          writeTiming: deps.writeTiming,
+        },
+      ),
+    ).rejects.toThrow('За этой строкой не закреплён оператор');
+
+    expect(deps.productionFactUpsert).not.toHaveBeenCalled();
+  });
+
   it('blocks substitute without permission', async () => {
     const line = buildSubstitutableLine('ASSIGNED');
     const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
