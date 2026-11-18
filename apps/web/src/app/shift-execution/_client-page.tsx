@@ -192,6 +192,12 @@ export default function ShiftExecutionPage({
   }
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof typeof form, string>>>({});
   const [balances, setBalances] = useState<Record<string, BalanceInfo | null>>({});
+  /**
+   * 18.11.2026: что уже списал правимый факт — по продукту. При корректировке это количество
+   * возвращается в «доступно», иначе интерфейс показывал остаток без него и блокировал
+   * сохранение того же числа (остаток-то списан этим же фактом).
+   */
+  const [consumptionCredit, setConsumptionCredit] = useState<Record<string, number>>({});
   const [warnings, setWarnings] = useState<string[] | null>(null);
 
   function openAcceptDialog(line: ShiftExecutionPageProps['lines'][number]) {
@@ -256,6 +262,7 @@ export default function ShiftExecutionPage({
     setError(null);
     setFieldErrors({});
     setBalances({});
+    setConsumptionCredit({});
     setWarnings(null);
   }
 
@@ -288,7 +295,14 @@ export default function ShiftExecutionPage({
     setForm(base);
     outputHistory.current = [];
     if (fact?.consumptions) {
-      fact.consumptions.forEach((c) => void fetchBalance(c.productId));
+      const credit: Record<string, number> = {};
+      for (const c of fact.consumptions) {
+        credit[c.productId] = (credit[c.productId] ?? 0) + Number(c.quantity.toString());
+        void fetchBalance(c.productId);
+      }
+      setConsumptionCredit(credit);
+    } else {
+      setConsumptionCredit({});
     }
     setError(null);
     setFieldErrors({});
@@ -820,7 +834,13 @@ const result: CorrectFactResult = await correctFactByOperatorAction(dialogState.
                   const selectedProduct = rowProducts.find(
                     (p) => p.id === row.productId && (!row.stockCategory || p.category === row.stockCategory),
                   );
-                  const balance = row.productId ? balances[row.productId] : null;
+                  const rawBalance = row.productId ? balances[row.productId] : null;
+                  // Возвращаем в доступное то, что списал сам правимый факт.
+                  const credit = row.productId ? (consumptionCredit[row.productId] ?? 0) : 0;
+                  const balance =
+                    rawBalance && credit > 0
+                      ? { ...rawBalance, available: rawBalance.available + credit }
+                      : rawBalance;
                   const quantityNum = Number(row.quantity);
                   const showWarning = balance && !Number.isNaN(quantityNum) && quantityNum > balance.available && balance.available >= 0;
                   return (
