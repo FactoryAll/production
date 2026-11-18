@@ -26,12 +26,15 @@ export default async function TransferPage({ params }: TransferPageProps) {
   return (
     <>
       <TransferCard transfer={transfer} userRoles={userRoles} />
-      {/* Вкладка «История» карточки объекта (M13 §8). */}
-      <ObjectHistory
-        objectType="GoodsTransfer"
-        objectId={transfer.id}
-        canShowArchived={userRoles.includes('ADM')}
-      />
+      {/* Вкладка «История» карточки объекта (M13 §8).
+          17.11.2026: в контейнере с отступами, как и карточка выше (было приклеено к краям). */}
+      <div className="px-6 pb-6">
+        <ObjectHistory
+          objectType="GoodsTransfer"
+          objectId={transfer.id}
+          canShowArchived={userRoles.includes('ADM')}
+        />
+      </div>
     </>
   );
 }

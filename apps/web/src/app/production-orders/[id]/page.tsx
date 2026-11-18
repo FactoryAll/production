@@ -45,12 +45,16 @@ export default async function ProductionOrderPage({ params }: ProductionOrderPag
         transferWarehouses={transferWarehouses}
         userRoles={userRoles}
       />
-      {/* Вкладка «История» карточки объекта (M13 §8). */}
-      <ObjectHistory
-        objectType="ProductionOrder"
-        objectId={order.id}
-        canShowArchived={userRoles.includes('ADM')}
-      />
+      {/* Вкладка «История» карточки объекта (M13 §8).
+          17.11.2026: стоит в том же контейнере с отступами, что и карточка, — иначе блок
+          приклеен к краям экрана, а остальные блоки имеют «воздух». */}
+      <div className="px-6 pb-6">
+        <ObjectHistory
+          objectType="ProductionOrder"
+          objectId={order.id}
+          canShowArchived={userRoles.includes('ADM')}
+        />
+      </div>
     </>
   );
 }

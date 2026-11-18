@@ -153,8 +153,47 @@ export async function getObjectHistory(
   objectId: string,
   canShowArchived: boolean,
 ): Promise<AuditRecordItem[]> {
-  return getAuditRecords(
+  const own = await getAuditRecords(
     { objectType, objectId, showArchived: canShowArchived },
     canShowArchived,
+  );
+
+  // 17.11.2026: история ПЗ показывает и то, что происходило со СТРОКАМИ и ФАКТАМИ.
+  // Раньше во вкладке было только «создан / подтверждён / в работе», а ввод итогов
+  // операторами (главное событие смены) не отражался вовсе — НП не видел, кто и когда
+  // внёс количество, хотя эти записи в аудите есть под своими объектами.
+  if (objectType !== 'ProductionOrder') {
+    return own;
+  }
+
+  const lines = await prisma.productionOrderLine.findMany({
+    where: { orderId: objectId },
+    select: { id: true, workCenterId: true },
+  });
+  const lineIds = lines.map((line) => line.id);
+  const facts = lineIds.length
+    ? await prisma.productionFact.findMany({
+        where: { lineId: { in: lineIds } },
+        select: { id: true },
+      })
+    : [];
+
+  const relatedIds = [...lineIds, ...facts.map((fact) => fact.id)];
+  if (relatedIds.length === 0) {
+    return own;
+  }
+
+  const related = await prisma.auditRecord.findMany({
+    where: {
+      objectId: { in: relatedIds },
+      ...(canShowArchived ? {} : { archived: false }),
+    },
+    orderBy: [{ createdAt: 'desc' }],
+    include: { user: { select: { login: true } } },
+    take: AUDIT_HISTORY_LIMIT,
+  });
+
+  return [...own, ...related.map(toItem)].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
 }
