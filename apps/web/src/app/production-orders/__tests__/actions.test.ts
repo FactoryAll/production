@@ -1266,6 +1266,35 @@ function buildSubstituteDeps(
     productionOrderLine: {
       findUnique: productionOrderLineFindUnique,
     },
+    // 18.11.2026: «потребление больше остатка запрещено» проверяется до транзакции, то есть
+    // читает остатки прямо через prisma. По умолчанию склад «не кончается»; тест про
+    // недостаток остатка подменяет этот ответ своим.
+    product: {
+      findMany: vi.fn().mockImplementation(({ where }: { where: { id: { in: string[] } } }) =>
+        Promise.resolve(where.id.in.map((id) => ({ id, category: 'MASS', unit: 'кг' }))),
+      ),
+      findUnique: vi
+        .fn()
+        .mockImplementation(({ where }: { where: { id: string } }) =>
+          Promise.resolve({ id: where.id, category: 'MASS', active: true }),
+        ),
+    },
+    warehouse: {
+      findFirst: vi.fn().mockResolvedValue({ id: 'wh-prod' }),
+    },
+    stockBalance: {
+      findMany: vi
+        .fn()
+        .mockImplementation(({ where }: { where: { productId: { in: string[] } } }) =>
+          Promise.resolve(
+            where.productId.in.map((productId) => ({
+              productId,
+              stockCategory: 'MASS',
+              quantity: new Decimal(100000),
+            })),
+          ),
+        ),
+    },
     $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(tx)),
   } as unknown as NonNullable<Parameters<typeof substituteOperator>[2]>['prisma'];
 
@@ -1647,6 +1676,101 @@ describe('substituteOperator', () => {
         writeTiming: deps.writeTiming,
       }),
     ).rejects.toThrow('Forbidden');
+  });
+
+  // 18.11.2026, прод: «Ввод за Оператора» списывал потребление без проверки остатка —
+  // из этой формы появились БП-00000178 (−313) и БП-00000370 (−115). Без этой проверки
+  // оба теста ниже проходят «успешно» и остаток уходит в минус.
+  function buildGpSubstitutableLine() {
+    return buildSubstitutableLine('ASSIGNED', {
+      workCenterId: 'wc-03',
+      productId: 'gp-1',
+      product: {
+        id: 'gp-1',
+        code: 'GP-001',
+        name: 'Крем',
+        unit: 'шт',
+        category: 'GP',
+        active: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      workCenter: {
+        id: 'wc-03',
+        code: '03',
+        name: '03.Тубировка крем',
+        active: true,
+        producesMass: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    } as Partial<MockOrderLine>);
+  }
+
+  it('отказывает, если потребление больше остатка: «доступно 17» (18.11.2026)', async () => {
+    const line = buildGpSubstitutableLine();
+    const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
+    const deps = buildSubstituteDeps(line, order);
+    // На складе 17 кг Массы, а за Оператора вписывают 330 — ровно случай БП-00000178.
+    (deps.prisma as unknown as { stockBalance: { findMany: ReturnType<typeof vi.fn> } }).stockBalance.findMany.mockResolvedValue([
+      { productId: 'mass-1', stockCategory: 'MASS', quantity: new Decimal(17) },
+    ]);
+
+    await expect(
+      substituteOperator(
+        'line-1',
+        {
+          reasonCode: 'ILLNESS',
+          comment: 'Болезнь',
+          outputByCategory: { GP: 100 },
+          consumption: [{ productId: 'mass-1', quantity: 330 }],
+        },
+        {
+          prisma: deps.prisma,
+          requirePermission: deps.requirePermission,
+          writeAudit: deps.writeAudit,
+          writeTiming: deps.writeTiming,
+          applyStockMovements: deps.applyStockMovements,
+          updateShiftSummary: deps.updateShiftSummary,
+        },
+      ),
+    ).rejects.toThrow('Недостаточно остатка: доступно 17 кг');
+
+    expect(deps.productionFactUpsert).not.toHaveBeenCalled();
+    expect(deps.applyStockMovements).not.toHaveBeenCalled();
+  });
+
+  it('пропускает потребление в пределах остатка (18.11.2026)', async () => {
+    const line = buildGpSubstitutableLine();
+    const order = buildSubstitutableOrder('CONFIRMED', [line as MockOrderLine]);
+    const deps = buildSubstituteDeps(line, order);
+    (deps.prisma as unknown as { stockBalance: { findMany: ReturnType<typeof vi.fn> } }).stockBalance.findMany.mockResolvedValue([
+      { productId: 'mass-1', stockCategory: 'MASS', quantity: new Decimal(400) },
+    ]);
+    // Номенклатура потребления нужна и транзакции: по ней определяется категория списания.
+    (deps.tx.product.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: 'mass-1', category: 'MASS' },
+    ]);
+
+    await substituteOperator(
+      'line-1',
+      {
+        reasonCode: 'ILLNESS',
+        comment: 'Болезнь',
+        outputByCategory: { GP: 100 },
+        consumption: [{ productId: 'mass-1', quantity: 330 }],
+      },
+      {
+        prisma: deps.prisma,
+        requirePermission: deps.requirePermission,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+        applyStockMovements: deps.applyStockMovements,
+        updateShiftSummary: deps.updateShiftSummary,
+      },
+    );
+
+    expect(deps.applyStockMovements).toHaveBeenCalled();
   });
 });
 
@@ -2030,7 +2154,41 @@ function buildCorrectFactDeps(
     // ОПЭ-39: правка проведённого факта запрещена — сторож читает задачу 1С.
     taskForOneC: { findUnique: vi.fn().mockResolvedValue(null) },
     product: {
-      findMany: vi.fn().mockResolvedValue(consumptionProducts),
+      findMany: vi.fn().mockImplementation(({ where }: { where: { id: { in: string[] } } }) =>
+        Promise.resolve(
+          consumptionProducts
+            .filter((product) => where.id.in.includes(product.id))
+            .map((product) => ({
+              id: product.id,
+              code: `P-${product.id}`,
+              name: product.id,
+              category: product.category,
+              active: product.active,
+              unit: 'кг',
+            })),
+        ),
+      ),
+    },
+    // 18.11.2026: корректировка НП тоже не может списать больше остатка. По умолчанию
+    // склад «не кончается», тест про недостаток подменяет ответ сам.
+    warehouse: {
+      findFirst: vi.fn().mockResolvedValue({ id: 'wh-prod' }),
+    },
+    stockBalance: {
+      findMany: vi
+        .fn()
+        .mockImplementation(({ where }: { where: { productId: { in: string[] } } }) =>
+          Promise.resolve(
+            where.productId.in.map((productId) => {
+              const known = consumptionProducts.find((product) => product.id === productId);
+              return {
+                productId,
+                stockCategory: known?.category === 'MASS' ? 'MASS' : 'PF',
+                quantity: new Decimal(100000),
+              };
+            }),
+          ),
+        ),
     },
     $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(tx)),
   } as unknown as NonNullable<Parameters<typeof correctProductionFact>[2]>['prisma'];
@@ -2531,6 +2689,55 @@ describe('correctProductionFact', () => {
     // Записи «изменение без изменения» по неизменившимся полям быть не должно.
     expect(auditInputs.some((input) => (input.field ?? '').includes('quantity'))).toBe(false);
     expect(auditInputs.some((input) => input.field === 'stopsDurationMinutes')).toBe(false);
+  });
+
+  // 18.11.2026: корректировка НП не может списать больше, чем лежит, — иначе тем же
+  // путём, что и «Ввод за Оператора», заводятся минусы. Прежний расход факта при этом
+  // остаётся доступным: движения считаются по разнице, старое уже списано.
+  it('отказывает, если новое потребление больше остатка с учётом прежнего расхода (18.11.2026)', async () => {
+    const fact = buildGpFactWithConsumption([{ productId: 'mass-1', quantity: new Decimal(30) }]);
+    const deps = buildCorrectFactDeps(fact, ['NP'], [massConsumable]);
+    // На складе 50, факт уже списал 30 → доступно 80; вписывают 100.
+    (deps.prisma as unknown as { stockBalance: { findMany: ReturnType<typeof vi.fn> } }).stockBalance.findMany.mockResolvedValue([
+      { productId: 'mass-1', stockCategory: 'MASS', quantity: new Decimal(50) },
+    ]);
+
+    await expect(
+      correctProductionFact(
+        'fact-1',
+        {
+          quantity: 45,
+          correctionReason: 'Увеличить потребление',
+          consumption: [{ productId: 'mass-1', quantity: 100 }],
+        },
+        correctionDeps(deps),
+      ),
+    ).rejects.toThrow('Недостаточно остатка: доступно 80 кг');
+
+    expect(deps.consumptionCreateMany).not.toHaveBeenCalled();
+    expect(deps.applyStockMovements).not.toHaveBeenCalled();
+  });
+
+  it('позволяет увеличить потребление в пределах остатка плюс прежний расход (18.11.2026)', async () => {
+    const fact = buildGpFactWithConsumption([{ productId: 'mass-1', quantity: new Decimal(30) }]);
+    const deps = buildCorrectFactDeps(fact, ['NP'], [massConsumable]);
+    (deps.prisma as unknown as { stockBalance: { findMany: ReturnType<typeof vi.fn> } }).stockBalance.findMany.mockResolvedValue([
+      { productId: 'mass-1', stockCategory: 'MASS', quantity: new Decimal(50) },
+    ]);
+
+    await correctProductionFact(
+      'fact-1',
+      {
+        quantity: 45,
+        correctionReason: 'Увеличить потребление',
+        consumption: [{ productId: 'mass-1', quantity: 80 }],
+      },
+      correctionDeps(deps),
+    );
+
+    expect(deps.consumptionCreateMany).toHaveBeenCalledWith({
+      data: [{ productionFactId: 'fact-1', productId: 'mass-1', quantity: new Decimal(80) }],
+    });
   });
 
   it('не трогает потребление, если поле не передано (правка выпуска)', async () => {

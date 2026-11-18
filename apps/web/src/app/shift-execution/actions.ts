@@ -17,6 +17,7 @@ import {
 } from '@/lib/production-order-closing';
 import {
   applyStockMovements,
+  assertEnoughStock,
   getAvailableBalance,
   buildProductionFactMovements,
   consumptionProductCategoryToStockCategory,
@@ -24,7 +25,6 @@ import {
 } from '@/lib/stock-service';
 import { updateShiftSummary } from '@/lib/shift-summary-service';
 import { syncProductionOrderTask } from '@/lib/onec/tasks';
-import { formatQuantity } from '@/lib/quantity';
 import {
   resolveWorkerComposition,
   type WorkerCompositionInput,
@@ -314,6 +314,8 @@ async function validateReportLikeInput(
   // «записан с предупреждением». Раньше так появлялись отрицательные остатки.
   // При корректировке к доступному прибавляется то, что списал сам правимый факт:
   // иначе исправить уже введённое количество невозможно — остаток-то уже списан им же.
+  // Сравнение и текст ошибки — `assertEnoughStock` в `lib/stock-service`: то же правило
+  // проверяют «Ввод за Оператора» и корректировка НП, и сообщение обязано совпадать.
   const warnings: string[] = [];
   for (const item of consumption) {
     const balance = await deps.getAvailableBalance(deps.prisma, item.productId);
@@ -321,12 +323,7 @@ async function validateReportLikeInput(
       .filter((credit) => credit.productId === item.productId)
       .reduce((sum, credit) => sum + credit.quantity, 0);
     const available = new Prisma.Decimal(balance.available).plus(credited);
-    const diff = new Prisma.Decimal(item.quantity).minus(available);
-    if (diff.greaterThan(0)) {
-      throw new Error(
-        `Недостаточно остатка: доступно ${formatQuantity(available)} ${balance.unit}. Укажите не больше доступного`,
-      );
-    }
+    assertEnoughStock(available, balance.unit, item.quantity);
   }
 
   return { outputByCategory, defectQuantity, stopsCount, stopsDurationMinutes, consumption, warnings };

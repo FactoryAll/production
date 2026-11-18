@@ -32,6 +32,7 @@ import { hasPermission, requireAnyPermission, requirePermission } from '@/lib/au
 import { getAttributeRole, RoleCode } from '@prodtrack/contracts';
 import {
   applyStockMovements,
+  assertConsumptionWithinStock,
   buildProductionFactMovements,
   consumptionProductCategoryToStockCategory,
   factCategoryToStockCategory,
@@ -803,6 +804,13 @@ async function validateSubstitutionInput(
     }
   }
 
+  // 18.11.2026: расход больше остатка запрещён и здесь. «Ввод за Оператора» пишет те же
+  // движения по тем же остаткам, что и исполнение смены, но проверки в нём не было —
+  // именно из этой формы на проде появились минусы `БП-00000178` (−313) и `БП-00000370`
+  // (−115). Строка ещё не отчитана (статус ASSIGNED/ACCEPTED), прежнего расхода у неё нет,
+  // поэтому возвращать в «доступно» нечего.
+  await assertConsumptionWithinStock(deps.prisma, consumption);
+
   return { outputByCategory, defectQuantity, stopsCount, stopsDurationMinutes, consumption };
 }
 
@@ -1454,6 +1462,18 @@ export async function correctProductionFact(
   const consumptionChanged =
     consumptionProvided &&
     JSON.stringify(oldConsumptionValues) !== JSON.stringify(newConsumptionValues);
+
+  // 18.11.2026: и корректировка НП не может списать больше, чем лежит. Прежний расход этого
+  // же факта возвращается в «доступно» — иначе исправить введённое количество невозможно
+  // (движения считаются по разнице, а старое уже списано).
+  if (consumptionProvided) {
+    await assertConsumptionWithinStock(deps.prisma, consumption, {
+      credited: fact.consumptions.map((item) => ({
+        productId: item.productId,
+        quantity: item.quantity,
+      })),
+    });
+  }
 
   // Движения по разнице потребления: выросло — списание, уменьшилось — возврат в остаток (M05).
   // Если поле не передано, потребление не правится — ни строки, ни остатки.
