@@ -3,7 +3,11 @@
 import { revalidatePath } from 'next/cache';
 import { Prisma, type ProductionOrderLine, type ProductionFact, type ProductCategory } from '@prisma/client';
 import { prisma, writeAudit, writeTiming } from '@prodtrack/db';
-import { assertConsumptionAllowedForWorkCenter, assertOutputAllowedForWorkCenter } from '@/lib/consumable-stock';
+import {
+  assertConsumptionAllowedForWorkCenter,
+  assertConsumptionMatchesLineProduct,
+  assertOutputAllowedForWorkCenter,
+} from '@/lib/consumable-stock';
 import { requireShiftWindow } from '@/lib/auth/require-shift-window';
 import { notificationCategoryOfFacts, notifyEvent } from '@/lib/events/notify';
 import { hasPermission, getAttributeRole } from '@prodtrack/contracts';
@@ -271,6 +275,8 @@ async function validateReportLikeInput(
   // ОПЭ-59: доступные категории потребления решает правило РЦ, и оно одно для всех путей
   // (14.11.2026 вынесено в `lib/consumable-stock`, чтобы карточка ПЗ не расходилась с исполнением).
   assertConsumptionAllowedForWorkCenter(line.workCenter.code, consumption);
+  // 18.11.2026: ПФ — только номенклатура строки (иначе списывался чужой полуфабрикат).
+  assertConsumptionMatchesLineProduct(line.workCenter.code, line.productId, consumption);
 
   const seenProducts = new Set<string>();
   for (const item of consumption) {

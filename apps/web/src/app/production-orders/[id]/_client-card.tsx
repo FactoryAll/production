@@ -21,7 +21,7 @@ import type {
 } from '@prisma/client';
 import { confirmProductionOrderAction, substituteOperatorAction, cancelProductionOrderAction, correctProductionFactAction, closeProductionOrderByNPAction, addPfFactAction } from '../actions';
 import { factCategoryLabel } from '@/lib/onec/labels';
-import { filterConsumableForWorkCenter, producesPf } from '@/lib/consumable-stock';
+import { filterConsumableForWorkCenter, isConsumptionOptionAllowed, producesPf } from '@/lib/consumable-stock';
 
 interface ProductionOrderCardProps {
   order: ProductionOrder & {
@@ -605,7 +605,10 @@ export default function ProductionOrderCard({
   function consumableForLine(lineId: string | null) {
     const line = lineId ? order.lines.find((item) => item.id === lineId) : undefined;
     return line
-      ? filterConsumableForWorkCenter(consumableProducts, line.workCenter.code)
+      ? filterConsumableForWorkCenter(consumableProducts, line.workCenter.code).filter((item) =>
+          // 18.11.2026: ПФ предлагаем только по номенклатуре строки (иначе списывался чужой полуфабрикат).
+          isConsumptionOptionAllowed(line.workCenter.code, line.productId, item.id, item.category),
+        )
       : consumableProducts;
   }
 

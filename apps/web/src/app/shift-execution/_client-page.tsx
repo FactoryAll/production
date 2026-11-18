@@ -4,7 +4,7 @@ import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Card, Dialog, Input, SearchSelect, Select } from '@prodtrack/ui';
 import { formatQuantity } from '@/lib/quantity';
-import { filterConsumableForWorkCenter, producesPf } from '@/lib/consumable-stock';
+import { filterConsumableForWorkCenter, isConsumptionOptionAllowed, producesPf } from '@/lib/consumable-stock';
 import {
   acceptProductionOrderLineAction,
   reportProductionFactAction,
@@ -144,7 +144,14 @@ export default function ShiftExecutionPage({
   // (код 13) потребляет только полуфабрикат, поэтому список фильтруется по РЦ строки.
   function consumptionProductsForRow() {
     const code = dialogState?.line.workCenter.code;
-    return code ? filterConsumableForWorkCenter(consumableProducts, code) : consumableProducts;
+    if (!code) {
+      return consumableProducts;
+    }
+    const lineProductId = dialogState?.line.productId;
+    // 18.11.2026: ПФ — только номенклатура строки; Масса — любая (это отдельные продукты).
+    return filterConsumableForWorkCenter(consumableProducts, code).filter((item) =>
+      lineProductId ? isConsumptionOptionAllowed(code, lineProductId, item.id, item.category) : true,
+    );
   }
   /** Производит ли РЦ полуфабрикат (14.11.2026: «Маркировка ЧЗ» — только ГП). */
   function producesPfForLine() {

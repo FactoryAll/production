@@ -138,3 +138,47 @@ export function assertOutputAllowedForWorkCenter(
     throw new Error('РЦ «Маркировка ЧЗ» выпускает только готовую продукцию (ГП)');
   }
 }
+
+
+/**
+ * ПФ в потреблении — только той номенклатуры, которую производит строка (18.11.2026).
+ *
+ * Повод: в ПЗ 3b9355c7 «Спрей АНТИБАКТЕР» списали полуфабрикатом 12 095, хотя ПФ этой
+ * номенклатуры никто не производил — на складе лежало 960, остаток ушёл в −11 135.
+ * Причина: в списке потребления предлагались ПФ всех номенклатур.
+ *
+ * Правило: Масса — любая (это отдельные продукты), ПФ — только продукт строки.
+ * На «Маркировке ЧЗ» (код 13) к тому же только ПФ, без Массы.
+ */
+export function assertConsumptionMatchesLineProduct(
+  workCenterCode: string,
+  lineProductId: string,
+  consumption: Array<{ productId: string; stockCategory?: 'MASS' | 'PF' | 'GP' }>,
+): void {
+  for (const item of consumption) {
+    if (item.stockCategory === 'PF' && item.productId !== lineProductId) {
+      throw new Error(
+        'Полуфабрикат в потреблении должен быть той номенклатуры, которая производится в этой строке',
+      );
+    }
+    if (workCenterCode === '13' && item.stockCategory === 'MASS') {
+      throw new Error('РЦ «Маркировка ЧЗ» потребляет только полуфабрикат (ПФ)');
+    }
+  }
+}
+
+/** Какие категории остатка предлагать для позиции потребления (клиенту). */
+export function isConsumptionOptionAllowed(
+  workCenterCode: string,
+  lineProductId: string,
+  optionProductId: string,
+  optionCategory: 'MASS' | 'PF' | 'GP',
+): boolean {
+  if (!consumptionCategoriesForWorkCenter(workCenterCode).includes(optionCategory as 'MASS' | 'PF')) {
+    return false;
+  }
+  if (optionCategory === 'PF') {
+    return optionProductId === lineProductId;
+  }
+  return true;
+}

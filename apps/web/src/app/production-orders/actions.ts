@@ -9,7 +9,11 @@ import type {
   ProductionFact,
 } from '@prisma/client';
 import { Prisma } from '@prisma/client';
-import { assertConsumptionAllowedForWorkCenter, assertOutputAllowedForWorkCenter } from '@/lib/consumable-stock';
+import {
+  assertConsumptionAllowedForWorkCenter,
+  assertConsumptionMatchesLineProduct,
+  assertOutputAllowedForWorkCenter,
+} from '@/lib/consumable-stock';
 import {
   assertShiftDateNotPast,
   currentShiftDateKey,
@@ -769,6 +773,8 @@ async function validateSubstitutionInput(
 
   // ОПЭ-59 (14.11.2026): категории потребления ограничивает РЦ — правило одно на все пути.
   assertConsumptionAllowedForWorkCenter(line.workCenter.code, consumption);
+  // 18.11.2026: ПФ — только номенклатура строки.
+  assertConsumptionMatchesLineProduct(line.workCenter.code, line.productId, consumption);
 
   const seenProducts = new Set<string>();
   for (const item of consumption) {
@@ -1378,6 +1384,7 @@ export async function correctProductionFact(
 
   // ОПЭ-59 (14.11.2026): и в корректировке — иначе сохранённая ранее Масса вернётся на ЧЗ.
   assertConsumptionAllowedForWorkCenter(fact.line.workCenter.code, consumption);
+  assertConsumptionMatchesLineProduct(fact.line.workCenter.code, fact.line.productId, consumption);
 
   // Номенклатура нужна и для нового состава, и для прежнего: движения считаются по разнице,
   // а категория остатка берётся у потребляемой позиции.
