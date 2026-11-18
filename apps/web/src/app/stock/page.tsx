@@ -1,4 +1,6 @@
+import Link from 'next/link';
 import { prisma } from '@prodtrack/db';
+import { hasPermission } from '@prodtrack/contracts';
 import { getStockBalance } from '@/lib/stock-service';
 import { StockTable } from './_components/stock-table';
 
@@ -18,12 +20,21 @@ export default async function StockPage() {
     (balance) => Number(balance.quantity) !== 0,
   );
 
+  // Корректировка остатков (решение владельца 18.11.2026): кнопку видит только тот,
+  // у кого есть право `stock:adjust` — НП и АДМ. Сервер проверяет то же право отдельно.
+  const canAdjust = hasPermission(access.roles, 'stock:adjust');
+
   return (
     <main className="p-6">
-      <div className="mb-6">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-graphite">Остатки</h1>
+        {canAdjust && (
+          <Link href="/stock/adjustments" className="text-sm text-deep-industry-blue underline">
+            История корректировок
+          </Link>
+        )}
       </div>
-      <StockTable balances={balances} />
+      <StockTable balances={balances} canAdjust={canAdjust} />
     </main>
   );
 }
