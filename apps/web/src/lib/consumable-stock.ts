@@ -93,15 +93,16 @@ export function assertConsumptionAllowedForWorkCenter(
   workCenterCode: string,
   consumption: Array<{ stockCategory?: 'MASS' | 'PF' | 'GP' }>,
 ): void {
-  const allowed = consumptionCategoriesForWorkCenter(workCenterCode);
-  const forbidden = consumption.find(
-    (item) => item.stockCategory !== undefined && !allowed.includes(item.stockCategory as 'MASS' | 'PF'),
-  );
-  if (forbidden) {
-    if (allowed.length === 1 && allowed[0] === 'PF') {
-      throw new Error('РЦ «Маркировка ЧЗ» потребляет только полуфабрикат (ПФ)');
-    }
-    throw new Error('Эта категория остатка недоступна в потреблении для данного РЦ');
+  // 18.11.2026: запрет — ТОЛЬКО про «Маркировку ЧЗ» (решение владельца: она потребляет
+  // лишь полуфабрикат). Первая версия проверки сравнивала категорию со списком «Масса/ПФ»
+  // и отбивала `GP` — а `GP` это значение по умолчанию у строк потребления, заведённых
+  // раньше. Из-за этого НП не мог сохранить корректировку потребления на обычном РЦ.
+  if (workCenterCode !== '13') {
+    return;
+  }
+  const notPf = consumption.find((item) => item.stockCategory !== undefined && item.stockCategory !== 'PF');
+  if (notPf) {
+    throw new Error('РЦ «Маркировка ЧЗ» потребляет только полуфабрикат (ПФ)');
   }
 }
 

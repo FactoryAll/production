@@ -53,6 +53,13 @@ describe('assertConsumptionAllowedForWorkCenter (14.11.2026)', () => {
     ).not.toThrow();
   });
 
+  it('на обычном РЦ категория GP не отбивается: это значение по умолчанию у старых строк', () => {
+    // 18.11.2026: НП не мог сохранить корректировку потребления — проверка отбивала GP.
+    expect(() =>
+      assertConsumptionAllowedForWorkCenter('03', [{ stockCategory: 'GP' }]),
+    ).not.toThrow();
+  });
+
   it('строка без категории не блокируется: категорию подставит сервер', () => {
     expect(() => assertConsumptionAllowedForWorkCenter('13', [{}])).not.toThrow();
   });
