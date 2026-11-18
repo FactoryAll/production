@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { auditKeyLabel, humanizeAuditValue, humanizeAuditObject } from '../humanize';
+import { AUDIT_VALUE_LABELS, auditKeyLabel, humanizeAuditValue, humanizeAuditObject } from '../humanize';
 
 /**
  * Замечание владельца 14.11.2026: в журнале аудита лежал дамп вида
@@ -43,6 +43,14 @@ describe('человекочитаемый аудит (14.11.2026)', () => {
   it('не-JSON значения не трогает: отдаёт null, экран печатает как есть', () => {
     expect(humanizeAuditValue('DRAFT', names)).toBeNull();
     expect(humanizeAuditValue(null, names)).toBeNull();
+  });
+
+  it('у каждого статуса ПЗ есть русская подпись (18.11.2026)', () => {
+    // READY_FOR_CLOSE появился позже словаря и висел в истории кодом, пока не поймали.
+    for (const status of ['DRAFT', 'CONFIRMED', 'IN_PROGRESS', 'READY_FOR_CLOSE', 'COMPLETED', 'CANCELLED']) {
+      expect(AUDIT_VALUE_LABELS[status]).toBeDefined();
+    }
+    expect(AUDIT_VALUE_LABELS.READY_FOR_CLOSE).toBe('Ожидает закрытия НП');
   });
 
   it('переводит ключи и вложенные объекты', () => {

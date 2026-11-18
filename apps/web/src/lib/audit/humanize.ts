@@ -56,6 +56,8 @@ export const AUDIT_VALUE_LABELS: Record<string, string> = {
   DRAFT: 'Черновик',
   CONFIRMED: 'Подтверждено',
   IN_PROGRESS: 'В работе',
+  // 18.11.2026: статус добавили позже словаря — в истории он висел кодом READY_FOR_CLOSE.
+  READY_FOR_CLOSE: 'Ожидает закрытия НП',
   COMPLETED: 'Завершено',
   CANCELLED: 'Отменено',
   SUBMITTED: 'Отправлено',
