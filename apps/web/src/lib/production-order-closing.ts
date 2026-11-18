@@ -114,6 +114,17 @@ export async function checkAndCloseProductionOrder(
       where: { id: orderId },
       data: { status: 'READY_FOR_CLOSE' },
     });
+
+    // 17.11.2026: переход обязан оставлять след в аудите и хронометраже — как любой другой
+    // переход статуса. Без этого в «Истории» ПЗ было видно «В работе», а статус на экране
+    // уже «Ожидает закрытия НП»: журнал врал о состоянии документа.
+    await writeStatusTransition({
+      tx: prisma,
+      order,
+      session,
+      newStatus: 'READY_FOR_CLOSE',
+      permission,
+    });
   }
 
   return { closed: false, status: 'READY_FOR_CLOSE', readyForClose: status === 'IN_PROGRESS' };
