@@ -250,11 +250,50 @@ export default function ShiftExecutionPage({
     return rows;
   }
 
+  /** «Масса привязана: … — 0,088 кг на единицу; на план 1000 это 88 кг.» */
+  function boundMassHint(line: ShiftExecutionPageProps['lines'][number]): string | null {
+    const product = line.product as {
+      massProduct?: { code: string; name: string } | null;
+      massQuantity?: { toString(): string } | null;
+    };
+    if (!product.massProduct) return null;
+    const norm = product.massQuantity ? Number(product.massQuantity.toString()) : null;
+    const planned = Number(line.plannedQuantity.toString());
+    const parts = [`Потребление: Масса ${product.massProduct.code} — ${product.massProduct.name}.`];
+    if (norm !== null) {
+      parts.push(`Норма ${norm} кг на единицу`);
+      if (Number.isFinite(planned) && planned > 0) {
+        parts.push(`на план ${planned} это ${Math.round(norm * planned)} кг`);
+      }
+      parts.push('количество можно уменьшить или обнулить');
+    }
+    return parts.join(', ').replace(', к', '. К') + '.';
+  }
+
   function openReportDialog(line: ShiftExecutionPageProps['lines'][number]) {
     setDialogState({ line, mode: 'report' });
     const base = emptyReportForm();
     if (line.product.category === 'MASS') {
       base.factCategory = 'MASS';
+    } else {
+      // 19.11.2026 (решение владельца): у готовой продукции одна Масса — подставляем её сразу,
+      // вместе с нормой. Оператор вводит количество (или обнуляет), а не ищет Массу в списке.
+      const binding = line.product as {
+        massProductId?: string | null;
+        massQuantity?: { toString(): string } | null;
+      };
+      if (binding.massProductId) {
+        const norm = binding.massQuantity ? Number(binding.massQuantity.toString()) : null;
+        const planned = Number(line.plannedQuantity.toString());
+        const suggested = norm !== null && Number.isFinite(planned) && planned > 0 ? Math.round(norm * planned) : 0;
+        base.consumption = [
+          {
+            productId: binding.massProductId,
+            quantity: suggested > 0 ? String(suggested) : '',
+            stockCategory: 'MASS',
+          },
+        ];
+      }
     }
     base.workers = buildWorkerRows(line);
     setForm(base);
@@ -908,6 +947,9 @@ const result: CorrectFactResult = await correctFactByOperatorAction(dialogState.
                   Добавить строку потребления
                 </Button>
                 {fieldErrors.consumption && <p className="mt-2 text-sm text-signal-amber">{fieldErrors.consumption}</p>}
+                {dialogState?.line.product.category === 'GP' && boundMassHint(dialogState.line) && (
+                  <p className="mt-2 text-xs text-machine-gray">{boundMassHint(dialogState.line)}</p>
+                )}
               </div>
             )}
           </div>
