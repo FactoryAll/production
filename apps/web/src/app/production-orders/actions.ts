@@ -2006,7 +2006,12 @@ export async function getProductionOrderById(id: string) {
         lines: {
           include: {
             workCenter: true,
-            product: true,
+            product: {
+              include: {
+                // Привязка изделия (19.11.2026): какая Масса идёт в эту продукцию и с какой нормой.
+                massProduct: { select: { code: true, name: true } },
+              },
+            },
             operator: true,
             facts: {
               include: {
