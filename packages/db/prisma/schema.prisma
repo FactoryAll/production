@@ -44,6 +44,8 @@ model WorkCenter {
 
   lines     ProductionOrderLine[]
   summaries ShiftSummary[]
+  /// На каких РЦ фасуется готовая продукция (решение владельца 19.11.2026).
+  packagingProducts ProductPackagingWorkCenter[]
 
   @@map("work_centers")
 }
@@ -150,7 +152,6 @@ model Warehouse {
   movements            StockMovement[]
   balances             StockBalance[]
   adjustmentLines      StockAdjustmentLine[]
-  packagingProducts    ProductPackagingWorkCenter[]
   sourceTransfers      GoodsTransfer[] @relation("TransferSource")
   destinationTransfers GoodsTransfer[] @relation("TransferDestination")
 
