@@ -21,6 +21,17 @@ export interface CorrectProductionFactInput {
    */
   workers?: { employeeId: string; worked?: boolean; absenceReasonId?: string | null; comment?: string | null }[];
   correctionReason: string;
+  /**
+   * Версия факта, которую видел человек в открытой форме (`updatedAt` в ISO).
+   * Нужна для ОПЭ-78: «ввёл 150 — вижу 148». Форма, открытая до чужой правки, иначе
+   * молча затирает новое значение старым — и по данным не видно, что это произошло.
+   */
+  expectedUpdatedAt?: string;
+  /**
+   * Сырое значение из поля выпуска — как его набрали (ОПЭ-78, прибор 13.11.2026 на «Вводе
+   * за Оператора»; здесь тот же прибор, но на пути корректировки НП).
+   */
+  outputRaw?: string;
 }
 
 export function parseCorrectFactFormData(formData: FormData): CorrectProductionFactInput {
@@ -38,5 +49,7 @@ export function parseCorrectFactFormData(formData: FormData): CorrectProductionF
     consumption: consumptionRaw ? JSON.parse(consumptionRaw) : undefined,
     workers: workersRaw ? JSON.parse(workersRaw) : undefined,
     correctionReason: formData.get('correctionReason') as string,
+    expectedUpdatedAt: (formData.get('expectedUpdatedAt') as string) || undefined,
+    outputRaw: (formData.get('outputRaw') as string) || undefined,
   };
 }

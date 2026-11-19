@@ -420,6 +420,9 @@ export default function ProductionOrderCard({
   const [substituteError, setSubstituteError] = useState<string | null>(null);
   const [showCorrectFactDialog, setShowCorrectFactDialog] = useState(false);
   const [correctFactId, setCorrectFactId] = useState<string | null>(null);
+  // ОПЭ-78: версия факта, которую человек видит в открытой форме. Если за это время факт
+  // поправил кто-то другой, сервер откажет, а не затрёт чужое значение нашим старым.
+  const [correctExpectedUpdatedAt, setCorrectExpectedUpdatedAt] = useState<string | null>(null);
   /** Выпуск ПФ, которого у линии не было: НП может добавить его в корректировке (14.11.2026). */
   const [correctPfQuantity, setCorrectPfQuantity] = useState('');
   /** Категория правимого факта (ГП, ПФ, Масса) — её видно и в кнопке, и в модалке (ОПЭ-57). */
@@ -562,6 +565,7 @@ export default function ProductionOrderCard({
     lineId: string,
   ) {
     setCorrectFactId(fact.id);
+    setCorrectExpectedUpdatedAt(new Date(fact.updatedAt).toISOString());
     setCorrectFactCategory(fact.factCategory as 'MASS' | 'GP' | 'PF');
     setCorrectLineId(lineId);
     setCorrectQuantity(fact.quantity.toString());
@@ -691,6 +695,9 @@ export default function ProductionOrderCard({
 
     const formData = new FormData();
     formData.set('quantity', correctQuantity);
+    // ОПЭ-78: версия факта + сырое значение из поля — «что видели» против «что ушло».
+    if (correctExpectedUpdatedAt) formData.set('expectedUpdatedAt', correctExpectedUpdatedAt);
+    formData.set('outputRaw', correctQuantity);
     if (correctDefectQuantity) formData.set('defectQuantity', correctDefectQuantity);
     if (correctDefectReasonId) formData.set('defectReasonId', correctDefectReasonId);
     if (correctStops) formData.set('stopsDurationMinutes', correctStops);
