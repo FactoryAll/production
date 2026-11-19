@@ -42,6 +42,7 @@ function renderForm(overrides: { workerEmployees?: Employee[]; operatorEmployees
   return render(
     <ProductionOrderForm
       workCenters={[workCenter]}
+      productIdsWithPfStock={[]}
       products={[product]}
       workerEmployees={overrides.workerEmployees ?? [operator, worker]}
       operatorEmployees={overrides.operatorEmployees ?? [operator]}

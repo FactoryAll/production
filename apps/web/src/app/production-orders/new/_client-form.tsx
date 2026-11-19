@@ -7,6 +7,10 @@ import { createProductionOrderAction } from '../actions';
 import type { ProductionOrderLineInput } from '@/lib/validation/production-order';
 import type { WorkCenter, Product, Employee } from '@prisma/client';
 import {
+  CHZ_REQUIRES_PF_STOCK_TEXT,
+  isProductionOptionAllowed,
+} from '@/lib/consumable-stock';
+import {
   buildEmployeeOptions,
   isEligible,
   NOT_OPERATOR_NOTE,
@@ -16,6 +20,8 @@ import {
 interface ProductionOrderFormProps {
   workCenters: WorkCenter[];
   products: Product[];
+  /** Номенклатуры, у которых есть остаток ПФ: на РЦ 13 из них выбирается ГП (19.11.2026). */
+  productIdsWithPfStock: string[];
   /** Сотрудники с признаком допуска — только они попадают в список «Работники» (T-071). */
   workerEmployees: Employee[];
   /** Сотрудники с активной учётной записью роли ОПР — только они могут быть Оператором (T-070). */
@@ -57,6 +63,7 @@ function emptyLine(): LineDraft {
 export default function ProductionOrderForm({
   workCenters,
   products,
+  productIdsWithPfStock,
   workerEmployees,
   operatorEmployees,
   shiftOptions,
@@ -96,9 +103,21 @@ export default function ProductionOrderForm({
   function getFilteredProducts(workCenterId: string): Product[] {
     const workCenter = workCenters.find((wc) => wc.id === workCenterId);
     if (!workCenter) return [];
-    return products.filter((product) =>
-      workCenter.producesMass ? product.category === 'MASS' : product.category === 'GP',
-    );
+    const pfStock = new Set(productIdsWithPfStock);
+    return products.filter((product) => {
+      const fitsCategory = workCenter.producesMass
+        ? product.category === 'MASS'
+        : product.category === 'GP';
+      if (!fitsCategory) return false;
+      // 19.11.2026 (решение владельца): на «Маркировке ЧЗ» — только ГП с остатком ПФ.
+      return isProductionOptionAllowed(workCenter.code, product.category, pfStock.has(product.id));
+    });
+  }
+
+  /** Позиция выбрана раньше, а правило изменилось: подсказываем, почему её не видно в списке. */
+  function isLineProductHidden(workCenterId: string, productId: string): boolean {
+    if (!productId) return false;
+    return !getFilteredProducts(workCenterId).some((product) => product.id === productId);
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -245,8 +264,17 @@ export default function ProductionOrderForm({
                   {line.workCenterId &&
                     (workCenters.find((wc) => wc.id === line.workCenterId)?.producesMass
                       ? 'Для РЦ 01/02 доступна только номенклатура «Масса»'
-                      : 'Для РЦ 03–12 доступна только номенклатура «ГП»')}
+                      : workCenters.find((wc) => wc.id === line.workCenterId)?.code === '13'
+                        ? 'Для РЦ 13 доступна только ГП, у которой есть остаток ПФ'
+                        : 'Для РЦ 03–12 доступна только номенклатура «ГП»')}
                 </p>
+                {isLineProductHidden(line.workCenterId, line.productId) && (
+                  <p className="text-sm text-signal-amber">
+                    {workCenters.find((wc) => wc.id === line.workCenterId)?.code === '13'
+                      ? CHZ_REQUIRES_PF_STOCK_TEXT + '. Выберите другую номенклатуру.'
+                      : 'Эта номенклатура не подходит для выбранного РЦ. Выберите другую.'}
+                  </p>
+                )}
                 {line.productId && !products.find((p) => p.id === line.productId)?.active && (
                   <p className="text-sm text-signal-amber">Эта номенклатура деактивирована. Выберите другую.</p>
                 )}

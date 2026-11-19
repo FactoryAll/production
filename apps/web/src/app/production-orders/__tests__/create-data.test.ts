@@ -5,6 +5,8 @@ vi.mock('@prodtrack/db', () => ({
     workCenter: { findMany: vi.fn() },
     product: { findMany: vi.fn() },
     employee: { findMany: vi.fn() },
+    // 19.11.2026: форма ПЗ узнаёт, у какой ГП есть остаток ПФ (правило РЦ 13).
+    stockBalance: { findMany: vi.fn() },
   },
   writeAudit: vi.fn(),
   writeTiming: vi.fn(),
@@ -57,6 +59,7 @@ describe('getProductionOrderCreateData: списки сотрудников (T-0
     (requirePermission as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: 'u1', user: { roles: [] } });
     (prisma.workCenter.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.product.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (prisma.stockBalance.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.employee.findMany as ReturnType<typeof vi.fn>)
       // 1-й запрос — работники РЦ, 2-й — Операторы
       .mockResolvedValueOnce([operator, worker])

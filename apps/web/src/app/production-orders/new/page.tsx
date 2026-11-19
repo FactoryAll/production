@@ -7,6 +7,7 @@ export default async function NewProductionOrderPage() {
   const {
     workCenters,
     products,
+    productIdsWithPfStock,
     workerEmployees,
     operatorEmployees,
     shiftOptions,
@@ -18,6 +19,7 @@ export default async function NewProductionOrderPage() {
     <ProductionOrderForm
       workCenters={workCenters}
       products={products}
+      productIdsWithPfStock={productIdsWithPfStock}
       workerEmployees={workerEmployees}
       operatorEmployees={operatorEmployees}
       shiftOptions={shiftOptions}

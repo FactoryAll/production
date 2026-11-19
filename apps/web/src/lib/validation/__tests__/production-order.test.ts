@@ -148,6 +148,8 @@ describe('validateProductionOrder', () => {
     workCenters?: WorkCenter[];
     products?: Product[];
     employees?: Employee[];
+    /** У каких номенклатур есть остаток ПФ на складе (правило РЦ 13). */
+    pfStockProductIds?: string[];
   } = {}) {
     const resolvedShift = overrides.shift !== undefined ? overrides.shift : {
       id: 'shift-1',
@@ -172,6 +174,10 @@ describe('validateProductionOrder', () => {
       },
       employee: {
         findMany: vi.fn().mockResolvedValue(overrides.employees ?? [makeEmployee()]),
+      },
+      // 19.11.2026: правило РЦ 13 читает остатки ПФ, чтобы понять, есть ли из чего маркировать.
+      stockBalance: {
+        findMany: vi.fn().mockResolvedValue(overrides.pfStockProductIds?.map((productId) => ({ productId })) ?? []),
       },
     } as unknown as Parameters<typeof validateProductionOrder>[1];
   }
@@ -292,6 +298,61 @@ describe('validateProductionOrder', () => {
     );
     expect(result.valid).toBe(false);
     expect(result.errors).toContain('Заполните РЦ, номенклатуру, количество и Оператора (строка 1)');
+  });
+
+  // 19.11.2026 (решение владельца): на РЦ 13 в план идёт только ГП, у которой есть остаток ПФ.
+  // Без этого правила строка заводится, а маркировать нечего — цех упирается в тупик.
+  it('не пропускает на РЦ 13 ГП без остатка ПФ', async () => {
+    const chz = makeWorkCenter({ id: 'wc-13', code: '13', name: 'Маркировка ЧЗ', producesMass: false });
+    const gp = makeProduct({ id: 'gp-1', code: 'GP-001', name: 'Крем', category: 'GP', unit: 'шт' });
+    const prisma = makeMockPrisma({ workCenters: [chz], products: [gp], pfStockProductIds: [] });
+
+    const result = await validateProductionOrder(
+      {
+        shiftId: 'shift-1',
+        lines: [{ workCenterId: 'wc-13', productId: 'gp-1', plannedQuantity: 10, operatorId: 'emp-1' }],
+      },
+      prisma,
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.join(' ')).toContain('только ГП, у которой есть остаток ПФ');
+  });
+
+  it('пропускает на РЦ 13 ГП, у которой остаток ПФ есть', async () => {
+    const chz = makeWorkCenter({ id: 'wc-13', code: '13', name: 'Маркировка ЧЗ', producesMass: false });
+    const gp = makeProduct({ id: 'gp-1', code: 'GP-001', name: 'Крем', category: 'GP', unit: 'шт' });
+    const prisma = makeMockPrisma({
+      workCenters: [chz],
+      products: [gp],
+      pfStockProductIds: ['gp-1'],
+    });
+
+    const result = await validateProductionOrder(
+      {
+        shiftId: 'shift-1',
+        lines: [{ workCenterId: 'wc-13', productId: 'gp-1', plannedQuantity: 10, operatorId: 'emp-1' }],
+      },
+      prisma,
+    );
+
+    expect(result.errors.join(' ')).not.toContain('остаток ПФ');
+  });
+
+  it('на обычном РЦ правило про остаток ПФ не действует', async () => {
+    const gpRc = makeWorkCenter({ id: 'wc-03', code: '03', name: 'Тубировка', producesMass: false });
+    const gp = makeProduct({ id: 'gp-1', code: 'GP-001', name: 'Крем', category: 'GP', unit: 'шт' });
+    const prisma = makeMockPrisma({ workCenters: [gpRc], products: [gp], pfStockProductIds: [] });
+
+    const result = await validateProductionOrder(
+      {
+        shiftId: 'shift-1',
+        lines: [{ workCenterId: 'wc-03', productId: 'gp-1', plannedQuantity: 10, operatorId: 'emp-1' }],
+      },
+      prisma,
+    );
+
+    expect(result.errors.join(' ')).not.toContain('остаток ПФ');
   });
 });
 
