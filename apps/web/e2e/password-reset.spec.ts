@@ -136,24 +136,28 @@ test('Сброс пароля: временный пароль, смена пр�
   expect(saved.mustChangePassword).toBe(false);
 });
 
-test('Свой пароль администратор так не сбрасывает', async ({ page }) => {
+test('Свою строку администратор сбрасывает не сбросом, а сменой пароля', async ({ page }) => {
   test.setTimeout(120000);
 
   await page.goto('/login');
   await login(page, 'test_admin', 'admin12345');
   await page.waitForURL(/\/dashboard/, { timeout: 60000 });
 
-  // Ищем свою же строку: с 19.11.2026 сценарий работает под test_admin, поэтому фильтр
-  // «admin» вернул бы две записи и .first() мог взять чужую — тогда сброс разрешён и проверка
-  // «себе нельзя» ничего не проверяет.
+  // 19.11.2026: раньше сценарий жал «Сбросить пароль» в своей строке и надеялся на отказ
+  // сервера. С ОПЭ-80 кнопки сброса в своей строке нет вовсе — вместо неё смена своего
+  // пароля (сброс завершает сессии и выбросил бы администратора из системы). Проверяем
+  // то, что видит человек, а не недостижимый путь.
   await page.goto('/users?q=test_admin');
-  const row = page.locator('tbody tr', { hasText: 'test_admin' }).first();
-  await expect(row).toHaveCount(1);
-  await row.getByRole('button', { name: 'Сбросить пароль' }).click();
+  const ownRow = page.locator('tbody tr', { hasText: 'test_admin' }).first();
+  await expect(ownRow).toHaveCount(1);
+  await expect(ownRow.getByRole('button', { name: 'Сменить свой пароль' })).toBeVisible();
+  await expect(ownRow.getByRole('button', { name: 'Сбросить пароль' })).toHaveCount(0);
 
-  const dialog = page.getByRole('dialog');
-  await dialog.getByRole('button', { name: 'Сбросить пароль' }).click();
-
-  // Себе сброс запрещён: он завершает сессии и выбросил бы администратора из системы.
-  await expect(dialog).toContainText('Свой пароль так не сбрасывается');
+  // У чужой строки — наоборот: сброс есть, смены своего пароля нет.
+  // Ищем заведомо чужой логин: «admin» входит в «test_admin», и одна и та же выборка
+  // возвращала обе строки (поймано локальным прогоном).
+  await page.goto('/users?q=test_s1c');
+  const otherRow = page.locator('tbody tr', { hasText: 'test_s1c' }).first();
+  await expect(otherRow.getByRole('button', { name: 'Сбросить пароль' })).toBeVisible();
+  await expect(otherRow.getByRole('button', { name: 'Сменить свой пароль' })).toHaveCount(0);
 });
