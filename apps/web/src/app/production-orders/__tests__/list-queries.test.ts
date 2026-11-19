@@ -25,6 +25,13 @@ describe('список ПЗ: серверный фильтр и пагинаци
     expect(parseOrderStatusFilter('UNKNOWN')).toBe('ALL');
   });
 
+  // 19.11.2026, фидбэк НП: статус «Ожидает закрытия НП» есть в таблице, но его не было
+  // в фильтре — отфильтровать задания, которые ждут закрытия, было нельзя.
+  it('фильтрует по статусу «Ожидает закрытия НП»', () => {
+    expect(parseOrderStatusFilter('READY_FOR_CLOSE')).toBe('READY_FOR_CLOSE');
+    expect(orderWhere({ status: 'READY_FOR_CLOSE' })).toEqual({ status: 'READY_FOR_CLOSE' });
+  });
+
   // T-103: фильтр по смене — общий параметр с доской контура.
   it('фильтр по смене сужает выборку', async () => {
     expect(orderWhere({ shiftId: 'shift-1' })).toEqual({ shiftId: 'shift-1' });

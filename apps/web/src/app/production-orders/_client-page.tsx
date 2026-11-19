@@ -24,7 +24,15 @@ interface ProductionOrdersPageProps {
   >;
   userRoles: string[];
   /** Фильтр по статусу применяется на сервере (T-058). */
-  statusFilter: 'ALL' | 'DRAFT' | 'CONFIRMED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  statusFilter:
+    | 'ALL'
+    | 'DRAFT'
+    | 'CONFIRMED'
+    | 'IN_PROGRESS'
+    // 19.11.2026: статус появился в фильтре (фидбэк НП), тип должен знать о нём.
+    | 'READY_FOR_CLOSE'
+    | 'COMPLETED'
+    | 'CANCELLED';
   /** Выбранная смена (T-103): общий параметр с доской. */
   shiftId: string;
   /** Смены для фильтра. */
@@ -247,6 +255,9 @@ export default function ProductionOrdersPage({
             <option value="DRAFT">Черновик</option>
             <option value="CONFIRMED">Подтверждено</option>
             <option value="IN_PROGRESS">В работе</option>
+            {/* 19.11.2026, фидбэк НП: без этой строки задания, которые ждут его закрытия,
+                в списке нельзя было отфильтровать — статус есть в таблице, но не в фильтре. */}
+            <option value="READY_FOR_CLOSE">Ожидает закрытия НП</option>
             <option value="COMPLETED">Завершено</option>
             <option value="CANCELLED">Отменено</option>
           </select>
