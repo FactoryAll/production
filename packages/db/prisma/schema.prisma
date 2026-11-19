@@ -86,6 +86,20 @@ model Product {
   Discrepancy         Discrepancy[]
   adjustmentLines     StockAdjustmentLine[]
 
+  // Привязки изделия (решение владельца 19.11.2026): у готовой продукции одна Масса и одна Туба.
+  // Обе — ссылки на номенклатуру, а не строки текстом: иначе название в 1С и у нас разъедется.
+  massProductId       String?
+  massProduct         Product?              @relation("ProductMass", fields: [massProductId], references: [id], onDelete: SetNull)
+  massUsedFor         Product[]             @relation("ProductMass")
+  tubeProductId       String?
+  tubeProduct         Product?              @relation("ProductTube", fields: [tubeProductId], references: [id], onDelete: SetNull)
+  tubeUsedFor         Product[]             @relation("ProductTube")
+  /// Норма Массы на единицу продукции (кг) — из спецификации 1С.
+  massQuantity        Decimal?              @db.Decimal(18, 4)
+  /// Норма Тубы на единицу продукции (шт) — из той же спецификации.
+  tubeQuantity        Decimal?              @db.Decimal(18, 4)
+  packagingWorkCenters ProductPackagingWorkCenter[]
+
   @@map("products")
 }
 
@@ -136,6 +150,7 @@ model Warehouse {
   movements            StockMovement[]
   balances             StockBalance[]
   adjustmentLines      StockAdjustmentLine[]
+  packagingProducts    ProductPackagingWorkCenter[]
   sourceTransfers      GoodsTransfer[] @relation("TransferSource")
   destinationTransfers GoodsTransfer[] @relation("TransferDestination")
 
@@ -209,6 +224,7 @@ model User {
   notifications           Notification[]
   reconciledDiscrepancies Discrepancy[]     @relation("DiscrepancyReconciler")
   stockAdjustments        StockAdjustment[]
+  bomImportRuns           BomImportRun[]
 
   @@map("users")
 }
@@ -441,6 +457,40 @@ model StockBalance {
 
   @@unique([warehouseId, productId, stockCategory])
   @@map("stock_balances")
+}
+
+// Привязки «ГП ↔ Масса/Туба» и РЦ фасовки (решение владельца 19.11.2026).
+//
+// Масса и Туба — одиночные ссылки у Product (одна на изделие, решение владельца). РЦ фасовки —
+// отдельная таблица: одна и та же готовая продукция фасуется на нескольких линиях, и это
+// множество, а не одно значение. Пустой список означает «все фасовочные РЦ» — так система
+// ведёт себя и сейчас, пока привязки не заполнены.
+model ProductPackagingWorkCenter {
+  productId String
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  workCenterId String
+  workCenter   WorkCenter @relation(fields: [workCenterId], references: [id], onDelete: Cascade)
+
+  @@id([productId, workCenterId])
+  @@map("product_packaging_work_centers")
+}
+
+// Журнал запусков загрузки спецификаций: файл, кто и когда загрузил, что получилось.
+// Нужен, чтобы «источник правды» был прослеживаемым: по какой выгрузке 1С сложились привязки.
+model BomImportRun {
+  id          String   @id @default(uuid())
+  fileName    String
+  startedAt   DateTime @default(now())
+  finishedAt  DateTime?
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  /// Счётчики по итогу: сколько привязок обновлено, сколько пропущено, сколько противоречий.
+  massBound   Int      @default(0)
+  tubeBound   Int      @default(0)
+  skipped     Int      @default(0)
+  issues      Int      @default(0)
+
+  @@map("bom_import_runs")
 }
 
 // Документ корректировки остатков (решение владельца 18.11.2026).
