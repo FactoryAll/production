@@ -230,6 +230,7 @@ model User {
   reconciledDiscrepancies Discrepancy[]     @relation("DiscrepancyReconciler")
   stockAdjustments        StockAdjustment[]
   bomImportRuns           BomImportRun[]
+  cancelledOrderLines     ProductionOrderLine[] @relation("LineCancelledBy")
 
   @@map("users")
 }
@@ -264,6 +265,9 @@ enum ProductionOrderLineStatus {
   ASSIGNED
   ACCEPTED
   REPORTED
+  /// Задание на РЦ отменено начальником производства (19.11.2026): РЦ сломался или не работал,
+  /// итог вносить некому. Движений по складу нет, факт не создаётся, в 1С строка не уходит.
+  CANCELLED
 }
 
 model ProductionOrder {
@@ -305,6 +309,11 @@ model ProductionOrderLine {
   operatorId           String?
   operator             Employee?                 @relation("OperatorLines", fields: [operatorId], references: [id])
   status               ProductionOrderLineStatus @default(ASSIGNED)
+  /// Отмена задания на РЦ (19.11.2026): причина обязательна, автор и время фиксируются.
+  cancellationReason   String?
+  cancelledAt          DateTime?
+  cancelledByUserId    String?
+  cancelledBy          User?   @relation("LineCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
   comment              String?
   substitutionReasonId String?
   createdAt            DateTime                  @default(now())
