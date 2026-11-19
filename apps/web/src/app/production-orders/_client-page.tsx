@@ -61,9 +61,12 @@ function lineProgressLabel(lines: ProductionOrderLine[]): string {
   const reported = lines.filter((line) => line.status === 'REPORTED').length;
   const accepted = lines.filter((line) => line.status === 'ACCEPTED').length;
   const assigned = lines.filter((line) => line.status === 'ASSIGNED').length;
-  if (reported === total) return 'все РЦ отчитались';
+  // 19.11.2026: отменённое задание РЦ — не «долг» перед НП, поэтому в подписи считаем отдельно.
+  const cancelled = lines.filter((line) => line.status === 'CANCELLED').length;
+  const suffix = cancelled > 0 ? `, отменено: ${cancelled}` : '';
+  if (reported + cancelled === total) return `все РЦ отчитались${suffix}`;
   if (assigned === total) return 'ожидает подтверждения';
-  return `${reported} из ${total} РЦ отчитались, ${accepted} в работе, ${assigned} не приняты`;
+  return `${reported} из ${total} РЦ отчитались, ${accepted} в работе, ${assigned} не приняты${suffix}`;
 }
 
 export default function ProductionOrdersPage({

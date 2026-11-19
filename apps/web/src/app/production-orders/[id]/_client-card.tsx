@@ -509,17 +509,22 @@ export default function ProductionOrderCard({
   }
   // 14.11.2026 (фидбэк НП): ПЗ закрывает начальник производства своей командой.
   // Показываем кнопку, когда все РЦ внесли итоги и ПЗ ещё не закрыто.
-  const allLinesReported =
-    order.lines.length > 0 && order.lines.every((line) => line.status === 'REPORTED');
+  // 19.11.2026: отменённая строка тоже «решена» — иначе после отмены задания РЦ кнопка
+  // «Закрыть ПЗ» исчезала, хотя сервер закрытие уже разрешал.
+  const allLinesResolved =
+    order.lines.length > 0 &&
+    order.lines.every((line) => line.status === 'REPORTED' || line.status === 'CANCELLED');
   const canCloseOrder =
-    allLinesReported &&
+    allLinesResolved &&
     (order.status === 'IN_PROGRESS' || order.status === 'READY_FOR_CLOSE') &&
-    hasPermission(userRoles, 'production_order:confirm');  const canViewShiftReport = isCompleted && hasPermission(userRoles, 'production_order:read');
+    hasPermission(userRoles, 'production_order:confirm');
+  const canViewShiftReport = isCompleted && hasPermission(userRoles, 'production_order:read');
   const canCancel =
     (order.status === 'DRAFT' || order.status === 'CONFIRMED') &&
     !hasReportedLine &&
     hasPermission(userRoles, 'production_order:confirm');
   const reportedCount = order.lines.filter((line) => line.status === 'REPORTED').length;
+  const cancelledCount = order.lines.filter((line) => line.status === 'CANCELLED').length;
   const totalCount = order.lines.length;
 
   function handleCloseOrder() {
@@ -999,7 +1004,7 @@ export default function ProductionOrderCard({
         )}
         {isInProgress && (
           <span className="text-sm text-neutral-500">
-            {reportedCount} из {totalCount} РЦ завершили
+            {reportedCount} из {totalCount} РЦ завершили{cancelledCount > 0 ? `, отменено: ${cancelledCount}` : ''}
           </span>
         )}
       </div>
@@ -1026,7 +1031,10 @@ export default function ProductionOrderCard({
         </div>
         <div>
           <span className="text-sm text-neutral-500">Прогресс</span>
-          <p className="text-graphite">{reportedCount} из {totalCount} РЦ отчитались</p>
+          <p className="text-graphite">
+            {reportedCount} из {totalCount} РЦ отчитались
+            {cancelledCount > 0 && `, заданий отменено: ${cancelledCount}`}
+          </p>
         </div>
         {isCompleted && (
           <div>
