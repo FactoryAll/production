@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Prisma, type WorkCenter, type Product, type Employee, type Shift } from '@prisma/client';
 const Decimal = Prisma.Decimal;
 import {
+  cancelOrderLine,
   createProductionOrder,
   createProductionOrderAction,
   confirmProductionOrder,
@@ -2930,5 +2931,118 @@ describe('correctProductionFact', () => {
         },
       ),
     ).rejects.toThrow('Позиция потребления не найдена');
+  });
+});
+
+describe('отмена задания на РЦ (19.11.2026, фидбэк НП)', () => {
+  function buildCancelDeps(orderStatus: 'IN_PROGRESS' | 'READY_FOR_CLOSE', lineOverrides: Record<string, unknown> = {}) {
+    const line = {
+      id: 'line-1',
+      orderId: 'po-1',
+      workCenterId: 'wc-03',
+      productId: 'gp-1',
+      plannedQuantity: new Decimal(100),
+      operatorId: 'emp-1',
+      status: 'ACCEPTED',
+      cancellationReason: null,
+      cancelledAt: null,
+      cancelledByUserId: null,
+      substitutionReasonId: null,
+      comment: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      facts: [],
+      order: { id: 'po-1', status: orderStatus } as never,
+      workCenter: { id: 'wc-03', code: '03', name: 'Тубировка' } as never,
+      product: { id: 'gp-1', code: 'GP-001', name: 'Крем' } as never,
+      ...lineOverrides,
+    };
+
+    const lineUpdate = vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+      Promise.resolve({ ...line, ...data }),
+    );
+    const writeAudit = vi.fn();
+    const writeTiming = vi.fn();
+    const requirePermission = vi.fn().mockResolvedValue({
+      userId: 'user-1',
+      user: { roles: [{ role: { code: 'NP' } }] },
+    });
+
+    const tx = {
+      productionOrderLine: { update: lineUpdate, findUnique: vi.fn().mockResolvedValue(line) },
+      productionOrder: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'po-1', status: orderStatus, lines: [line] }),
+      },
+      writeAudit,
+    };
+
+    const prisma = {
+      productionOrderLine: { findUnique: vi.fn().mockResolvedValue(line) },
+      $transaction: vi.fn(async (cb: (t: unknown) => Promise<unknown>) => cb(tx)),
+    } as unknown as NonNullable<Parameters<typeof cancelOrderLine>[2]>['prisma'];
+
+    return { prisma, writeAudit, writeTiming, requirePermission, lineUpdate, tx };
+  }
+
+  it('отменяет принятую строку с причиной и не создаёт движений', async () => {
+    const deps = buildCancelDeps('IN_PROGRESS');
+
+    await cancelOrderLine('line-1', { reason: 'РЦ остановлен из-за поломки узла' }, {
+      prisma: deps.prisma,
+      writeAudit: deps.writeAudit,
+      writeTiming: deps.writeTiming,
+      requirePermission: deps.requirePermission,
+    });
+
+    expect(deps.lineUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'CANCELLED', cancellationReason: 'РЦ остановлен из-за поломки узла' }),
+      }),
+    );
+    // Аудит причины обязателен: через месяц это единственное объяснение.
+    const reasonAudit = deps.writeAudit.mock.calls
+      .map((call) => call[1])
+      .find((input: { field?: string }) => input.field === 'cancellationReason');
+    expect(reasonAudit).toBeDefined();
+  });
+
+  it('требует причину не короче 10 символов', async () => {
+    const deps = buildCancelDeps('IN_PROGRESS');
+    await expect(
+      cancelOrderLine('line-1', { reason: 'нет' }, {
+        prisma: deps.prisma,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+        requirePermission: deps.requirePermission,
+      }),
+    ).rejects.toThrow('Причина отмены обязательна');
+    expect(deps.lineUpdate).not.toHaveBeenCalled();
+  });
+
+  it('не отменяет строку, по которой уже внесён итог', async () => {
+    const deps = buildCancelDeps('IN_PROGRESS', {
+      status: 'REPORTED',
+      facts: [{ id: 'fact-1' }],
+    });
+    await expect(
+      cancelOrderLine('line-1', { reason: 'РЦ сломался посреди смены' }, {
+        prisma: deps.prisma,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+        requirePermission: deps.requirePermission,
+      }),
+    ).rejects.toThrow('уже внесён итог');
+  });
+
+  it('не отменяет в черновике или подтверждённом ПЗ', async () => {
+    const deps = buildCancelDeps('IN_PROGRESS', { order: { id: 'po-1', status: 'CONFIRMED' } });
+    await expect(
+      cancelOrderLine('line-1', { reason: 'РЦ сломался посреди смены' }, {
+        prisma: deps.prisma,
+        writeAudit: deps.writeAudit,
+        writeTiming: deps.writeTiming,
+        requirePermission: deps.requirePermission,
+      }),
+    ).rejects.toThrow('только в ПЗ, которое в работе');
   });
 });

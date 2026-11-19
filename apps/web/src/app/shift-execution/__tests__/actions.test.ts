@@ -78,6 +78,10 @@ function makeLine(overrides: Partial<ProductionOrderLine> = {}): ProductionOrder
     plannedQuantity: new Decimal(10),
     operatorId: 'emp-1',
     status: 'ASSIGNED',
+    // 19.11.2026: поля отмены задания на РЦ.
+    cancellationReason: null,
+    cancelledAt: null,
+    cancelledByUserId: null,
     comment: null,
     substitutionReasonId: null,
     createdAt: new Date(),

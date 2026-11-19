@@ -34,6 +34,9 @@ async function getOperatorLines(employeeId: string) {
   return prisma.productionOrderLine.findMany({
     where: {
       operatorId: employeeId,
+      // 19.11.2026: отменённое задание РЦ оператору не показываем — вносить итог по нему нельзя,
+      // а висящая строка выглядит как забытая работа.
+      status: { not: 'CANCELLED' },
       order: {
         status: {
           in: ['CONFIRMED', 'IN_PROGRESS'],

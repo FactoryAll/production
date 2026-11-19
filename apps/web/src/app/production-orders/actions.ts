@@ -388,6 +388,142 @@ export async function confirmProductionOrder(
   return result;
 }
 
+export type CancelOrderLineResult = { success: true } | { success: false; error: string };
+
+/**
+ * Отмена задания на РЦ (19.11.2026, фидбэк НП).
+ *
+ * Повод: ПЗ создано, операторы приняли, посреди смены один РЦ сломался. Остальные вносят итоги,
+ * а сломанный — не может, и закрыть ПЗ нельзя: закрытие требует «все РЦ внесли итоги».
+ * Отмена всего ПЗ не годится — остальные РЦ уже работали.
+ *
+ * Что делает: помечает строку отменённой с обязательной причиной. **Никаких движений** —
+ * ни выпуска, ни расхода Массы/Тубы, остатки не меняются, факт не создаётся. В 1С отменённая
+ * строка не уходит: там только факты, и причина поломки — не компетенция 1С (решение владельца).
+ *
+ * Доступ — только НП и АДМ. Отменить можно лишь строку, по которой итог не внесён: если факт
+ * уже есть, это не отмена, а корректировка.
+ */
+export async function cancelOrderLine(
+  lineId: string,
+  input: { reason: string },
+  deps: CreateProductionOrderDeps = { prisma, writeAudit, writeTiming, requirePermission },
+): Promise<{ orderId: string; readyForClose: boolean }> {
+  const session = await deps.requirePermission('production_order:confirm');
+  const userId = session.userId;
+  const roles = session.user.roles.map((ur) => ur.role.code);
+
+  const reason = input.reason?.trim() ?? '';
+  if (reason.length < 10) {
+    throw new Error(
+      'Причина отмены обязательна: не короче 10 символов — по ней потом видно, почему РЦ ничего не выпустил',
+    );
+  }
+
+  const line = await deps.prisma.productionOrderLine.findUnique({
+    where: { id: lineId },
+    include: { order: true, workCenter: true, product: true, facts: true },
+  });
+  if (!line) {
+    throw new Error('Строка ПЗ не найдена');
+  }
+
+  if (line.status === 'REPORTED' || line.facts.length > 0) {
+    throw new Error(
+      'По строке уже внесён итог — отменить нельзя. Это корректировка факта, а не отмена задания',
+    );
+  }
+  if (line.status === 'CANCELLED') {
+    throw new Error('Задание на этом РЦ уже отменено');
+  }
+
+  const cancellableStatuses: ProductionOrderStatus[] = ['IN_PROGRESS', 'READY_FOR_CLOSE'];
+  if (!cancellableStatuses.includes(line.order.status)) {
+    throw new Error('Отменить задание РЦ можно только в ПЗ, которое в работе или ждёт закрытия');
+  }
+
+  const result = await deps.prisma.$transaction(async (tx) => {
+    const updated = await tx.productionOrderLine.update({
+      where: { id: lineId },
+      data: {
+        status: 'CANCELLED',
+        cancellationReason: reason,
+        cancelledAt: new Date(),
+        cancelledByUserId: userId,
+      },
+    });
+
+    await deps.writeAudit(tx, {
+      action: 'UPDATE',
+      objectType: 'ProductionOrderLine',
+      objectId: lineId,
+      field: 'status',
+      oldValue: line.status,
+      newValue: 'CANCELLED',
+      userId,
+      userRoles: roles,
+      permission: 'production_order:confirm',
+    });
+
+    await deps.writeAudit(tx, {
+      action: 'UPDATE',
+      objectType: 'ProductionOrderLine',
+      objectId: lineId,
+      field: 'cancellationReason',
+      newValue: JSON.stringify({
+        reason,
+        workCenterCode: line.workCenter.code,
+        productCode: line.product.code,
+      }),
+      userId,
+      userRoles: roles,
+      permission: 'production_order:confirm',
+    });
+
+    await deps.writeTiming(tx, {
+      documentType: 'PRODUCTION_ORDER',
+      documentId: line.orderId,
+      entityType: 'LINE',
+      entityId: lineId,
+      fromStatus: line.status,
+      toStatus: 'CANCELLED',
+      initiatorRole: roles.find((role) => role === 'NP' || role === 'ADM'),
+      initiatorId: userId,
+    });
+
+    // Оставшиеся РЦ уже отчитались? Тогда ПЗ уходит в «Ожидает закрытия НП» и уведомляет НП.
+    const closing = await checkAndCloseProductionOrder(
+      line.orderId,
+      tx as unknown as PrismaLike,
+      session,
+      'production_order:confirm',
+    );
+    if (closing.readyForClose) {
+      await notifyEvent(tx, 'EV-12', { orderId: line.orderId });
+    }
+
+    return { orderId: updated.orderId, readyForClose: closing.readyForClose };
+  });
+
+  revalidatePath('/production-orders');
+  revalidatePath(`/production-orders/${result.orderId}`);
+  revalidatePath('/dashboard');
+  return result;
+}
+
+export async function cancelOrderLineAction(
+  lineId: string,
+  reason: string,
+): Promise<CancelOrderLineResult> {
+  try {
+    await cancelOrderLine(lineId, { reason });
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Не удалось отменить задание РЦ';
+    return { success: false, error: message };
+  }
+}
+
 export type CloseProductionOrderResult = { success: true } | { success: false; error: string };
 
 /**
