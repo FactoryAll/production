@@ -219,34 +219,55 @@ else
 fi
 
 # ЧИСТКА СТАРЫХ ОБРАЗОВ. 12.11.2026 диск на 14 ГБ заполнился до 92% тремя образами
-# по 1.7 ГБ, и до порога «postgres остановится» оставалось 100 МБ.
+# по 1.7 ГБ, и до порога «postgres остановится» оставалось 100 МБ. Тогда оставался РОВНО
+# ОДИН образ — текущий.
 #
-# Остаётся РОВНО ОДИН образ — текущий (решение главной линии 12.11.2026, по расчёту):
-#   держать ещё и предыдущий — это постоянные 1.7 ГБ на диске 14 ГБ, который делят с MES;
-#   откат от этого не ускоряется, потому что делается так же, как деплой:
-#     docker pull ghcr.io/factoryall/production:<тег> && docker tag ... prodtrack-web:<тег>
-#     bash scripts/deploy.sh <тег> --no-build
-#   Реестр хранит версии, тег никуда не денется, а скачивание — минута.
+# 19.11.2026 диск расширен до 24 ГБ (свободно 14 ГБ), и правило вернулось к двум образам:
+# остаётся текущий и ПРЕДЫДУЩИЙ. Причина — откат: с предыдущим образом это одна команда
+# `bash scripts/deploy.sh <предыдущий тег> --no-build`, без похода в GHCR и без ожидания
+# загрузки 1.7 ГБ в момент, когда прод уже лежит. Решение владельца от 18.11.2026
+# («после расширения вернуть хранение предыдущего образа») — см. журнал, «Отложенное».
 #
-# Снимаем ОБА вида тегов, какие бывают на сервере: `prodtrack-web:v…` (имя из compose)
-# и `ghcr.io/factoryall/production:v…` (после docker pull). Второй — тот же образ,
-# поэтому удаление его тега лишь снимает ссылку и места не освобождает, но убирает путаницу
-# «какая версия лежит».
-echo "[deploy] Чистка старых образов (остаётся только prodtrack-web:${TARGET})..."
+# Теги `ghcr.io/factoryall/production:v…` после `docker pull` — те же образы, поэтому их
+# ссылки снимаем всегда: места это не освобождает, зато убирает путаницу «какая версия лежит».
+echo "[deploy] Чистка старых образов (остаются текущий ${TARGET} и предыдущий)..."
 KEEP_IMAGE="prodtrack-web:${TARGET}"
+# Предыдущий — самый свежий из остальных: по времени создания образа, а не по номеру
+# версии, потому что выкладка может быть и откатом на старшую версию.
+OTHER_IMAGES="$(docker images --format '{{.Repository}}:{{.Tag}}' \
+    | grep -E '^prodtrack-web:v[0-9]' \
+    | grep -v -F "${KEEP_IMAGE}" || true)"
+PREV_IMAGE=""
+if [ -n "${OTHER_IMAGES}" ]; then
+    PREV_LIST="$(mktemp)"
+    for image in ${OTHER_IMAGES}; do
+        created="$(docker image inspect "${image}" --format '{{.Created}}' 2>/dev/null || true)"
+        if [ -n "${created}" ]; then
+            printf '%s %s\n' "${created}" "${image}" >> "${PREV_LIST}"
+        fi
+    done
+    PREV_IMAGE="$(sort -r "${PREV_LIST}" | awk 'NR==1 {print $2}')"
+    rm -f "${PREV_LIST}"
+fi
+for image in ${OTHER_IMAGES}; do
+    if [ -n "${PREV_IMAGE}" ] && [ "${image}" = "${PREV_IMAGE}" ]; then
+        echo "[deploy] Оставлен предыдущий образ: ${image}"
+        continue
+    fi
+    docker rmi -f "${image}" >/dev/null 2>&1 || true
+done
 docker images --format '{{.Repository}}:{{.Tag}}' \
-    | grep -E '^prodtrack-web:v[0-9]|^ghcr\.io/factoryall/production:v[0-9]' \
-    | grep -v -F "${KEEP_IMAGE}" \
+    | grep -E '^ghcr\.io/factoryall/production:v[0-9]' \
     | xargs -r -n1 docker rmi -f >/dev/null 2>&1 || true
 docker image prune -f >/dev/null 2>&1 || true
 
-# Проверка предела: правило «один образ» проверяем, а не предполагаем.
+# Проверка предела: правило «два образа» проверяем, а не предполагаем.
 PRODUCT_IMAGES="$(docker images --format '{{.Repository}}:{{.Tag}}' \
-    | grep -E '^prodtrack-web:v[0-9]|^ghcr\.io/factoryall/production:v[0-9]' | wc -l | tr -d ' ')"
-echo "[deploy] Образов ProdTrack в кеше: ${PRODUCT_IMAGES} (правило: 1)"
-if [ "${PRODUCT_IMAGES}" -gt 1 ]; then
+    | grep -E '^prodtrack-web:v[0-9]' | wc -l | tr -d ' ')"
+echo "[deploy] Образов ProdTrack в кеше: ${PRODUCT_IMAGES} (правило: 2 — текущий и предыдущий)"
+if [ "${PRODUCT_IMAGES}" -gt 2 ]; then
     echo "[deploy] ВНИМАНИЕ: осталось ${PRODUCT_IMAGES} образов — чистка не сработала." >&2
-    echo "          Проверьте вручную: docker images | grep -E 'prodtrack-web|ghcr.io/factoryall'" >&2
+    echo "          Проверьте вручную: docker images | grep -E 'prodtrack-web'" >&2
 fi
 echo "[deploy] Свободно на диске: $(df -h / | awk 'NR==2 {print $4}')"
 
