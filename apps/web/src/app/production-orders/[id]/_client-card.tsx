@@ -588,7 +588,7 @@ export default function ProductionOrderCard({
     setLineCancelError(null);
     startTransition(async () => {
       const { cancelOrderLineAction } = await import('../actions');
-      const result = await cancelOrderLineAction(cancelLineId, cancelReason);
+      const result = await cancelOrderLineAction(cancelLineId, lineCancelReason);
       if (!result.success) {
         setLineCancelError(result.error ?? 'Не удалось отменить задание РЦ');
         return;
