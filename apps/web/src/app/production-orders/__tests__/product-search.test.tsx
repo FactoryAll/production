@@ -19,7 +19,12 @@ const workCenter: WorkCenter = {
 };
 
 function product(id: string, code: string, name: string, category: 'GP' | 'MASS' = 'GP'): Product {
-  return { id, code, name, category, unit: 'шт', active: true, createdAt: new Date(), updatedAt: new Date() };
+  return {
+    id, code, name, category, unit: 'шт', active: true,
+    massProductId: null, tubeProductId: null, tubeProductCode: null, tubeProductName: null,
+    massQuantity: null, tubeQuantity: null,
+    createdAt: new Date(), updatedAt: new Date(),
+  };
 }
 
 const gel = product('p-1', 'БП-00000109', 'GECO Гель дезинфицирующий, 100 мл');

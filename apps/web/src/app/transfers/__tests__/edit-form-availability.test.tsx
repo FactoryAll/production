@@ -32,6 +32,12 @@ const product: Product = {
   category: 'GP',
   unit: 'шт',
   active: true,
+    massProductId: null,
+  tubeProductId: null,
+  tubeProductCode: null,
+  tubeProductName: null,
+  massQuantity: null,
+  tubeQuantity: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 };

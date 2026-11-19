@@ -17,6 +17,7 @@ import { PrismaClient } from '@prisma/client';
 import { readFirstSheet } from '../src/lib/bom-import/xlsx.ts';
 import { parseBom, type BomParseResult } from '../src/lib/bom-import/bom.ts';
 import { buildBomPlan, describeBomPlan, type CatalogueEntry } from '../src/lib/bom-import/plan.ts';
+import { applyBomPlan } from '../src/lib/bom-import/apply.ts';
 
 function usage(): never {
   console.error('Использование: DATABASE_URL=… node scripts/bom-plan.ts <файл.xlsx> [--csv out.csv]');
@@ -28,6 +29,8 @@ const file = args.find((arg) => !arg.startsWith('--'));
 if (!file) usage();
 const csvIndex = args.indexOf('--csv');
 const csvOut = csvIndex >= 0 ? args[csvIndex + 1] : undefined;
+// Запись привязок в базу — только по явному --apply: план без флага ничего не меняет.
+const apply = args.includes('--apply');
 
 const prisma = new PrismaClient();
 try {
@@ -81,7 +84,19 @@ try {
     console.log(`\nВыгружено в ${csvOut}: ${parsed.groups.length} позиций ГП`);
   }
 
-  console.log('\nЗапись не выполнялась: шаг записи появится вместе с полем привязки в схеме.');
+  if (apply) {
+    const plan = buildBomPlan(parsed, catalogue);
+    const result = await applyBomPlan(
+      prisma as never,
+      plan,
+      { fileName: file.split('/').pop() ?? file },
+    );
+    console.log('');
+    console.log(`Записано: привязок Массы ${result.massBound}, привязок Тубы ${result.tubeBound}, ` +
+      `без изменений ${result.massUnchanged}. Журнал запуска: ${result.runId}`);
+  } else {
+    console.log('\nЗапись не выполнялась. Чтобы записать привязки, повторите с флагом --apply.');
+  }
 } finally {
   await prisma.$disconnect();
 }

@@ -28,6 +28,7 @@ export interface BomPlanItem {
   massName?: string;
   massShare?: number;
   tubeCode?: string;
+  tubeName?: string;
   tubeShare?: number;
   action: BomPlanAction;
   reason?: string;
@@ -59,6 +60,7 @@ function describeGroup(group: BomProductGroup): BomPlanItem {
     massName: group.mass?.componentName,
     massShare: group.mass?.share,
     tubeCode: group.tube?.componentCode,
+    tubeName: group.tube?.componentName,
     tubeShare: group.tube?.share,
     action: 'skip',
   };
