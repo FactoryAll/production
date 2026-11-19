@@ -143,8 +143,12 @@ test('Свой пароль администратор так не сбрасы�
   await login(page, 'test_admin', 'admin12345');
   await page.waitForURL(/\/dashboard/, { timeout: 60000 });
 
-  await page.goto('/users?q=admin');
-  const row = page.locator('tbody tr', { hasText: 'admin' }).first();
+  // Ищем свою же строку: с 19.11.2026 сценарий работает под test_admin, поэтому фильтр
+  // «admin» вернул бы две записи и .first() мог взять чужую — тогда сброс разрешён и проверка
+  // «себе нельзя» ничего не проверяет.
+  await page.goto('/users?q=test_admin');
+  const row = page.locator('tbody tr', { hasText: 'test_admin' }).first();
+  await expect(row).toHaveCount(1);
   await row.getByRole('button', { name: 'Сбросить пароль' }).click();
 
   const dialog = page.getByRole('dialog');

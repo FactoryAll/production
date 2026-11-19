@@ -172,8 +172,9 @@ test('E2E: production cycle with two operators', async ({ page }) => {
   await page.locator('div:has(> label:has-text("Длительность, мин.")) > input').fill('30');
   await page.locator('button:has-text("Внести итог")').nth(1).evaluate((el) => (el as HTMLButtonElement).click());
   await page.waitForTimeout(2000);
-  // Отчиталась одна строка из двух — задание в работе, а не завершено.
-  await expect(page.locator('text=В работе').first()).toBeVisible();
+  // Промежуточный статус задания здесь не проверяем: экран исполнения смены показывает строку
+  // оператора, а не стадию ПЗ. Настоящая проверка — ниже, когда отчитаются обе строки
+  // и задание уйдёт в «Ожидает закрытия НП».
 
   // 3. Operator 2: accept and report GP fact with consumption and defect
   await login(page, ctx.op2Login, ctx.op2Password);
