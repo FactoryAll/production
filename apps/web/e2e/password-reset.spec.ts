@@ -83,7 +83,7 @@ test('Сброс пароля: временный пароль, смена пр�
 
   // 1. Администратор сбрасывает пароль прямо из списка пользователей.
   await page.goto('/login');
-  await login(page, 'admin', 'admin123');
+  await login(page, 'test_admin', 'admin12345');
   await page.waitForURL(/\/dashboard/, { timeout: 60000 });
 
   await page.goto('/users?q=' + LOGIN);
@@ -140,7 +140,7 @@ test('Свой пароль администратор так не сбрасы�
   test.setTimeout(120000);
 
   await page.goto('/login');
-  await login(page, 'admin', 'admin123');
+  await login(page, 'test_admin', 'admin12345');
   await page.waitForURL(/\/dashboard/, { timeout: 60000 });
 
   await page.goto('/users?q=admin');

@@ -9,8 +9,8 @@ test('шапка: бренд не вылезает на пункты меню', 
   test.setTimeout(180000);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/login');
-  await page.getByLabel('Логин').fill('admin');
-  await page.getByLabel('Пароль').fill('admin123');
+  await page.getByLabel('Логин').fill('test_admin');
+  await page.getByLabel('Пароль').fill('admin12345');
   await page.getByRole('button', { name: 'Войти' }).click();
   await page.waitForURL(/dashboard/, { timeout: 60000 });
 

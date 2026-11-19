@@ -125,6 +125,18 @@ export const TEST_OPR_SHIFT_PASSWORD = 'opr12345';
 export const TEST_S1C_LOGIN = 'test_s1c';
 export const TEST_S1C_PASSWORD = 's1c12345';
 
+/**
+ * Администратор для сквозных тестов (PP-09, 19.11.2026).
+ *
+ * Зачем отдельная запись: с ОПЭ-79 у `admin` нет пароля по умолчанию (сид берёт
+ * `ADMIN_INITIAL_PASSWORD` или генерирует случайный), и первый вход требует смены пароля.
+ * Шесть e2e-сценариев логинились как `admin` / `admin123` и падали в CI на входе, а не
+ * на проверяемом поведении. Отдельный тестовый администратор с известным паролем решает
+ * это, не ослабляя прод: запись создаётся только при SEED_TEST_USERS=true.
+ */
+export const TEST_ADMIN_LOGIN = 'test_admin';
+export const TEST_ADMIN_PASSWORD = 'admin12345';
+
 export const PERMISSIONS = [
   { code: 'production_order:create', action: 'Создание производственного задания' },
   { code: 'production_order:update', action: 'Изменение производственного задания' },
@@ -433,6 +445,26 @@ export async function seedOprShiftUser(client: PrismaClient = prisma): Promise<v
   });
 }
 
+export async function seedTestAdminUser(client: PrismaClient = prisma): Promise<void> {
+  if (!shouldSeedTestUsers()) return;
+  const role = await client.role.findUnique({ where: { code: 'ADM' } });
+  if (!role) return;
+
+  const existing = await client.user.findUnique({ where: { login: TEST_ADMIN_LOGIN } });
+  if (existing) return;
+
+  await client.user.create({
+    data: {
+      login: TEST_ADMIN_LOGIN,
+      passwordHash: await bcrypt.hash(TEST_ADMIN_PASSWORD, 10),
+      active: true,
+      // Смены пароля при входе нет: это тестовая учётка, а не человек, которому выдали временный.
+      mustChangePassword: false,
+      roles: { create: [{ roleId: role.id }] },
+    },
+  });
+}
+
 export async function seedS1cUser(client: PrismaClient = prisma): Promise<void> {
   if (!shouldSeedTestUsers()) return;
   const role = await client.role.findUnique({ where: { code: 'S1C' } });
@@ -499,6 +531,7 @@ async function main() {
     await seedFirstLoginUser();
     await seedOprShiftUser();
     await seedS1cUser();
+    await seedTestAdminUser();
     console.log('[seed] Тестовые учётные записи созданы (SEED_TEST_USERS=true).');
   } else {
     console.log('[seed] Тестовые учётные записи пропущены (SEED_TEST_USERS не задан).');

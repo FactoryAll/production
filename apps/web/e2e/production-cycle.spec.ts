@@ -172,7 +172,8 @@ test('E2E: production cycle with two operators', async ({ page }) => {
   await page.locator('div:has(> label:has-text("Длительность, мин.")) > input').fill('30');
   await page.locator('button:has-text("Внести итог")').nth(1).evaluate((el) => (el as HTMLButtonElement).click());
   await page.waitForTimeout(2000);
-  await expect(page.locator('text=Завершено').first()).toBeVisible();
+  // Отчиталась одна строка из двух — задание в работе, а не завершено.
+  await expect(page.locator('text=В работе').first()).toBeVisible();
 
   // 3. Operator 2: accept and report GP fact with consumption and defect
   await login(page, ctx.op2Login, ctx.op2Password);
@@ -199,9 +200,12 @@ test('E2E: production cycle with two operators', async ({ page }) => {
   await page.locator('[role="dialog"] button:has-text("Внести итог")').evaluate((el) => (el as HTMLButtonElement).click());
   await page.waitForTimeout(2000);
 
-  // 4. Verify order is COMPLETED
+  // 4. С 14.11.2026 задание закрывает начальник производства: операторы отчитались —
+  // статус «Ожидает закрытия НП», кнопка «Закрыть ПЗ» даёт «Завершено».
   await login(page, ctx.npLogin, ctx.npPassword);
   await page.goto('/production-orders/' + ctx.orderId);
+  await expect(page.locator('text=Ожидает закрытия НП').first()).toBeVisible();
+  await page.getByRole('button', { name: 'Закрыть ПЗ' }).click();
   await expect(page.locator('text=Завершено').first()).toBeVisible();
 
   // 5. Shift report: 4 charts + consumption table + hh:mm durations
