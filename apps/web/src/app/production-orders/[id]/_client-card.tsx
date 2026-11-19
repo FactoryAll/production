@@ -782,7 +782,7 @@ export default function ProductionOrderCard({
     });
   }
 
-  const [substituteConsumption, setSubstituteConsumption] = useState<{ productId: string; quantity: string }[]>([]);
+  const [substituteConsumption, setSubstituteConsumption] = useState<ConsumptionRowState[]>([]);
   // T-093: фактический состав работников в обоих диалогах карточки.
   const [substituteWorkers, setSubstituteWorkers] = useState<CardWorkerRow[]>([]);
   const [correctWorkers, setCorrectWorkers] = useState<CardWorkerRow[]>([]);
@@ -869,10 +869,40 @@ export default function ProductionOrderCard({
     setSubstituteDefectReasonId('');
     setSubstituteStopsCount('');
     setSubstituteStopsDurationMinutes('');
-    setSubstituteConsumption([]);
+    // 19.11.2026: привязанная Масса уже стоит в потреблении — искать её в списке не нужно.
+    const bound = boundMassOfLine(lineId);
+    setSubstituteConsumption(
+      bound ? [{ productId: bound.id, quantity: '', stockCategory: 'MASS' }] : [],
+    );
     setSubstituteWorkers(buildCardWorkerRows(lineId));
     setSubstituteError(null);
     setShowSubstituteDialog(true);
+  }
+
+  /** Привязка изделия строки (19.11.2026): какая Масса и какая норма. */
+  function boundMassOfLine(lineId: string | null): {
+    id: string;
+    code: string;
+    name: string;
+    norm: number | null;
+  } | null {
+    if (!lineId) return null;
+    const line = order.lines.find((item) => item.id === lineId);
+    const product = line?.product as
+      | {
+          massProductId?: string | null;
+          massProduct?: { code: string; name: string } | null;
+          massQuantity?: { toString(): string } | null;
+        }
+      | undefined;
+    if (!product?.massProductId || !product.massProduct) return null;
+    const norm = product.massQuantity ? Number(product.massQuantity.toString()) : null;
+    return {
+      id: product.massProductId,
+      code: product.massProduct.code,
+      name: product.massProduct.name,
+      norm: Number.isFinite(norm as number) ? (norm as number) : null,
+    };
   }
 
   function productCategoryForSubstituteLine(): 'MASS' | 'GP' {
@@ -1520,12 +1550,26 @@ export default function ProductionOrderCard({
           )}
 
           {productCategoryForSubstituteLine() === 'GP' && (
-            <ConsumptionEditor
-              idPrefix="substitute"
-              rows={substituteConsumption}
-              products={consumableForLine(substituteLineId)}
-              onChange={setSubstituteConsumption}
-            />
+            <>
+              <ConsumptionEditor
+                idPrefix="substitute"
+                rows={substituteConsumption}
+                products={consumableForLine(substituteLineId)}
+                onChange={setSubstituteConsumption}
+              />
+              {/* 19.11.2026: подсказка о привязке изделия — какая Масса закреплена и норма. */}
+              {(() => {
+                const bound = boundMassOfLine(substituteLineId);
+                if (!bound) return null;
+                return (
+                  <p className="text-xs text-machine-gray">
+                    Привязка изделия: Масса {bound.code} — {bound.name}
+                    {bound.norm !== null ? `, норма ${bound.norm} кг на единицу` : ''}. Чужую Массу
+                    в обычном вводе списать нельзя — здесь, «за Оператора», можно, но с причиной.
+                  </p>
+                );
+              })()}
+            </>
           )}
 
           <div className="space-y-2">
