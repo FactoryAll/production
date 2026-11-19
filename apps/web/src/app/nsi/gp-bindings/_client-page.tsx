@@ -34,6 +34,9 @@ export interface LastImport {
   startedAt: string;
   massBound: number;
   tubeBound: number;
+  skipped: number;
+  /** Отчёт сохранён в журнале запусков — его видно и после загрузки, а не только в момент. */
+  report: string | null;
 }
 
 type Filter = 'all' | 'without-mass' | 'without-tube' | 'without-work-centers';
@@ -122,12 +125,26 @@ export default function GpBindingsPage({
         </p>
       </div>
 
+      {canManage && <BomUploadBlock />}
+
       {lastImport && (
-        <p className="mb-4 text-sm text-machine-gray">
-          Последняя загрузка спецификаций: {lastImport.fileName} (
-          {new Date(lastImport.startedAt).toLocaleString('ru-RU')}) — привязано Масс{' '}
-          {lastImport.massBound}, Туб {lastImport.tubeBound}
-        </p>
+        <div className="mb-4 text-sm text-machine-gray">
+          <p>
+            Последняя загрузка спецификаций: {lastImport.fileName} (
+            {new Date(lastImport.startedAt).toLocaleString('ru-RU')}) — привязано Масс{' '}
+            {lastImport.massBound}, Туб {lastImport.tubeBound}, пропущено {lastImport.skipped}
+          </p>
+          {lastImport.report && (
+            <details className="mt-1">
+              <summary className="cursor-pointer text-deep-industry-blue underline">
+                Показать отчёт последней загрузки
+              </summary>
+              <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-neutral-100 p-3 text-xs">
+                {lastImport.report}
+              </pre>
+            </details>
+          )}
+        </div>
       )}
 
       <div className="mb-4 flex flex-wrap items-end gap-3">
@@ -225,6 +242,86 @@ export default function GpBindingsPage({
         />
       )}
     </main>
+  );
+}
+
+/**
+ * Загрузка выгрузки 1С (19.11.2026). Два шага: проверка показывает последствия, загрузка пишет.
+ * Файл передаётся заново — сервер между запросами ничего не держит.
+ */
+function BomUploadBlock() {
+  const router = useRouter();
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<{ report: string; name: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, setIsPending] = useState(false);
+  const [done, setDone] = useState(false);
+
+  async function send(action: 'preview' | 'apply') {
+    if (!file) return;
+    setError(null);
+    setDone(false);
+    setIsPending(true);
+    try {
+      const { previewBomAction, applyBomAction } = await import('./bom-actions');
+      const formData = new FormData();
+      formData.set('file', file);
+      const result = action === 'preview' ? await previewBomAction(formData) : await applyBomAction(formData);
+      if (!result.success) {
+        setPreview(null);
+        setError(result.error ?? 'Не удалось разобрать файл');
+        return;
+      }
+      setPreview({ report: result.report ?? '', name: result.fileName ?? file.name });
+      if (action === 'apply') {
+        setDone(true);
+        router.refresh();
+      }
+    } finally {
+      setIsPending(false);
+    }
+  }
+
+  return (
+    <Card className="mb-4 p-4">
+      <h2 className="mb-2 text-lg font-semibold text-graphite">Загрузить спецификации из 1С</h2>
+      <p className="mb-3 text-sm text-machine-gray">
+        Файл выгрузки (полная спецификация, .xlsx). Сначала «Проверить» — покажем, что привяжется,
+        что пропущено и почему; запись происходит только после «Загрузить».
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          type="file"
+          accept=".xlsx,.xlsm"
+          id="bom-file"
+          onChange={(event) => {
+            setFile(event.target.files?.[0] ?? null);
+            setPreview(null);
+            setError(null);
+            setDone(false);
+          }}
+          className="text-sm text-graphite"
+        />
+        <Button type="button" variant="secondary" disabled={!file || isPending} onClick={() => send('preview')}>
+          Проверить
+        </Button>
+        <Button type="button" variant="cta" disabled={!file || !preview || isPending} onClick={() => send('apply')}>
+          {isPending ? 'Работаю...' : 'Загрузить привязки'}
+        </Button>
+      </div>
+      {error && <p className="mt-3 text-sm text-signal-amber">{error}</p>}
+      {done && (
+        <p className="mt-3 text-sm text-graphite">
+          Готово: привязки записаны. Список ниже обновлён.
+        </p>
+      )}
+      {preview && (
+        <div className="mt-4 rounded-md bg-neutral-100 p-3">
+          <p className="mb-2 text-sm font-semibold text-graphite">Отчёт по файлу {preview.name}</p>
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-xs text-graphite">{preview.report}</pre>
+        </div>
+      )}
+    </Card>
   );
 }
 

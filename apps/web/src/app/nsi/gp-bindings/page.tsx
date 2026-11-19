@@ -47,7 +47,14 @@ export default async function ServerPage() {
     }),
     prisma.bomImportRun.findFirst({
       orderBy: { startedAt: 'desc' },
-      select: { fileName: true, startedAt: true, massBound: true, tubeBound: true },
+      select: {
+        fileName: true,
+        startedAt: true,
+        massBound: true,
+        tubeBound: true,
+        skipped: true,
+        report: true,
+      },
     }),
   ]);
 
@@ -85,6 +92,8 @@ export default async function ServerPage() {
               startedAt: lastRun.startedAt.toISOString(),
               massBound: lastRun.massBound,
               tubeBound: lastRun.tubeBound,
+              skipped: lastRun.skipped,
+              report: lastRun.report,
             }
           : null
       }

@@ -27,6 +27,10 @@ export interface ApplyBomOptions {
   /** Кто загрузил (для аудита и журнала); для CLI может быть не указан. */
   actorId?: string | null;
   actorRoles?: string[];
+  /** Текст отчёта — сохраняется в журнале запусков, чтобы список пропущенных был доступен и потом. */
+  report?: string;
+  /** Размер разобранного файла. */
+  fileSize?: number;
 }
 
 type Client = Pick<PrismaClient, 'product' | 'bomImportRun' | '$transaction'>;
@@ -157,6 +161,8 @@ export async function applyBomPlan(
         tubeBound,
         skipped: plan.counts.skip,
         issues: 0,
+        report: options.report ?? null,
+        fileSize: options.fileSize ?? null,
       },
       select: { id: true },
     });
