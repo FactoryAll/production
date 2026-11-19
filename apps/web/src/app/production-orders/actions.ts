@@ -14,6 +14,7 @@ import {
   assertConsumptionMatchesLineProduct,
   assertOutputAllowedForWorkCenter,
 } from '@/lib/consumable-stock';
+import { assertConsumptionMatchesProductBinding } from '@/lib/gp-mass-binding';
 import {
   assertShiftDateNotPast,
   currentShiftDateKey,
@@ -256,17 +257,31 @@ export async function getProductionOrderCreateData() {
   // 19.11.2026 (решение владельца): на РЦ 13 в плане должна быть только та ГП, у которой
   // есть остаток ПФ — иначе строку нечем исполнить. Форме отдаём набор таких номенклатур,
   // сервер проверяет то же правило сам.
-  const pfBalances = await prisma.stockBalance.findMany({
-    where: { stockCategory: 'PF', warehouse: { type: 'PRODUCTION' }, quantity: { gt: 0 } },
-    select: { productId: true },
-  });
+  const [pfBalances, packagingRows] = await Promise.all([
+    prisma.stockBalance.findMany({
+      where: { stockCategory: 'PF', warehouse: { type: 'PRODUCTION' }, quantity: { gt: 0 } },
+      select: { productId: true },
+    }),
+    // 19.11.2026 (решение владельца): у изделия может быть несколько РЦ, на которых его фасуют.
+    prisma.productPackagingWorkCenter.findMany({
+      select: { productId: true, workCenter: { select: { code: true } } },
+    }),
+  ]);
   const productIdsWithPfStock = [...new Set(pfBalances.map((balance) => balance.productId))];
+  const packagingCodesByProduct: Record<string, string[]> = {};
+  for (const row of packagingRows) {
+    packagingCodesByProduct[row.productId] = [
+      ...(packagingCodesByProduct[row.productId] ?? []),
+      row.workCenter.code,
+    ];
+  }
 
   // T-075: смена выбирается в форме ПЗ как «дата + номер смены», запись смены система создаёт сама.
   return {
     workCenters,
     products,
     productIdsWithPfStock,
+    packagingCodesByProduct,
     workerEmployees,
     operatorEmployees,
     shiftOptions: buildShiftOptions(),
@@ -371,6 +386,142 @@ export async function confirmProductionOrder(
   revalidatePath('/production-orders');
   revalidatePath('/production-orders/' + orderId);
   return result;
+}
+
+export type CancelOrderLineResult = { success: true } | { success: false; error: string };
+
+/**
+ * Отмена задания на РЦ (19.11.2026, фидбэк НП).
+ *
+ * Повод: ПЗ создано, операторы приняли, посреди смены один РЦ сломался. Остальные вносят итоги,
+ * а сломанный — не может, и закрыть ПЗ нельзя: закрытие требует «все РЦ внесли итоги».
+ * Отмена всего ПЗ не годится — остальные РЦ уже работали.
+ *
+ * Что делает: помечает строку отменённой с обязательной причиной. **Никаких движений** —
+ * ни выпуска, ни расхода Массы/Тубы, остатки не меняются, факт не создаётся. В 1С отменённая
+ * строка не уходит: там только факты, и причина поломки — не компетенция 1С (решение владельца).
+ *
+ * Доступ — только НП и АДМ. Отменить можно лишь строку, по которой итог не внесён: если факт
+ * уже есть, это не отмена, а корректировка.
+ */
+export async function cancelOrderLine(
+  lineId: string,
+  input: { reason: string },
+  deps: CreateProductionOrderDeps = { prisma, writeAudit, writeTiming, requirePermission },
+): Promise<{ orderId: string; readyForClose: boolean }> {
+  const session = await deps.requirePermission('production_order:confirm');
+  const userId = session.userId;
+  const roles = session.user.roles.map((ur) => ur.role.code);
+
+  const reason = input.reason?.trim() ?? '';
+  if (reason.length < 10) {
+    throw new Error(
+      'Причина отмены обязательна: не короче 10 символов — по ней потом видно, почему РЦ ничего не выпустил',
+    );
+  }
+
+  const line = await deps.prisma.productionOrderLine.findUnique({
+    where: { id: lineId },
+    include: { order: true, workCenter: true, product: true, facts: true },
+  });
+  if (!line) {
+    throw new Error('Строка ПЗ не найдена');
+  }
+
+  if (line.status === 'REPORTED' || line.facts.length > 0) {
+    throw new Error(
+      'По строке уже внесён итог — отменить нельзя. Это корректировка факта, а не отмена задания',
+    );
+  }
+  if (line.status === 'CANCELLED') {
+    throw new Error('Задание на этом РЦ уже отменено');
+  }
+
+  const cancellableStatuses: ProductionOrderStatus[] = ['IN_PROGRESS', 'READY_FOR_CLOSE'];
+  if (!cancellableStatuses.includes(line.order.status)) {
+    throw new Error('Отменить задание РЦ можно только в ПЗ, которое в работе или ждёт закрытия');
+  }
+
+  const result = await deps.prisma.$transaction(async (tx) => {
+    const updated = await tx.productionOrderLine.update({
+      where: { id: lineId },
+      data: {
+        status: 'CANCELLED',
+        cancellationReason: reason,
+        cancelledAt: new Date(),
+        cancelledByUserId: userId,
+      },
+    });
+
+    await deps.writeAudit(tx, {
+      action: 'UPDATE',
+      objectType: 'ProductionOrderLine',
+      objectId: lineId,
+      field: 'status',
+      oldValue: line.status,
+      newValue: 'CANCELLED',
+      userId,
+      userRoles: roles,
+      permission: 'production_order:confirm',
+    });
+
+    await deps.writeAudit(tx, {
+      action: 'UPDATE',
+      objectType: 'ProductionOrderLine',
+      objectId: lineId,
+      field: 'cancellationReason',
+      newValue: JSON.stringify({
+        reason,
+        workCenterCode: line.workCenter.code,
+        productCode: line.product.code,
+      }),
+      userId,
+      userRoles: roles,
+      permission: 'production_order:confirm',
+    });
+
+    await deps.writeTiming(tx, {
+      documentType: 'PRODUCTION_ORDER',
+      documentId: line.orderId,
+      entityType: 'LINE',
+      entityId: lineId,
+      fromStatus: line.status,
+      toStatus: 'CANCELLED',
+      initiatorRole: roles.find((role) => role === 'NP' || role === 'ADM'),
+      initiatorId: userId,
+    });
+
+    // Оставшиеся РЦ уже отчитались? Тогда ПЗ уходит в «Ожидает закрытия НП» и уведомляет НП.
+    const closing = await checkAndCloseProductionOrder(
+      line.orderId,
+      tx as unknown as PrismaLike,
+      session,
+      'production_order:confirm',
+    );
+    if (closing.readyForClose) {
+      await notifyEvent(tx, 'EV-12', { orderId: line.orderId });
+    }
+
+    return { orderId: updated.orderId, readyForClose: closing.readyForClose };
+  });
+
+  revalidatePath('/production-orders');
+  revalidatePath(`/production-orders/${result.orderId}`);
+  revalidatePath('/dashboard');
+  return result;
+}
+
+export async function cancelOrderLineAction(
+  lineId: string,
+  reason: string,
+): Promise<CancelOrderLineResult> {
+  try {
+    await cancelOrderLine(lineId, { reason });
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Не удалось отменить задание РЦ';
+    return { success: false, error: message };
+  }
 }
 
 export type CloseProductionOrderResult = { success: true } | { success: false; error: string };
@@ -1370,7 +1521,13 @@ export async function correctProductionFact(
           workCenter: true,
           // План работников: правка состава идёт по тем же правилам (T-093, этап 4).
           workerAssignments: { select: { employeeId: true } },
-          product: { select: { category: true } },
+          product: {
+            select: {
+              category: true,
+              massProductId: true,
+              massProduct: { select: { code: true } },
+            },
+          },
         },
       },
     },
@@ -1430,6 +1587,7 @@ export async function correctProductionFact(
   // не должна молча стирать состав потребления.
   const consumptionProvided = input.consumption !== undefined;
   const consumption = parseSubstitutionConsumption(input.consumption);
+  const factLineProductBinding = fact.line.product;
   if (fact.line.workCenter.producesMass && consumption.length > 0) {
     throw new Error('Потребление указывается только на ГП/ПФ-РЦ');
   }
@@ -1437,6 +1595,9 @@ export async function correctProductionFact(
   // ОПЭ-59 (14.11.2026): и в корректировке — иначе сохранённая ранее Масса вернётся на ЧЗ.
   assertConsumptionAllowedForWorkCenter(fact.line.workCenter.code, consumption);
   assertConsumptionMatchesLineProduct(fact.line.workCenter.code, fact.line.productId, consumption);
+  // 19.11.2026 (решение владельца): и корректировка не может списать чужую Массу.
+  // Смена Массы у изделия — это «Ввод за Оператора» с причиной, а не правка факта.
+  assertConsumptionMatchesProductBinding(factLineProductBinding, consumption);
 
   // Номенклатура нужна и для нового состава, и для прежнего: движения считаются по разнице,
   // а категория остатка берётся у потребляемой позиции.

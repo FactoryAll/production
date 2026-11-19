@@ -10,6 +10,7 @@ import {
   CHZ_REQUIRES_PF_STOCK_TEXT,
   isProductionOptionAllowed,
 } from '@/lib/consumable-stock';
+import { isPackagingWorkCenterAllowed } from '@/lib/gp-mass-binding';
 import {
   buildEmployeeOptions,
   isEligible,
@@ -22,6 +23,8 @@ interface ProductionOrderFormProps {
   products: Product[];
   /** Номенклатуры, у которых есть остаток ПФ: на РЦ 13 из них выбирается ГП (19.11.2026). */
   productIdsWithPfStock: string[];
+  /** РЦ фасовки по изделию (решение владельца 19.11.2026): пусто — все фасовочные. */
+  packagingCodesByProduct: Record<string, string[]>;
   /** Сотрудники с признаком допуска — только они попадают в список «Работники» (T-071). */
   workerEmployees: Employee[];
   /** Сотрудники с активной учётной записью роли ОПР — только они могут быть Оператором (T-070). */
@@ -64,6 +67,7 @@ export default function ProductionOrderForm({
   workCenters,
   products,
   productIdsWithPfStock,
+  packagingCodesByProduct,
   workerEmployees,
   operatorEmployees,
   shiftOptions,
@@ -110,7 +114,15 @@ export default function ProductionOrderForm({
         : product.category === 'GP';
       if (!fitsCategory) return false;
       // 19.11.2026 (решение владельца): на «Маркировке ЧЗ» — только ГП с остатком ПФ.
-      return isProductionOptionAllowed(workCenter.code, product.category, pfStock.has(product.id));
+      if (!isProductionOptionAllowed(workCenter.code, product.category, pfStock.has(product.id))) {
+        return false;
+      }
+      // И только те изделия, которые на этом РЦ действительно фасуют. Пустой список — «любой
+      // фасовочный РЦ»: привязки заполняются постепенно, и до заполнения поведение прежнее.
+      return isPackagingWorkCenterAllowed(
+        { packagingWorkCenterCodes: packagingCodesByProduct[product.id] },
+        workCenter.code,
+      );
     });
   }
 

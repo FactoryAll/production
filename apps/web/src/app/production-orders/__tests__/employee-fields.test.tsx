@@ -35,6 +35,9 @@ const workCenter: WorkCenter = {
 };
 const product: Product = {
   id: 'p-1', code: 'M-001', name: 'Масса', category: 'MASS', unit: 'кг', active: true,
+  // Привязки изделия (19.11.2026): у этой позиции их нет — правило не действует.
+  massProductId: null, tubeProductId: null, tubeProductCode: null, tubeProductName: null,
+  massQuantity: null, tubeQuantity: null,
   createdAt: new Date(), updatedAt: new Date(),
 };
 
@@ -43,6 +46,7 @@ function renderForm(overrides: { workerEmployees?: Employee[]; operatorEmployees
     <ProductionOrderForm
       workCenters={[workCenter]}
       productIdsWithPfStock={[]}
+      packagingCodesByProduct={{}}
       products={[product]}
       workerEmployees={overrides.workerEmployees ?? [operator, worker]}
       operatorEmployees={overrides.operatorEmployees ?? [operator]}

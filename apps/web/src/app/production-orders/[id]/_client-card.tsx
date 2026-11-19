@@ -190,6 +190,13 @@ function ConsumptionEditor({
 /** Строка ПЗ в карточке: факты и работники приходят вместе со строкой (см. `ProductionOrderCardProps`). */
 type OrderCardLine = ProductionOrderCardProps['order']['lines'][number];
 
+const LINE_STATUS_LABELS: Record<string, string> = {
+  ASSIGNED: 'Назначена',
+  ACCEPTED: 'Принята',
+  REPORTED: 'Отчитана',
+  CANCELLED: 'Отменена',
+};
+
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Черновик',
   CONFIRMED: 'Подтверждено',
@@ -420,6 +427,10 @@ export default function ProductionOrderCard({
   const [substituteError, setSubstituteError] = useState<string | null>(null);
   const [showCorrectFactDialog, setShowCorrectFactDialog] = useState(false);
   const [correctFactId, setCorrectFactId] = useState<string | null>(null);
+  // 19.11.2026 (фидбэк НП): отмена задания на РЦ — только НП/АДМ и только без внесённого итога.
+  const [cancelLineId, setCancelLineId] = useState<string | null>(null);
+  const [lineCancelReason, setLineCancelReason] = useState('');
+  const [lineCancelError, setLineCancelError] = useState<string | null>(null);
   // ОПЭ-78: версия факта, которую человек видит в открытой форме. Если за это время факт
   // поправил кто-то другой, сервер откажет, а не затрёт чужое значение нашим старым.
   const [correctExpectedUpdatedAt, setCorrectExpectedUpdatedAt] = useState<string | null>(null);
@@ -498,17 +509,22 @@ export default function ProductionOrderCard({
   }
   // 14.11.2026 (фидбэк НП): ПЗ закрывает начальник производства своей командой.
   // Показываем кнопку, когда все РЦ внесли итоги и ПЗ ещё не закрыто.
-  const allLinesReported =
-    order.lines.length > 0 && order.lines.every((line) => line.status === 'REPORTED');
+  // 19.11.2026: отменённая строка тоже «решена» — иначе после отмены задания РЦ кнопка
+  // «Закрыть ПЗ» исчезала, хотя сервер закрытие уже разрешал.
+  const allLinesResolved =
+    order.lines.length > 0 &&
+    order.lines.every((line) => line.status === 'REPORTED' || line.status === 'CANCELLED');
   const canCloseOrder =
-    allLinesReported &&
+    allLinesResolved &&
     (order.status === 'IN_PROGRESS' || order.status === 'READY_FOR_CLOSE') &&
-    hasPermission(userRoles, 'production_order:confirm');  const canViewShiftReport = isCompleted && hasPermission(userRoles, 'production_order:read');
+    hasPermission(userRoles, 'production_order:confirm');
+  const canViewShiftReport = isCompleted && hasPermission(userRoles, 'production_order:read');
   const canCancel =
     (order.status === 'DRAFT' || order.status === 'CONFIRMED') &&
     !hasReportedLine &&
     hasPermission(userRoles, 'production_order:confirm');
   const reportedCount = order.lines.filter((line) => line.status === 'REPORTED').length;
+  const cancelledCount = order.lines.filter((line) => line.status === 'CANCELLED').length;
   const totalCount = order.lines.length;
 
   function handleCloseOrder() {
@@ -557,6 +573,34 @@ export default function ProductionOrderCard({
       } else {
         setCancelError(result.error ?? 'Не удалось отменить ПЗ');
       }
+    });
+  }
+
+  /** Может ли текущий пользователь отменить задание на этом РЦ. */
+  function canCancelLine(line: OrderCardLine): boolean {
+    const allowedStatuses = order.status === 'IN_PROGRESS' || order.status === 'READY_FOR_CLOSE';
+    const lineCancellable = line.status === 'ASSIGNED' || line.status === 'ACCEPTED';
+    return (
+      allowedStatuses &&
+      lineCancellable &&
+      line.facts.length === 0 &&
+      hasPermission(userRoles, 'production_order:confirm')
+    );
+  }
+
+  function handleCancelLine() {
+    if (!cancelLineId) return;
+    setLineCancelError(null);
+    startTransition(async () => {
+      const { cancelOrderLineAction } = await import('../actions');
+      const result = await cancelOrderLineAction(cancelLineId, lineCancelReason);
+      if (!result.success) {
+        setLineCancelError(result.error ?? 'Не удалось отменить задание РЦ');
+        return;
+      }
+      setCancelLineId(null);
+      setCancelReason('');
+      router.refresh();
     });
   }
 
@@ -960,7 +1004,7 @@ export default function ProductionOrderCard({
         )}
         {isInProgress && (
           <span className="text-sm text-neutral-500">
-            {reportedCount} из {totalCount} РЦ завершили
+            {reportedCount} из {totalCount} РЦ завершили{cancelledCount > 0 ? `, отменено: ${cancelledCount}` : ''}
           </span>
         )}
       </div>
@@ -987,7 +1031,10 @@ export default function ProductionOrderCard({
         </div>
         <div>
           <span className="text-sm text-neutral-500">Прогресс</span>
-          <p className="text-graphite">{reportedCount} из {totalCount} РЦ отчитались</p>
+          <p className="text-graphite">
+            {reportedCount} из {totalCount} РЦ отчитались
+            {cancelledCount > 0 && `, заданий отменено: ${cancelledCount}`}
+          </p>
         </div>
         {isCompleted && (
           <div>
@@ -1050,7 +1097,12 @@ export default function ProductionOrderCard({
                     {line.operator ? line.operator.fullName : '—'}
                   </td>
                   <td className="border-b border-mist-metal px-4 py-3 text-graphite">
-                    {STATUS_LABELS[line.status] ?? line.status}
+                    {LINE_STATUS_LABELS[line.status] ?? line.status}
+                    {/* 19.11.2026: отменённая строка обязана объяснять себя — иначе недостающий
+                        выпуск будут искать как ошибку. */}
+                    {line.status === 'CANCELLED' && line.cancellationReason && (
+                      <p className="mt-1 text-xs text-machine-gray">Причина: {line.cancellationReason}</p>
+                    )}
                   </td>
                   <td className="border-b border-mist-metal px-4 py-3 text-graphite align-top">
                     {line.facts.length > 0 ? (
@@ -1114,6 +1166,17 @@ export default function ProductionOrderCard({
                           className="w-full"
                         >
                           Ввести за Оператора
+                        </Button>
+                      )}
+                      {canCancelLine(line) && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled={isPending}
+                          onClick={() => setCancelLineId(line.id)}
+                          className="w-full"
+                        >
+                          Отменить задание РЦ
                         </Button>
                       )}
                       {canCreateTransfer && line.product.category === 'GP' && hasProducedGp(line) && (
@@ -1197,6 +1260,60 @@ export default function ProductionOrderCard({
             </Button>
           </div>
         </form>
+      </Dialog>
+
+      <Dialog
+        open={cancelLineId !== null}
+        onClose={() => {
+          setCancelLineId(null);
+          setLineCancelReason('');
+          setLineCancelError(null);
+        }}
+        size="md"
+        title="Отменить задание на РЦ"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-graphite">
+            Задание на этом РЦ будет помечено отменённым: итог по нему никто не внесёт, движений
+            по складу не будет, в 1С строка не уйдёт.
+          </p>
+          <div className="space-y-2">
+            <Label htmlFor="cancel-line-reason">Причина отмены</Label>
+            <textarea
+              id="cancel-line-reason"
+              value={lineCancelReason}
+              onChange={(event) => setLineCancelReason(event.target.value)}
+              rows={3}
+              required
+              placeholder="Например: РЦ остановлен из-за поломки узла, работа перенесена на следующую смену"
+              className="flex min-h-[80px] w-full rounded-md border border-mist-metal bg-white px-3 py-2 text-base text-graphite placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-deep-industry-blue"
+            />
+            <p className="text-xs text-machine-gray">Не короче 10 символов.</p>
+          </div>
+          {lineCancelError && <p className="text-sm text-signal-amber">{lineCancelError}</p>}
+          <div className="flex justify-end gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setCancelLineId(null);
+                setLineCancelReason('');
+                setLineCancelError(null);
+              }}
+              disabled={isPending}
+            >
+              Отмена
+            </Button>
+            <Button
+              type="button"
+              variant="cta"
+              onClick={handleCancelLine}
+              disabled={isPending || lineCancelReason.trim().length < 10}
+            >
+              {isPending ? 'Отменяем...' : 'Отменить задание'}
+            </Button>
+          </div>
+        </div>
       </Dialog>
 
       <Dialog

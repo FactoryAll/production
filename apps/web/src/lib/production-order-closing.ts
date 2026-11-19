@@ -100,8 +100,12 @@ export async function checkAndCloseProductionOrder(
     return { closed: false, status, readyForClose: false };
   }
 
-  const allReported = order.lines.every((line) => line.status === 'REPORTED');
-  if (!allReported) {
+  // 19.11.2026: отменённая строка (РЦ сломался, НП отменил задание) тоже «решена» —
+  // иначе одно поломанное РЦ держало бы всё ПЗ и закрыть его было бы нечем.
+  const allResolved = order.lines.every(
+    (line) => line.status === 'REPORTED' || line.status === 'CANCELLED',
+  );
+  if (!allResolved) {
     return { closed: false, status, readyForClose: false };
   }
 
@@ -160,8 +164,11 @@ export async function closeProductionOrderByNP(
     throw new Error('ПЗ уже закрыто или отменено');
   }
 
-  if (order.lines.length === 0 || !order.lines.every((line) => line.status === 'REPORTED')) {
-    throw new Error('Закрыть ПЗ можно только когда все РЦ внесли итоги');
+  if (
+    order.lines.length === 0 ||
+    !order.lines.every((line) => line.status === 'REPORTED' || line.status === 'CANCELLED')
+  ) {
+    throw new Error('Закрыть ПЗ можно только когда все РЦ внесли итоги или их задания отменены');
   }
 
   const updated = await prisma.productionOrder.update({

@@ -9,6 +9,7 @@ import {
   assertOutputAllowedForWorkCenter,
 } from '@/lib/consumable-stock';
 import { requireShiftWindow } from '@/lib/auth/require-shift-window';
+import { assertConsumptionMatchesProductBinding } from '@/lib/gp-mass-binding';
 import { notificationCategoryOfFacts, notifyEvent } from '@/lib/events/notify';
 import { hasPermission, getAttributeRole } from '@prodtrack/contracts';
 import {
@@ -242,7 +243,14 @@ function parseOutputByCategory(
 async function validateReportLikeInput(
   input: ReportFactInput,
   deps: { prisma: typeof prisma; getAvailableBalance: typeof getAvailableBalance; applyStockMovements: typeof applyStockMovements },
-  line: ProductionOrderLine & { product: { category: ProductCategory }; workCenter: { producesMass: boolean; code: string } },
+  line: ProductionOrderLine & {
+    product: {
+      category: ProductCategory;
+      massProductId?: string | null;
+      massProduct?: { code: string } | null;
+    };
+    workCenter: { producesMass: boolean; code: string };
+  },
 ): Promise<{ outputByCategory: Partial<Record<FactCategoryInput, Prisma.Decimal>>; defectQuantity: Prisma.Decimal; stopsCount: number; stopsDurationMinutes: number; consumption: ConsumptionInput[]; warnings: string[] }> {
   const outputByCategory = parseOutputByCategory(
     line.product.category,
@@ -282,6 +290,9 @@ async function validateReportLikeInput(
   assertConsumptionAllowedForWorkCenter(line.workCenter.code, consumption);
   // 18.11.2026: ПФ — только номенклатура строки (иначе списывался чужой полуфабрикат).
   assertConsumptionMatchesLineProduct(line.workCenter.code, line.productId, consumption);
+  // 19.11.2026 (решение владельца): у готовой продукции одна Масса — списывать чужую нельзя.
+  // В обычном вводе отклонения нет: смена Массы оформляется через «Ввести за Оператора» с причиной.
+  assertConsumptionMatchesProductBinding(line.product, consumption);
 
   const seenProducts = new Set<string>();
   for (const item of consumption) {
@@ -484,7 +495,17 @@ export async function reportProductionFact(
     include: {
       operator: true,
       order: true,
-      product: true,
+      product: {
+        select: {
+          id: true,
+          category: true,
+          unit: true,
+          // Привязка изделия (19.11.2026): какая Масса разрешена этой готовой продукции.
+          massProductId: true,
+          massProduct: { select: { code: true, name: true } },
+          massQuantity: true,
+        },
+      },
       workCenter: true,
       // План работников: по нему оператор подтверждает состав (T-093, §5 постановки).
       workerAssignments: { select: { employeeId: true } },

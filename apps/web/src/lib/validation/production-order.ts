@@ -1,6 +1,7 @@
 import type { PrismaClient, WorkCenter, Product, Employee } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 import { CHZ_REQUIRES_PF_STOCK_TEXT, isProductionOptionAllowed } from '@/lib/consumable-stock';
+import { isPackagingWorkCenterAllowed } from '@/lib/gp-mass-binding';
 
 const Decimal = Prisma.Decimal;
 
@@ -76,11 +77,24 @@ export async function validateProductionOrder(
   const productIds = [...new Set(input.lines.map((line) => line.productId).filter(Boolean))];
   const operatorIds = [...new Set(input.lines.map((line) => line.operatorId).filter(Boolean))];
 
-  const [workCenters, products, employees] = await Promise.all([
+  const [workCenters, products, employees, packagingRows] = await Promise.all([
     prisma.workCenter.findMany({ where: { id: { in: workCenterIds } } }),
     prisma.product.findMany({ where: { id: { in: productIds } } }),
     prisma.employee.findMany({ where: { id: { in: operatorIds } } }),
+    // 19.11.2026 (решение владельца): на каких РЦ фасуется изделие.
+    prisma.productPackagingWorkCenter.findMany({
+      where: { productId: { in: productIds } },
+      select: { productId: true, workCenter: { select: { code: true } } },
+    }),
   ]);
+
+  const packagingCodesByProduct = new Map<string, string[]>();
+  for (const row of packagingRows) {
+    packagingCodesByProduct.set(row.productId, [
+      ...(packagingCodesByProduct.get(row.productId) ?? []),
+      row.workCenter.code,
+    ]);
+  }
 
   // 19.11.2026 (решение владельца): на РЦ 13 «Маркировка ЧЗ» в план идёт только ГП, у которой
   // есть остаток ПФ. Форма такой список уже показывает, но список в форме — подсказка,
@@ -131,6 +145,20 @@ export async function validateProductionOrder(
     const lineResult = await validateProductionOrderLine(line, workCenter, product, operator);
     for (const err of lineResult.errors) {
       errors.push(err + ' (строка ' + row + ')');
+    }
+
+    // 19.11.2026: изделие планируется только на тех РЦ, где его действительно фасуют.
+    // Пустой список — «любой фасовочный РЦ» (привязки заполняются постепенно).
+    if (
+      product.category === 'GP' &&
+      !isPackagingWorkCenterAllowed(
+        { packagingWorkCenterCodes: packagingCodesByProduct.get(product.id) ?? [] },
+        workCenter.code,
+      )
+    ) {
+      errors.push(
+        `Изделие «${product.name}» не фасуется на РЦ ${workCenter.code} — выберите другой РЦ (строка ${row})`,
+      );
     }
 
     // «Маркировать нечего»: у ГП строки РЦ 13 нет остатка ПФ на складе.

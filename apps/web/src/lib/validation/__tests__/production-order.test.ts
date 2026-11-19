@@ -150,6 +150,8 @@ describe('validateProductionOrder', () => {
     employees?: Employee[];
     /** У каких номенклатур есть остаток ПФ на складе (правило РЦ 13). */
     pfStockProductIds?: string[];
+    /** РЦ фасовки по изделию: `[код изделия, коды РЦ]`. */
+    packagingByProduct?: Array<[string, string[]]>;
   } = {}) {
     const resolvedShift = overrides.shift !== undefined ? overrides.shift : {
       id: 'shift-1',
@@ -178,6 +180,13 @@ describe('validateProductionOrder', () => {
       // 19.11.2026: правило РЦ 13 читает остатки ПФ, чтобы понять, есть ли из чего маркировать.
       stockBalance: {
         findMany: vi.fn().mockResolvedValue(overrides.pfStockProductIds?.map((productId) => ({ productId })) ?? []),
+      },
+      // 19.11.2026: и РЦ фасовки изделия — по умолчанию пусто, значит «любой фасовочный РЦ».
+      productPackagingWorkCenter: {
+        findMany: vi.fn().mockResolvedValue(
+          (overrides.packagingByProduct ?? [])
+            .flatMap(([productId, codes]) => codes.map((code) => ({ productId, workCenter: { code } }))),
+        ),
       },
     } as unknown as Parameters<typeof validateProductionOrder>[1];
   }
@@ -317,6 +326,23 @@ describe('validateProductionOrder', () => {
 
     expect(result.valid).toBe(false);
     expect(result.errors.join(' ')).toContain('только ГП, у которой есть остаток ПФ');
+  });
+
+  it('не пропускает изделие на РЦ, где его не фасуют (19.11.2026)', async () => {
+    const rc03 = makeWorkCenter({ id: 'wc-03', code: '03', name: 'Тубировка', producesMass: false });
+    const gp = makeProduct({ id: 'gp-1', code: 'GP-001', name: 'Крем', category: 'GP', unit: 'шт' });
+    const prisma = makeMockPrisma({ workCenters: [rc03], products: [gp], packagingByProduct: [['gp-1', ['04']]] });
+
+    const result = await validateProductionOrder(
+      {
+        shiftId: 'shift-1',
+        lines: [{ workCenterId: 'wc-03', productId: 'gp-1', plannedQuantity: 10, operatorId: 'emp-1' }],
+      },
+      prisma,
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.join(' ')).toContain('не фасуется на РЦ 03');
   });
 
   it('пропускает на РЦ 13 ГП, у которой остаток ПФ есть', async () => {

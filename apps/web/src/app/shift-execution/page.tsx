@@ -34,6 +34,9 @@ async function getOperatorLines(employeeId: string) {
   return prisma.productionOrderLine.findMany({
     where: {
       operatorId: employeeId,
+      // 19.11.2026: отменённое задание РЦ оператору не показываем — вносить итог по нему нельзя,
+      // а висящая строка выглядит как забытая работа.
+      status: { not: 'CANCELLED' },
       order: {
         status: {
           in: ['CONFIRMED', 'IN_PROGRESS'],
@@ -47,7 +50,12 @@ async function getOperatorLines(employeeId: string) {
         },
       },
       workCenter: true,
-      product: true,
+      product: {
+        include: {
+          // Привязка изделия (19.11.2026): какая Масса идёт в эту готовую продукцию.
+          massProduct: { select: { code: true, name: true } },
+        },
+      },
       // План работников: оператор подтверждает назначенный состав при вводе итога (T-093).
       workerAssignments: { include: { employee: true } },
       facts: {
