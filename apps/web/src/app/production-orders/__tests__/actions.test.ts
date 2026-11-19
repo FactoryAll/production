@@ -142,6 +142,10 @@ function buildMockPrisma(overrides: {
     product: {
       findMany: vi.fn().mockResolvedValue(products),
     },
+    // 19.11.2026: проверка «на этом РЦ изделие фасуют». Пусто — ограничения нет.
+    productPackagingWorkCenter: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
     employee: {
       findMany: vi.fn().mockResolvedValue(employees),
     },

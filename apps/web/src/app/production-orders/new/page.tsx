@@ -8,6 +8,7 @@ export default async function NewProductionOrderPage() {
     workCenters,
     products,
     productIdsWithPfStock,
+    packagingCodesByProduct,
     workerEmployees,
     operatorEmployees,
     shiftOptions,
@@ -20,6 +21,7 @@ export default async function NewProductionOrderPage() {
       workCenters={workCenters}
       products={products}
       productIdsWithPfStock={productIdsWithPfStock}
+      packagingCodesByProduct={packagingCodesByProduct}
       workerEmployees={workerEmployees}
       operatorEmployees={operatorEmployees}
       shiftOptions={shiftOptions}

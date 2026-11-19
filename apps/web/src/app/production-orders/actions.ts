@@ -257,17 +257,31 @@ export async function getProductionOrderCreateData() {
   // 19.11.2026 (решение владельца): на РЦ 13 в плане должна быть только та ГП, у которой
   // есть остаток ПФ — иначе строку нечем исполнить. Форме отдаём набор таких номенклатур,
   // сервер проверяет то же правило сам.
-  const pfBalances = await prisma.stockBalance.findMany({
-    where: { stockCategory: 'PF', warehouse: { type: 'PRODUCTION' }, quantity: { gt: 0 } },
-    select: { productId: true },
-  });
+  const [pfBalances, packagingRows] = await Promise.all([
+    prisma.stockBalance.findMany({
+      where: { stockCategory: 'PF', warehouse: { type: 'PRODUCTION' }, quantity: { gt: 0 } },
+      select: { productId: true },
+    }),
+    // 19.11.2026 (решение владельца): у изделия может быть несколько РЦ, на которых его фасуют.
+    prisma.productPackagingWorkCenter.findMany({
+      select: { productId: true, workCenter: { select: { code: true } } },
+    }),
+  ]);
   const productIdsWithPfStock = [...new Set(pfBalances.map((balance) => balance.productId))];
+  const packagingCodesByProduct: Record<string, string[]> = {};
+  for (const row of packagingRows) {
+    packagingCodesByProduct[row.productId] = [
+      ...(packagingCodesByProduct[row.productId] ?? []),
+      row.workCenter.code,
+    ];
+  }
 
   // T-075: смена выбирается в форме ПЗ как «дата + номер смены», запись смены система создаёт сама.
   return {
     workCenters,
     products,
     productIdsWithPfStock,
+    packagingCodesByProduct,
     workerEmployees,
     operatorEmployees,
     shiftOptions: buildShiftOptions(),
