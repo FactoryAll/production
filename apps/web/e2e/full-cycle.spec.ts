@@ -157,7 +157,8 @@ test('Сквозной смоук контура: ПЗ → факт → пере
 
   // 2. НСИ
   await page.goto('/nsi/work-centers');
-  await expect(page.getByText('01.Реактор')).toBeVisible();
+  // С 26.10.2026 имена РЦ хранятся без кода: миграция сняла префикс «01.».
+  await expect(page.getByText('Реактор').first()).toBeVisible();
 
   // 3. ПЗ создаётся через форму
   await page.goto('/production-orders/new');
@@ -191,8 +192,13 @@ test('Сквозной смоук контура: ПЗ → факт → пере
   await page.locator('div:has(> label:has-text("Длительность, мин.")) > input').fill('0');
   await page.locator('button:has-text("Внести итог")').nth(1).evaluate((el) => (el as HTMLButtonElement).click());
   await page.waitForTimeout(2000);
-  // ПЗ с единственным РЦ закрывается сразу после внесения итога (Р-04).
+  // С 14.11.2026 ПЗ само не закрывается: операторы отчитались — задание ждёт начальника
+  // производства («Ожидает закрытия НП»), и только его кнопка «Закрыть ПЗ» даёт «Завершено».
   await page.goto('/production-orders/' + orderId);
+  await expect(page.locator('text=Ожидает закрытия НП').first()).toBeVisible();
+  await login(page, ctx.npLogin, ctx.npPassword);
+  await page.goto('/production-orders/' + orderId);
+  await page.getByRole('button', { name: 'Закрыть ПЗ' }).click();
   await expect(page.locator('text=Завершено').first()).toBeVisible();
 
   // 6. Остатки: выпуск ГП пришёл на Производственный склад

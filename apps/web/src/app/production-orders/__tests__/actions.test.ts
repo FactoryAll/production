@@ -2764,6 +2764,64 @@ describe('correctProductionFact', () => {
     });
   });
 
+  // ОПЭ-78 (19.11.2026): «ввёл 150 — вижу 148». Форма, открытая до чужой правки, затирала
+  // новое значение старым. Теперь экран присылает версию факта; разошлась — отказ.
+  it('отказывает, если факт изменился, пока карточка была открыта (ОПЭ-78)', async () => {
+    const fact = buildMockProductionFact();
+    const deps = buildCorrectFactDeps(fact, ['NP'], [massConsumable]);
+
+    await expect(
+      correctProductionFact(
+        'fact-1',
+        {
+          quantity: 150,
+          correctionReason: 'Правка',
+          expectedUpdatedAt: new Date('2020-01-01T00:00:00Z').toISOString(),
+        },
+        correctionDeps(deps),
+      ),
+    ).rejects.toThrow('Факт уже изменён');
+
+    expect(deps.consumptionCreateMany).not.toHaveBeenCalled();
+    expect(deps.applyStockMovements).not.toHaveBeenCalled();
+  });
+
+  it('сохраняет правку, если версия факта совпадает (ОПЭ-78)', async () => {
+    const fact = buildMockProductionFact();
+    const deps = buildCorrectFactDeps(fact, ['NP'], [massConsumable]);
+
+    await correctProductionFact(
+      'fact-1',
+      {
+        quantity: 47,
+        correctionReason: 'Правка',
+        expectedUpdatedAt: new Date(fact.updatedAt).toISOString(),
+      },
+      correctionDeps(deps),
+    );
+
+    expect(deps.tx.productionFact.update).toHaveBeenCalled();
+  });
+
+  it('ловит расхождение «набрали одно — ушло другое» в корректировке (ОПЭ-78)', async () => {
+    const fact = buildMockProductionFact();
+    const deps = buildCorrectFactDeps(fact, ['NP'], [massConsumable]);
+
+    await expect(
+      correctProductionFact(
+        'fact-1',
+        {
+          quantity: 148,
+          correctionReason: 'Правка',
+          outputRaw: '150',
+        },
+        correctionDeps(deps),
+      ),
+    ).rejects.toThrow('Выпуск изменился при отправке');
+
+    expect(deps.tx.productionFact.update).not.toHaveBeenCalled();
+  });
+
   it('не трогает потребление, если поле не передано (правка выпуска)', async () => {
     const fact = buildGpFactWithConsumption([{ productId: 'mass-1', quantity: new Decimal(30) }]);
     const deps = buildCorrectFactDeps(fact, ['NP'], [massConsumable]);

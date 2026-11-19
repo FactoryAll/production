@@ -1,5 +1,6 @@
 import type { PrismaClient, WorkCenter, Product, Employee } from '@prisma/client';
 import { Prisma } from '@prisma/client';
+import { CHZ_REQUIRES_PF_STOCK_TEXT, isProductionOptionAllowed } from '@/lib/consumable-stock';
 
 const Decimal = Prisma.Decimal;
 
@@ -81,6 +82,26 @@ export async function validateProductionOrder(
     prisma.employee.findMany({ where: { id: { in: operatorIds } } }),
   ]);
 
+  // 19.11.2026 (решение владельца): на РЦ 13 «Маркировка ЧЗ» в план идёт только ГП, у которой
+  // есть остаток ПФ. Форма такой список уже показывает, но список в форме — подсказка,
+  // а не проверка: строку можно прислать и в обход неё.
+  const hasChzLine = workCenters.some((workCenter) => workCenter.code === '13');
+  const productIdsWithPfStock = new Set<string>();
+  if (hasChzLine && productIds.length > 0) {
+    const pfBalances = await prisma.stockBalance.findMany({
+      where: {
+        productId: { in: productIds },
+        stockCategory: 'PF',
+        warehouse: { type: 'PRODUCTION' },
+        quantity: { gt: 0 },
+      },
+      select: { productId: true },
+    });
+    for (const balance of pfBalances) {
+      productIdsWithPfStock.add(balance.productId);
+    }
+  }
+
   const workCenterById = new Map(workCenters.map((wc) => [wc.id, wc]));
   const productById = new Map(products.map((p) => [p.id, p]));
   const employeeById = new Map(employees.map((e) => [e.id, e]));
@@ -110,6 +131,14 @@ export async function validateProductionOrder(
     const lineResult = await validateProductionOrderLine(line, workCenter, product, operator);
     for (const err of lineResult.errors) {
       errors.push(err + ' (строка ' + row + ')');
+    }
+
+    // «Маркировать нечего»: у ГП строки РЦ 13 нет остатка ПФ на складе.
+    if (
+      !isProductionOptionAllowed(workCenter.code, product.category, productIdsWithPfStock.has(product.id)) &&
+      workCenter.code === '13'
+    ) {
+      errors.push(CHZ_REQUIRES_PF_STOCK_TEXT + ' (строка ' + row + ')');
     }
   }
 

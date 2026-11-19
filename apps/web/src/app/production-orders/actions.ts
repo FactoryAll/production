@@ -253,10 +253,20 @@ export async function getProductionOrderCreateData() {
     }),
   ]);
 
+  // 19.11.2026 (решение владельца): на РЦ 13 в плане должна быть только та ГП, у которой
+  // есть остаток ПФ — иначе строку нечем исполнить. Форме отдаём набор таких номенклатур,
+  // сервер проверяет то же правило сам.
+  const pfBalances = await prisma.stockBalance.findMany({
+    where: { stockCategory: 'PF', warehouse: { type: 'PRODUCTION' }, quantity: { gt: 0 } },
+    select: { productId: true },
+  });
+  const productIdsWithPfStock = [...new Set(pfBalances.map((balance) => balance.productId))];
+
   // T-075: смена выбирается в форме ПЗ как «дата + номер смены», запись смены система создаёт сама.
   return {
     workCenters,
     products,
+    productIdsWithPfStock,
     workerEmployees,
     operatorEmployees,
     shiftOptions: buildShiftOptions(),
@@ -1368,6 +1378,30 @@ export async function correctProductionFact(
 
   if (!fact) {
     throw new Error('Факт не найден');
+  }
+
+  // Прибор ОПЭ-78 и в этом пути (13.11.2026 он стоял только на «Вводе за Оператора»):
+  // сырое значение из поля выпуска против разобранного. Расхождение — это «набрали одно,
+  // ушло другое»; такое обязано падать, а не сохраняться молча.
+  if (input.outputRaw !== undefined && input.outputRaw !== '') {
+    assertSubmittedValuesMatch(
+      { [fact.factCategory]: input.outputRaw } as Partial<Record<'MASS' | 'GP' | 'PF', string>>,
+      { [fact.factCategory]: quantity } as Partial<Record<'MASS' | 'GP' | 'PF', Prisma.Decimal>>,
+    );
+  }
+
+  // ОПЭ-78 (19.11.2026): «ввёл 150 — вижу 148». Форма, открытая до чужой правки, затирала
+  // новое значение старым, и по данным нельзя было понять, что это произошло. Теперь экран
+  // присылает версию факта, которую видел человек; если факт с тех пор изменился — отказ,
+  // а не тихая перезапись. При отказе не меняется ничего.
+  if (input.expectedUpdatedAt) {
+    const expected = new Date(input.expectedUpdatedAt).getTime();
+    if (Number.isFinite(expected) && fact.updatedAt.getTime() !== expected) {
+      throw new Error(
+        'Факт уже изменён: пока карточка была открыта, его поправил кто-то другой. ' +
+          'Обновите страницу и повторите — введённое число не сохранено',
+      );
+    }
   }
 
   // ОПЭ-39 (решение владельца 23.10.2026): факт, уже проведённый в 1С, править нельзя.

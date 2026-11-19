@@ -35,6 +35,7 @@ function renderForm() {
   return render(
     <ProductionOrderForm
       workCenters={[workCenter]}
+      productIdsWithPfStock={[]}
       products={[gel, cream, mass]}
       workerEmployees={[operator]}
       operatorEmployees={[operator]}

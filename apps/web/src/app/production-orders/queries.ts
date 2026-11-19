@@ -11,7 +11,17 @@ import { parsePageParam, toPageResult, type PageResult } from '@/lib/pagination'
 /** Размер страницы списка ПЗ. */
 export const ORDERS_PAGE_SIZE = 50;
 
-export const ORDER_STATUSES = ['DRAFT', 'CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const;
+// 19.11.2026, фидбэк НП: в фильтре не было статуса «Ожидает закрытия НП» (READY_FOR_CLOSE).
+// Он появился 14.11, когда ПЗ перестало закрываться само: операторы отчитались — ПЗ ждёт НП,
+// и именно эти задания НП и ищет в списке. Порядок — как в жизни документа, а не как в enum.
+export const ORDER_STATUSES = [
+  'DRAFT',
+  'CONFIRMED',
+  'IN_PROGRESS',
+  'READY_FOR_CLOSE',
+  'COMPLETED',
+  'CANCELLED',
+] as const;
 
 export type OrderStatusFilter = 'ALL' | (typeof ORDER_STATUSES)[number];
 

@@ -71,8 +71,8 @@ test.afterAll(async () => {
 async function loginAsAdmin(page: import('@playwright/test').Page) {
   await page.context().clearCookies();
   await page.goto('/login');
-  await page.getByLabel('Логин').fill('admin');
-  await page.getByLabel('Пароль').fill('admin123');
+  await page.getByLabel('Логин').fill('test_admin');
+  await page.getByLabel('Пароль').fill('admin12345');
   await page.getByRole('button', { name: 'Войти' }).click();
   await page.waitForURL(/\/dashboard/, { timeout: 60000 });
 }
