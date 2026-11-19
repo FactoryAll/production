@@ -95,6 +95,10 @@ model Product {
   massUsedFor         Product[]             @relation("ProductMass")
   tubeProductId       String?
   tubeProduct         Product?              @relation("ProductTube", fields: [tubeProductId], references: [id], onDelete: SetNull)
+  /// Код и наименование Тубы из спецификации 1С. Нужны, пока Тубы нет в номенклатуре:
+  /// появится с параллельным производством, и эти поля свяжутся ссылкой `tubeProductId`.
+  tubeProductCode     String?
+  tubeProductName     String?
   tubeUsedFor         Product[]             @relation("ProductTube")
   /// Норма Массы на единицу продукции (кг) — из спецификации 1С.
   massQuantity        Decimal?              @db.Decimal(18, 4)
