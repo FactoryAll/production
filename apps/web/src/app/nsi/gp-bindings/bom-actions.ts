@@ -32,13 +32,22 @@ export interface BomPreviewResult {
 
 async function loadCatalogue(): Promise<CatalogueEntry[]> {
   const products = await prisma.product.findMany({
-    select: { code: true, name: true, category: true, active: true },
+    select: {
+      code: true,
+      name: true,
+      category: true,
+      active: true,
+      massProduct: { select: { code: true } },
+      tubeProductCode: true,
+    },
   });
   return products.map((product) => ({
     code: product.code,
     name: product.name,
     category: product.category,
     active: product.active,
+    currentMassCode: product.massProduct?.code ?? null,
+    currentTubeCode: product.tubeProductCode ?? null,
   }));
 }
 

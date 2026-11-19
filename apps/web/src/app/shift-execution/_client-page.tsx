@@ -204,6 +204,12 @@ export default function ShiftExecutionPage({
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState(emptyReportForm());
   /**
+   * 19.11.2026 (уточнение владельца): количество Массы считается из нормы BOM по введённому
+   * выпуску ГП. Как только оператор поправил количество руками — перестаём пересчитывать,
+   * иначе система затрёт его число.
+   */
+  const [autoMassQuantity, setAutoMassQuantity] = useState(true);
+  /**
    * Что поля выпуска проходили по ходу ввода (13.11.2026) — то же, что сделано в карточке ПЗ
    * для «Ввести за Оператора». Пользователи видят «ввёл 1224 — вижу 1223» только на проде,
    * поэтому журнал ввода нужен и здесь: по нему видно, набирали ли 1224 и когда значение сменилось.
@@ -305,21 +311,18 @@ export default function ShiftExecutionPage({
         massQuantity?: { toString(): string } | null;
       };
       if (binding.massProductId) {
-        const norm = binding.massQuantity ? Number(binding.massQuantity.toString()) : null;
-        const planned = Number(line.plannedQuantity.toString());
-        const suggested = norm !== null && Number.isFinite(planned) && planned > 0 ? Math.round(norm * planned) : 0;
+        // 19.11.2026 (уточнение владельца): количество заранее НЕ подставляем — оно считается
+        // из нормы после того, как оператор введёт выпуск ГП. Строка с привязанной Массой
+        // уже стоит, чтобы её не искали в списке.
         base.consumption = [
-          {
-            productId: binding.massProductId,
-            quantity: suggested > 0 ? String(suggested) : '',
-            stockCategory: 'MASS',
-          },
+          { productId: binding.massProductId, quantity: '', stockCategory: 'MASS' },
         ];
       }
     }
     base.workers = buildWorkerRows(line);
     setForm(base);
     outputHistory.current = [];
+    setAutoMassQuantity(true);
     setError(null);
     setFieldErrors({});
     setBalances({});
@@ -468,6 +471,38 @@ export default function ShiftExecutionPage({
         setError(result.error ?? 'Не удалось подтвердить получение');
       }
     });
+  }
+
+  /** Количество Массы = норма BOM × выпуск ГП. Пусто, если нормы нет или выпуск не введён. */
+  function recalcMassQuantity(nextOutput: string) {
+    if (!autoMassQuantity || !dialogState) return;
+    const product = dialogState.line.product as {
+      massProductId?: string | null;
+      massQuantity?: { toString(): string } | null;
+    };
+    if (!product.massProductId) return;
+    const norm = product.massQuantity ? Number(product.massQuantity.toString()) : null;
+    const output = Number(nextOutput);
+    if (norm === null || !Number.isFinite(output) || output <= 0) {
+      setForm((f) => ({
+        ...f,
+        consumption: f.consumption.map((row) =>
+          row.productId === product.massProductId && row.stockCategory === 'MASS'
+            ? { ...row, quantity: '' }
+            : row,
+        ),
+      }));
+      return;
+    }
+    const quantity = String(Math.round(norm * output));
+    setForm((f) => ({
+      ...f,
+      consumption: f.consumption.map((row) =>
+        row.productId === product.massProductId && row.stockCategory === 'MASS'
+          ? { ...row, quantity }
+          : row,
+      ),
+    }));
   }
 
   function addConsumptionRow() {
@@ -818,6 +853,7 @@ const result: CorrectFactResult = await correctFactByOperatorAction(dialogState.
                     onChange={(e) => {
                       trackOutput('GP', e.target.value);
                       setForm((f) => ({ ...f, outputGP: e.target.value }));
+                      recalcMassQuantity(e.target.value);
                     }}
                   />
                   {fieldErrors.outputGP && <p className="text-sm text-signal-amber">{fieldErrors.outputGP}</p>}
@@ -935,7 +971,11 @@ const result: CorrectFactResult = await correctFactByOperatorAction(dialogState.
                             : 'Количество'
                         }
                         value={row.quantity}
-                        onChange={(e) => updateConsumptionRow(index, { quantity: e.target.value })}
+                        onChange={(e) => {
+                          // Оператор поправил число руками — дальше не пересчитываем.
+                          if (row.stockCategory === 'MASS') setAutoMassQuantity(false);
+                          updateConsumptionRow(index, { quantity: e.target.value });
+                        }}
                       />
                       <Button
                         variant="secondary"

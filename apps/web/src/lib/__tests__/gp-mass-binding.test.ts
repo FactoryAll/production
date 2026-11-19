@@ -98,6 +98,7 @@ describe('запись привязок из спецификации', () => {
     skip: [],
     absentFromFile: [],
     withoutMassInFile: [],
+    willReplace: [],
     counts: { fromFile: 1, bind: 1, skip: 0, absentFromFile: 0, withoutMassInFile: 0 },
   } satisfies BomPlan;
 

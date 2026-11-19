@@ -13,6 +13,9 @@ export interface CatalogueEntry {
   name: string;
   category: string;
   active: boolean;
+  /** Что задано сейчас — чтобы показать, что загрузка перезапишет. */
+  currentMassCode?: string | null;
+  currentTubeCode?: string | null;
 }
 
 export type BomPlanAction =
@@ -43,6 +46,11 @@ export interface BomPlan {
   absentFromFile: CatalogueEntry[];
   /** Активные ГП, у которых в файле нет Массы (только упаковка или ничего). */
   withoutMassInFile: BomPlanItem[];
+  /**
+   * Привязки, заданные вручную иначе, чем в файле. Загрузка их перезапишет (решение владельца:
+   * верить BOM), но человек обязан увидеть это до нажатия «Загрузить», а не узнать потом.
+   */
+  willReplace: Array<{ gpCode: string; gpName: string; was: string; becomes: string }>;
   counts: {
     fromFile: number;
     bind: number;
@@ -77,6 +85,7 @@ export function buildBomPlan(parsed: BomParseResult, catalogue: CatalogueEntry[]
   const bind: BomPlanItem[] = [];
   const skip: BomPlanItem[] = [];
   const withoutMassInFile: BomPlanItem[] = [];
+  const willReplace: BomPlan['willReplace'] = [];
 
   for (const group of parsed.groups) {
     const item = describeGroup(group);
@@ -117,6 +126,17 @@ export function buildBomPlan(parsed: BomParseResult, catalogue: CatalogueEntry[]
 
     item.action = 'bind';
     bind.push(item);
+
+    // Ручная привязка, отличающаяся от файла: перезапишем, но покажем это заранее.
+    const currentMass = byCode.get(group.gpCode)?.currentMassCode ?? null;
+    if (currentMass && currentMass !== group.mass.componentCode) {
+      willReplace.push({
+        gpCode: group.gpCode,
+        gpName: group.gpName,
+        was: currentMass,
+        becomes: group.mass.componentCode,
+      });
+    }
   }
 
   const fileGpCodes = new Set(parsed.groups.map((group) => group.gpCode));
@@ -129,6 +149,7 @@ export function buildBomPlan(parsed: BomParseResult, catalogue: CatalogueEntry[]
     skip,
     absentFromFile,
     withoutMassInFile,
+    willReplace,
     counts: {
       fromFile: parsed.groups.length,
       bind: bind.length,
@@ -158,6 +179,12 @@ export function describeBomPlan(plan: BomPlan, issues: string[]): string {
     lines.push('', 'Противоречия в файле:');
     for (const issue of issues) {
       lines.push(`  ${issue}`);
+    }
+  }
+  if (plan.willReplace.length > 0) {
+    lines.push('', 'Перезапишется (сейчас задано вручную иначе, чем в файле):');
+    for (const item of plan.willReplace) {
+      lines.push(`  ${item.gpCode} — было ${item.was}, станет ${item.becomes}`);
     }
   }
   if (plan.absentFromFile.length > 0) {
