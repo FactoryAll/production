@@ -143,15 +143,57 @@ curl -s -o /dev/null -w 'HTTP %{http_code} (ожидается 401 без cookie
 
 echo
 echo "=== 6. Соседи по серверу ==="
-# Соседи (mes-midex, tracker) живут на старом общем сервере. На новом сервере их может не быть —
-# это ОЖИДАЕМО, а не поломка развёртывания (инцидент 03.11.2026: сервер утрачен, поднимаем новый).
-NEIGHBOURS_DOWN=0
-curl -sI --max-time 10 https://mes-midex.factoryall.ru | head -1 || { echo 'mes-midex DOWN'; NEIGHBOURS_DOWN=$((NEIGHBOURS_DOWN + 1)); }
-curl -sI --max-time 10 https://tracker.factoryall.ru | head -1 || { echo 'tracker DOWN'; NEIGHBOURS_DOWN=$((NEIGHBOURS_DOWN + 1)); }
-if [ "${NEIGHBOURS_DOWN}" -gt 0 ]; then
-  echo "ПОМЕТКА: соседей нет (${NEIGHBOURS_DOWN} из 2). На новом сервере это ожидаемо;"
-  echo "         если сервер прежний — проверьте, что чужие сервисы живы (docs/deploy_vps.md)."
+# 19.11.2026: раньше раздел проверял mes-midex.factoryall.ru и tracker.factoryall.ru — домены
+# СТАРОГО сервера. После переезда 11.11 их здесь нет, и проверка печатала «соседей нет (2 из 2)»
+# при живом соседе: MES работал рядом, а отчёт приучал не читать предупреждения.
+# Теперь соседи определяются по факту: чужие compose-проекты в docker и чужие домены
+# из sites-enabled (правило 15 — соседей проверяем, а не предполагаем).
+NEIGHBOUR_PROJECTS="$(docker ps -a --format '{{.Label "com.docker.compose.project"}}|{{.State}}' 2>/dev/null \
+    | awk -F'|' '$1 != "" && $1 != "prodtrack" {total[$1]++; if ($2 == "running") running[$1]++}
+                 END {for (p in total) printf "%s %d %d\n", p, running[p] + 0, total[p]}' | sort)"
+OUR_DOMAINS_FILE="$(mktemp)"
+printf '%s\n' "${DOMAIN}" 'prodtrack.vegas-ai.ru' 'prodtracker-dev.factoryall.ru' 'prodtracker-fix.factoryall.ru' \
+    > "${OUR_DOMAINS_FILE}"
+NEIGHBOUR_DOMAINS="$(grep -Rh '^[[:space:]]*server_name' /etc/nginx/sites-enabled/ 2>/dev/null \
+    | sed 's/#.*//' | tr -s ' \t' ' ' | awk '{for (i = 2; i <= NF; i++) print $i}' \
+    | tr -d ';' | grep -vE '^(_)?$' | sort -u | grep -v -F -f "${OUR_DOMAINS_FILE}" || true)"
+NEIGHBOURS_BAD=0
+
+if [ -z "${NEIGHBOUR_PROJECTS}" ] && [ -z "${NEIGHBOUR_DOMAINS}" ]; then
+    echo 'соседних сервисов на сервере нет — ок'
+else
+    if [ -n "${NEIGHBOUR_PROJECTS}" ]; then
+        echo '--- чужие compose-проекты ---'
+        while read -r project running total; do
+            [ -z "${project}" ] && continue
+            if [ "${running}" = "${total}" ]; then
+                echo "${project}: запущено ${running} из ${total}"
+            else
+                echo "${project}: запущено ${running} из ${total} — часть контейнеров не поднята"
+                NEIGHBOURS_BAD=$((NEIGHBOURS_BAD + 1))
+            fi
+        done <<< "${NEIGHBOUR_PROJECTS}"
+    fi
+    if [ -n "${NEIGHBOUR_DOMAINS}" ]; then
+        echo '--- чужие домены из sites-enabled ---'
+        while read -r domain; do
+            [ -z "${domain}" ] && continue
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 -H "Host: ${domain}" http://127.0.0.1/ 2>/dev/null || true)"
+            echo "${domain} → ${code:-нет ответа}"
+            case "${code}" in
+                2*|3*) ;;
+                *) NEIGHBOURS_BAD=$((NEIGHBOURS_BAD + 1)) ;;
+            esac
+        done <<< "${NEIGHBOUR_DOMAINS}"
+    fi
+    if [ "${NEIGHBOURS_BAD}" -gt 0 ]; then
+        echo "ВНИМАНИЕ: проблем у соседей — ${NEIGHBOURS_BAD}. Это чужой сервис, а не наш:"
+        echo '  не перезапускать и не править (правило 15). Сообщите владельцу, если он лежал до нашей выкладки.'
+    else
+        echo 'ИТОГ: соседи живы — ок'
+    fi
 fi
+rm -f "${OUR_DOMAINS_FILE}"
 
 echo
 echo "=== 7. Что отдаёт домен (проверка nginx) ==="
