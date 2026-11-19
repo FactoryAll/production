@@ -149,9 +149,31 @@ export default function ShiftExecutionPage({
     }
     const lineProductId = dialogState?.line.productId;
     // 18.11.2026: ПФ — только номенклатура строки; Масса — любая (это отдельные продукты).
-    return filterConsumableForWorkCenter(consumableProducts, code).filter((item) =>
+    const options = filterConsumableForWorkCenter(consumableProducts, code).filter((item) =>
       lineProductId ? isConsumptionOptionAllowed(code, lineProductId, item.id, item.category) : true,
     );
+
+    // 19.11.2026: привязанная Масса подставляется в потребление, даже если её сейчас нет
+    // в остатках. Иначе оператор видел бы пустое поле номенклатуры при заполненном количестве
+    // и не понимал, что списывает. Отсутствие остатка покажет проверка «доступно N».
+    const bound = dialogState?.line.product as
+      | { massProductId?: string | null; massProduct?: { code: string; name: string } | null }
+      | undefined;
+    if (bound?.massProductId && bound.massProduct) {
+      const exists = options.some((item) => item.id === bound.massProductId);
+      if (!exists) {
+        const unit = dialogState?.line.product.unit ?? 'кг';
+        options.push({
+          id: bound.massProductId,
+          code: bound.massProduct.code,
+          name: bound.massProduct.name,
+          unit,
+          category: 'MASS',
+          available: 0,
+        });
+      }
+    }
+    return options;
   }
   /** Производит ли РЦ полуфабрикат (14.11.2026: «Маркировка ЧЗ» — только ГП). */
   function producesPfForLine() {
