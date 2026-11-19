@@ -91,3 +91,35 @@ export function suggestedMassQuantity(
   if (norm === null || !Number.isFinite(output) || output <= 0) return null;
   return norm * output;
 }
+
+/**
+ * Проверка для серверных путей ввода: списываемая Масса обязана совпадать с привязкой изделия.
+ *
+ * Вызывается из исполнения смены и из корректировки факта. «Ввод за Оператора» сюда не ходит
+ * намеренно: это и есть исключение из правила — с обязательной причиной и записью в аудит.
+ *
+ * Сравнение по `id`, а не по коду: у строки потребления есть `productId`, и лишний поход
+ * в справочник за кодом ни к чему.
+ */
+export function assertConsumptionMatchesProductBinding(
+  product:
+    | {
+        massProductId?: string | null;
+        massProduct?: { code: string } | null;
+      }
+    | null
+    | undefined,
+  consumption: Array<{ productId: string; stockCategory?: 'MASS' | 'PF' | 'GP' }>,
+): void {
+  const boundId = product?.massProductId ?? null;
+  if (!boundId) return; // привязки нет — действует прежнее правило «любая Масса с остатком»
+
+  for (const item of consumption) {
+    // Проверяем только Массу: ПФ ограничен номенклатурой строки, остальное — правила РЦ.
+    if (item.stockCategory !== 'MASS' && item.stockCategory !== undefined) continue;
+    if (item.stockCategory === undefined) continue; // категория не указана — правило не про этот случай
+    if (item.productId !== boundId) {
+      throw new Error(massBindingViolationText(product?.massProduct?.code ?? 'из привязки'));
+    }
+  }
+}

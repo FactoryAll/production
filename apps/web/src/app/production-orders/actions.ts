@@ -14,6 +14,7 @@ import {
   assertConsumptionMatchesLineProduct,
   assertOutputAllowedForWorkCenter,
 } from '@/lib/consumable-stock';
+import { assertConsumptionMatchesProductBinding } from '@/lib/gp-mass-binding';
 import {
   assertShiftDateNotPast,
   currentShiftDateKey,
@@ -1370,7 +1371,13 @@ export async function correctProductionFact(
           workCenter: true,
           // План работников: правка состава идёт по тем же правилам (T-093, этап 4).
           workerAssignments: { select: { employeeId: true } },
-          product: { select: { category: true } },
+          product: {
+            select: {
+              category: true,
+              massProductId: true,
+              massProduct: { select: { code: true } },
+            },
+          },
         },
       },
     },
@@ -1430,6 +1437,7 @@ export async function correctProductionFact(
   // не должна молча стирать состав потребления.
   const consumptionProvided = input.consumption !== undefined;
   const consumption = parseSubstitutionConsumption(input.consumption);
+  const factLineProductBinding = fact.line.product;
   if (fact.line.workCenter.producesMass && consumption.length > 0) {
     throw new Error('Потребление указывается только на ГП/ПФ-РЦ');
   }
@@ -1437,6 +1445,9 @@ export async function correctProductionFact(
   // ОПЭ-59 (14.11.2026): и в корректировке — иначе сохранённая ранее Масса вернётся на ЧЗ.
   assertConsumptionAllowedForWorkCenter(fact.line.workCenter.code, consumption);
   assertConsumptionMatchesLineProduct(fact.line.workCenter.code, fact.line.productId, consumption);
+  // 19.11.2026 (решение владельца): и корректировка не может списать чужую Массу.
+  // Смена Массы у изделия — это «Ввод за Оператора» с причиной, а не правка факта.
+  assertConsumptionMatchesProductBinding(factLineProductBinding, consumption);
 
   // Номенклатура нужна и для нового состава, и для прежнего: движения считаются по разнице,
   // а категория остатка берётся у потребляемой позиции.

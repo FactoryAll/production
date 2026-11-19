@@ -153,3 +153,41 @@ describe('запись привязок из спецификации', () => {
     expect(result.massUnchanged).toBe(1);
   });
 });
+
+describe('проверка привязки в серверных путях ввода (19.11.2026)', () => {
+  const boundProduct = {
+    massProductId: 'mass-1',
+    massProduct: { code: '00-00000767' },
+  };
+
+  it('без привязки не мешает — прежнее правило', async () => {
+    const { assertConsumptionMatchesProductBinding } = await import('../gp-mass-binding');
+    expect(() =>
+      assertConsumptionMatchesProductBinding(
+        { massProductId: null, massProduct: null },
+        [{ productId: 'any', stockCategory: 'MASS' }],
+      ),
+    ).not.toThrow();
+  });
+
+  it('со своей Массой пропускает', async () => {
+    const { assertConsumptionMatchesProductBinding } = await import('../gp-mass-binding');
+    expect(() =>
+      assertConsumptionMatchesProductBinding(boundProduct, [{ productId: 'mass-1', stockCategory: 'MASS' }]),
+    ).not.toThrow();
+  });
+
+  it('чужую Массу отбивает текстом про привязку и «Ввод за Оператора»', async () => {
+    const { assertConsumptionMatchesProductBinding } = await import('../gp-mass-binding');
+    expect(() =>
+      assertConsumptionMatchesProductBinding(boundProduct, [{ productId: 'mass-2', stockCategory: 'MASS' }]),
+    ).toThrow(/только Масса 00-00000767/);
+  });
+
+  it('ПФ привязка Массы не касается', async () => {
+    const { assertConsumptionMatchesProductBinding } = await import('../gp-mass-binding');
+    expect(() =>
+      assertConsumptionMatchesProductBinding(boundProduct, [{ productId: 'pf-1', stockCategory: 'PF' }]),
+    ).not.toThrow();
+  });
+});
