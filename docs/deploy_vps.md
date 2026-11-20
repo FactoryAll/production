@@ -29,7 +29,7 @@
 ```bash
 mkdir -p /opt/prodtrack
 cd /opt/prodtrack
-git clone https://github.com/FactoryAll/production.git .
+git clone https://github.com/factoryall-mes-ws/prod-tracker.git .
 git checkout <тег>            # например v2.9.1
 ```
 

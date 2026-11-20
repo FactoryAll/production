@@ -22,8 +22,12 @@ concurrency:
   group: image-${{ github.ref }}
   cancel-in-progress: true
 
+# 20.11.2026: проект переехал в репозиторий factoryall-mes-ws/prod-tracker.
+# Имя образа обязано совпадать с владельцем репозитория: GITHUB_TOKEN может публиковать
+# пакеты только в своём пространстве имён, поэтому старое ghcr.io/factoryall/production
+# отсюда не опубликуется.
 env:
-  IMAGE_NAME: ghcr.io/factoryall/production
+  IMAGE_NAME: ghcr.io/factoryall-mes-ws/prod-tracker
 
 jobs:
   build:
