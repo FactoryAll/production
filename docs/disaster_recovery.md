@@ -8,7 +8,7 @@
 
 | Часть системы | Где | Переживает потерю сервера? |
 |---|---|---|
-| Код (приложение, пакеты, миграции, сид) | GitHub `FactoryAll/production` | **да** |
+| Код (приложение, пакеты, миграции, сид) | GitHub `factoryall-mes-ws/prod-tracker` | **да** |
 | Инфраструктура как код: `docker-compose*.yml`, `scripts/`, `docs/nginx/`, `docs/nginx/fail2ban/` | GitHub | **да** |
 | Правила и постановки (`docs/`, `specs/`, `tasks.md`) | GitHub | **да** |
 | Переменные окружения (`.env*`) | только сервер, в git не попадают | **нет** — пересоздаются по шаблонам |
@@ -53,7 +53,7 @@ apt update && apt install -y nginx certbot python3-certbot-nginx fail2ban apache
 
 ```bash
 mkdir -p /opt/prodtrack && cd /opt/prodtrack
-git clone https://github.com/FactoryAll/production.git .
+git clone https://github.com/factoryall-mes-ws/prod-tracker.git .
 git checkout v2.9.1            # или нужный тег
 
 cp .env.example .env

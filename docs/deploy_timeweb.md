@@ -36,7 +36,7 @@ ufw allow 22 && ufw allow 80 && ufw allow 443 && ufw --force enable
 
 ```bash
 mkdir -p /opt/prodtrack && cd /opt/prodtrack
-git clone https://github.com/FactoryAll/production.git .
+git clone https://github.com/factoryall-mes-ws/prod-tracker.git .
 git checkout v2.9.3            # тег версии, которую выпускаем
 
 cp .env.example .env
@@ -51,7 +51,7 @@ chmod 600 .env
 Поэтому образ собирает GitHub Actions по тегу и публикует в реестр — `.github/workflows/release-image.yml`.
 
 **Что делает воркфлоу:** на пуш тега `v*` собирает `linux/amd64` и публикует
-`ghcr.io/factoryall/production:<тег>` и `:latest`.
+`ghcr.io/factoryall-mes-ws/prod-tracker:<тег>` и `:latest`.
 
 **Перед тегом поднять версию в compose-файлах.** `deploy.sh` сверяет версию в футере
 развёрнутой страницы не с аргументом, а со строкой `VERSION: vX.Y.Z` **в `docker-compose.yml`**
@@ -86,9 +86,9 @@ echo "<PERSONAL_ACCESS_TOKEN>" | docker login ghcr.io -u <github-user> --passwor
 
 ```bash
 # на сервере
-docker pull ghcr.io/factoryall/production:v2.9.6
+docker pull ghcr.io/factoryall-mes-ws/prod-tracker:v2.9.6
 # compose ждёт локальное имя prodtrack-web:<тег> — даём его
-docker tag ghcr.io/factoryall/production:v2.9.6 prodtrack-web:v2.9.6
+docker tag ghcr.io/factoryall-mes-ws/prod-tracker:v2.9.6 prodtrack-web:v2.9.6
 docker image inspect prodtrack-web:v2.9.6 --format '{{.Architecture}}'   # amd64
 ```
 
